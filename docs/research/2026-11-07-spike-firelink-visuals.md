@@ -101,6 +101,41 @@ exiting the preceding game process, and the new profile was launched offline wit
 separate save. me3 confirmed attachment; the log is
 `~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_08-09-44.log`. Its play result is pending.
 
+### Packed UV result and complete native material comparison
+
+Riley's next screenshot still shows plain scenery without source colour patterns. Native UV
+packing did not resolve the observed failure. The screenshot remains outside the repository.
+
+Read-only inspection found three host meshes using the basic colour shader. Their vertex
+declarations match the layout already used by our writer, but they reference GX material
+settings; our newly constructed materials have no GX reference. The generic colour definition
+also shares its basename with a different legacy definition. Neither observation establishes
+the runtime cause. A scan of the Chapel's model declarations stopped at a reference whose
+same-map archive path does not exist; the three inspected meshes come from two files read
+successfully before that point. No missing model was silently substituted.
+
+The next isolated comparison is `/tmp/aog-firelink-native-material/age-of-gold-firelink.me3`.
+A temporary inspector starts with the checked packed-UV build and replaces its material setup
+with the complete host material proven in the culling play check, including its GX settings.
+Only that material's colour binding is overridden with each surface's existing source texture
+and repeat scale. Its native secondary texture bindings are retained. This is deliberately a
+material diagnostic: its opaque shading and host normal maps are not the final translation.
+
+Readback checks all 243 material bindings across 61 models. Restoring the preceding materials
+and GX lists makes each serialized model identical to the input, proving that no other model
+field changed. All 134 other existing files are byte-identical, including every texture package,
+collision, map, event and offline separate-save profile. The additional `material-check.json`
+records the diagnostic and its tool fingerprint; the inherited `check.json` describes its
+input build. All 196 files repeat byte for byte in `/tmp/aog-firelink-native-material-repeat`.
+The inspector is `/tmp/aog-render-inspect/Program.cs`, mode `nativematerial`; its own source and
+all derived output remain temporary. The repository's visual writer is unchanged pending play
+evidence. No new dependency or production decision was introduced.
+
+After observing that the preceding game had exited, the comparison profile was launched with
+`me3 launch --online false` and the same separate save. me3 confirmed attachment; its log is
+`~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_08-17-56.log`. The next play check is
+whether source colour patterns appear with this complete native material.
+
 ## Sources and licences
 
 No new dependency was introduced. SoulsFormatsNEXT (`e25d1a5`, GPL-3.0) supplies FLVER, MSB,
