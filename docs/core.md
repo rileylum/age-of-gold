@@ -19,7 +19,7 @@
 
 **Constraints**
 
-1. Nothing from either game is committed or released: no assets, extracted or converted files, executable code, decompiled code, text, or screenshots of either. Test fixtures are either written by us from scratch or produced from the developer's own installs at test time and never committed. `.gitignore` keeps builds and extracted files out.
+1. Nothing from either game is committed or released: no assets, extracted or converted files, executable code, decompiled code, text, or screenshots of either. No game-derived data that a third-party tool ships (archive keys, file-name dictionaries, paramdefs, vanilla dumps) is depended on; the tool reads or derives what it needs from the player's installs. Test fixtures are either written by us from scratch or produced from the developer's own installs at test time and never committed. `.gitignore` keeps builds and extracted files out.
 2. Both games must be installed. The tool refuses to build without a readable install of each and names what it could not find.
 3. Neither install is written to. The tool opens game files read-only and writes only into the build directory and its own cache.
 4. Offline only. The build is only loaded with Elden Ring's anti-cheat off and the game offline, as the mod loader runs it. Nothing we ship connects a modded game to FromSoftware's servers, and the README says so.
@@ -34,9 +34,14 @@
 
 Each is settled one at a time with Riley, and then moves into the section it belongs to.
 
-1. When the source is read: once, by the tool, into a build the game loads (favoured, since Elden Ring loads only its own formats); or live, inside the running game, through code injected into it. Settled by the research stage.
-2. The mod loader, the language and the format libraries (see Technology). Settled by the research stage.
-3. Which of the source's rules, if any, are kept over the host's (principle 2), one at a time as each stage meets them.
+Research behind these: `docs/research/2026-11-06-landscape.md`.
+
+1. When the source is read: once, by the tool, into a build the game loads; or live, inside the running game, through code injected into it. Recommendation: build time. Every comparable project converts at build time, and no project was found that translates another game's files live.
+2. The mod loader. Recommendation: me3. It is maintained and Apache-2.0, supports Proton, blocks official servers by default and keeps a separate save file.
+3. Collision and navmesh: how the tool writes Elden Ring's Havok 2018 collision and navmesh, when no open tool converts from Remastered's Havok 2015 and the known route needs a proprietary Havok tool. Recommendation: a spike, before the walking skeleton, testing whether the player's own Elden Ring executable can generate them, as ERNavmeshGen already does for navmesh.
+4. The language and format libraries. The ecosystem is almost entirely C#; SoulsFormatsNEXT, the most complete library, is GPL-3.0. Recommendation: C# on .NET with SoulsFormatsNEXT, which settles the licence as GPL-3.0; the alternative is writing our own readers and writers for every format.
+5. Elden Ring's archive keys, file-name hashes and paramdefs: how the tool gets them without depending on data that community tools copied from the game. Recommendation: derive keys from the player's executable, hash the paths our own code names, and settle paramdefs after the spike.
+6. Which of the source's rules, if any, are kept over the host's (principle 2), one at a time as each stage meets them.
 
 **Language**
 
