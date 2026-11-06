@@ -26,19 +26,19 @@
 5. Neither game's name is part of the project's name, logo or anything that could suggest it is official; the names appear only to describe what the mod works with. Unlicensed for now. All rights are reserved. Choosing an open-source licence is a later, reversible decision. `NOTICE` records the trademarks and the clean-room posture.
 6. Runtime dependencies are few, and each is a logged decision; so is every third-party tool the build runs.
 
-**Technology.** The mod loader is me3: the tool writes a me3 profile beside the build that sets a separate save file and leaves official servers blocked. The language and format libraries are not decided; the community's libraries for FromSoftware formats are the first candidates, each checked for licence and for whether it can be used without copying game data. Riley develops on Linux, where both games run under Proton; most players are on Windows. Both are supported unless a decision says otherwise.
+**Technology.** The mod loader is me3: the tool writes a me3 profile beside the build that sets a separate save file and leaves official servers blocked. The language and format libraries are not decided; the community's libraries for FromSoftware formats are the first candidates, each checked for licence and for whether it can be used without copying game data. Riley develops on Linux, where both games run under Proton; most players are on Windows. Both are supported unless a decision says otherwise. Elden Ring's files are Oodle-compressed and the player's install holds only the Windows Oodle library, so on Linux the tool, or at least its Oodle work, runs under Wine or Proton (`docs/research/2026-11-06-spike-archives.md`).
 
-**Architecture.** One pipeline, in stages: locate both installs; read and unpack the source's archives; parse each format into our own model; translate the model into the host's terms; write host formats into the build; check the build. Each format family (archives, models and textures, maps, collision, animation, params, event scripts, AI, talk scripts, text, sound) is one bounded context, with a reader, a model and a writer. Bounded contexts are the Language sections below; a package splits off only when it is built or replaced on its own.
+**Architecture.** One pipeline, in stages: locate both installs; read and unpack the source's archives; parse each format into our own model; translate the model into the host's terms; write host formats into the build; check the build. Each format family (archives, models and textures, maps, collision, animation, params, event scripts, AI, talk scripts, text, sound) is one bounded context, with a reader, a model and a writer. Bounded contexts are the Language sections below; a package splits off only when it is built or replaced on its own. Collision is built by the tool itself, with no Havok tool: it reads an ordinary collision part from the player's Elden Ring install as a template for physics settings, writes our own compressed mesh into it, and places it through the map layout in a part whose hit filter matches its role (`docs/research/2026-11-06-spike-collision.md`).
 
 **Open decisions**
 
 Each is settled one at a time with Riley, and then moves into the section it belongs to.
 
-Research behind these: `docs/research/2026-11-06-landscape.md`.
+Research behind these: `docs/research/` (landscape, archives spike, collision spike).
 
-1. Collision and navmesh: how the tool writes Elden Ring's Havok 2018 collision and navmesh, when no open tool converts from Remastered's Havok 2015 and the known route needs a proprietary Havok tool. Recommendation: a spike, before the walking skeleton, testing whether the player's own Elden Ring executable can generate them, as ERNavmeshGen already does for navmesh.
-2. The language and format libraries. The ecosystem is almost entirely C#; SoulsFormatsNEXT, the most complete library, is GPL-3.0. Recommendation: C# on .NET with SoulsFormatsNEXT, which settles the licence as GPL-3.0; the alternative is writing our own readers and writers for every format.
-3. Elden Ring's archive keys, file-name hashes and paramdefs: how the tool gets them without depending on data that community tools copied from the game. Recommendation: derive keys from the player's executable, hash the paths our own code names, and settle paramdefs after the spike.
+1. Navmesh: how the tool writes Elden Ring's navmesh, which no open tool converts from Remastered's. Not needed for the walking skeleton, which has only the player.
+2. The language and format libraries. The ecosystem is almost entirely C#; SoulsFormatsNEXT, the most complete library, is GPL-3.0. Recommendation: C# on .NET with SoulsFormatsNEXT, which settles the licence as GPL-3.0; the alternative is writing our own readers and writers for every format. The spikes used SoulsFormatsNEXT and HKLib (MIT) for speed only; that settles nothing.
+3. Elden Ring's archive keys, file-name hashes and paramdefs: how the tool gets them without depending on data that community tools copied from the game. Recommendation: read the archive keys from the player's executable, where they are plain PEM text, and hash the paths our own code names; both are proven by the archives spike. `regulation.bin`'s key and Elden Ring's paramdefs are still open.
 4. Which of the source's rules, if any, are kept over the host's (principle 2), one at a time as each stage meets them.
 
 **Language**
@@ -77,7 +77,7 @@ _Not used:_ remake, remaster or port for this project (it is a mod), assets as a
 
 In order. Each stage depends on the ones before it.
 
-1. Research: the formats of both games, the mod loaders, the community libraries and their licences, and earlier projects that moved content between FromSoftware games. Written as dated snapshots in `docs/research/`; they inform the open decisions and are not specs. It ends with a spike proving that the tool can write collision Elden Ring accepts.
+1. Research: the formats of both games, the mod loaders, the community libraries and their licences, and earlier projects that moved content between FromSoftware games. Written as dated snapshots in `docs/research/`; they inform the open decisions and are not specs. It ends with a spike proving that the tool can write collision Elden Ring accepts. Done: see the spike snapshots.
 2. Walking skeleton, the first goal: a navigable Firelink Shrine with only the player in it. The tool finds both installs, reads Firelink Shrine's geometry and collision, and writes a build in which the player spawns there in Elden Ring and walks all of it, with no enemies, NPCs, items or events.
 3. The world: every map's geometry, collision and connections, so the player can walk all of Lordran with nothing in it.
 4. Things in the world: objects, items, bonfires and doors, each where the source placed it.
