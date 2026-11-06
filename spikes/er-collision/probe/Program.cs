@@ -26,44 +26,62 @@ foreach (var bhd in archives)
 byte[] Get(string path) =>
     index.TryGetValue(Hash(path), out var hit) ? ReadFile(hit.Bdt, hit.Entry) : throw new FileNotFoundException(path);
 
-if (paths.Length > 0 && paths[0] == "floortest")
+if (paths.Length > 0 && paths[0] == "cagetest")
 {
-    // Every high-detail collision part in the Chapel of Anticipation becomes our floor and ramp.
+    // Every collision part in the Chapel of Anticipation, high and low detail, becomes one of three
+    // shapes around the spawn point: two pairs of cage walls, or the floor and ramp.
     SoulsFormats.Oodle.SearchPaths.Add(game);
     var outDir = paths[1];
-    BxfIn("m18_00_00_00", out var tmplBxf);
+    var tmplBxf = BxfIn("m18_00_00_00", "h");
     var tmplSer = Serializer(tmplBxf);
     var template = tmplBxf.Files.First(f => f.Name.EndsWith("_900000.hkx.dcx")).Bytes;
 
-    var spawn = SoulsFormats.MSBE.Read(Get("map/mapstudio/m10_01_00_00.msb.dcx")).Parts.Players.Single(p => p.Name == "c0000_0000").Position;
-    float y0 = spawn.Y - 0.1f, y1 = y0 + 5;
-    System.Numerics.Vector3 V(float dx, float y, float dz) => new(spawn.X + dx, y, spawn.Z + dz);
-    var verts = new[] { V(-20, y0, -20), V(20, y0, -20), V(20, y0, 20), V(-20, y0, 20),   // floor, 40 m square
-                        V(-2, y0, 3), V(2, y0, 3), V(2, y1, 13), V(-2, y1, 13) };          // ramp, 4 m wide, rising 5 m over 10 m
-    var tris = new[] { (0, 3, 2), (0, 2, 1), (4, 7, 6), (4, 6, 5) };
-    foreach (var (a, b, c) in tris)
-        if (System.Numerics.Vector3.Cross(verts[b] - verts[a], verts[c] - verts[a]).Y <= 0) throw new InvalidOperationException("triangle faces down");
-
-    var chapel = BxfIn("m10_01_00_00", out var bxf);
-    var writer = new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer();
-    foreach (var f in bxf.Files.Where(f => !f.Name.EndsWith(".compendium.dcx")))
+    var s = SoulsFormats.MSBE.Read(Get("map/mapstudio/m10_01_00_00.msb.dcx")).Parts.Players.Single(p => p.Name == "c0000_0000").Position;
+    float y0 = s.Y - 0.1f;
+    System.Numerics.Vector3 V(float dx, float y, float dz) => new(s.X + dx, y, s.Z + dz);
+    var up = System.Numerics.Vector3.UnitY;
+    // A quad as two triangles, wound so they face `facing`.
+    IEnumerable<(System.Numerics.Vector3, System.Numerics.Vector3, System.Numerics.Vector3)> Quad(System.Numerics.Vector3 a, System.Numerics.Vector3 b, System.Numerics.Vector3 c, System.Numerics.Vector3 d, System.Numerics.Vector3 facing)
     {
-        var root = tmplSer.Read(new MemoryStream(SoulsFormats.DCX.Decompress(template)));
-        var id = System.Text.RegularExpressions.Regex.Match(f.Name, @"_(\d{6})\.hkx").Groups[1].Value;
-        Build.ReplaceGeometry(root, verts, tris, "h" + id);
-        var ms = new MemoryStream();
-        writer.Write(root, ms);
-        var hkx = ms.ToArray();
-        var back = new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer().Read(new MemoryStream(hkx));
-        Console.Write($"  {Path.GetFileName(f.Name.Replace('\\', '/'))}: {hkx.Length} bytes, reads back as");
-        Summary(back);
-        SoulsFormats.DCX.Decompress(f.Bytes, out var dcx);
-        f.Bytes = SoulsFormats.DCX.Compress(hkx, dcx);
+        foreach (var (p, q, r) in new[] { (a, b, c), (a, c, d) })
+            yield return System.Numerics.Vector3.Dot(System.Numerics.Vector3.Cross(q - p, r - p), facing) > 0 ? (p, q, r) : (p, r, q);
     }
-    var mapDir = Path.Combine(outDir, "mod", "map", "m10", "m10_01_00_00");
-    Directory.CreateDirectory(mapDir);
-    bxf.Write(Path.Combine(mapDir, "h10_01_00_00.hkxbhd"), Path.Combine(mapDir, "h10_01_00_00.hkxbdt"));
-    File.WriteAllText(Path.Combine(outDir, "age-of-gold-floortest.me3"), """
+    float w = 3, top = y0 + 10, bottom = y0 - 1;
+    var shapes = new[]
+    {
+        Quad(V(-w, bottom, w), V(w, bottom, w), V(w, top, w), V(-w, top, w), -System.Numerics.Vector3.UnitZ)          // north wall, facing in
+            .Concat(Quad(V(-w, bottom, -w), V(w, bottom, -w), V(w, top, -w), V(-w, top, -w), System.Numerics.Vector3.UnitZ)).ToList(),
+        Quad(V(w, bottom, -w), V(w, bottom, w), V(w, top, w), V(w, top, -w), -System.Numerics.Vector3.UnitX)           // east and west walls
+            .Concat(Quad(V(-w, bottom, -w), V(-w, bottom, w), V(-w, top, w), V(-w, top, -w), System.Numerics.Vector3.UnitX)).ToList(),
+        Quad(V(-20, y0, -20), V(20, y0, -20), V(20, y0, 20), V(-20, y0, 20), up)                                     // floor
+            .Concat(Quad(V(-2, y0, 3), V(2, y0, 3), V(2, y0 + 5, 13), V(-2, y0 + 5, 13), up)).ToList(),               // ramp
+    };
+
+    var writer = new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer();
+    foreach (var detail in new[] { "h", "l" })
+    {
+        var bxf = BxfIn("m10_01_00_00", detail);
+        int k = 0;
+        foreach (var f in bxf.Files.Where(f => !f.Name.EndsWith(".compendium.dcx")))
+        {
+            var tris = shapes[k++ % shapes.Length];
+            var verts = tris.SelectMany(t => new[] { t.Item1, t.Item2, t.Item3 }).ToList();
+            var idx = Enumerable.Range(0, tris.Count).Select(i => (3 * i, 3 * i + 1, 3 * i + 2)).ToList();
+            var root = tmplSer.Read(new MemoryStream(SoulsFormats.DCX.Decompress(template)));
+            var id = System.Text.RegularExpressions.Regex.Match(f.Name, @"_(\d{6})\.hkx").Groups[1].Value;
+            Build.ReplaceGeometry(root, verts, idx, detail + id);
+            var ms = new MemoryStream();
+            writer.Write(root, ms);
+            new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer().Read(new MemoryStream(ms.ToArray()));
+            SoulsFormats.DCX.Decompress(f.Bytes, out var dcx);
+            f.Bytes = SoulsFormats.DCX.Compress(ms.ToArray(), dcx);
+        }
+        var mapDir = Path.Combine(outDir, "mod", "map", "m10", "m10_01_00_00");
+        Directory.CreateDirectory(mapDir);
+        bxf.Write(Path.Combine(mapDir, $"{detail}10_01_00_00.hkxbhd"), Path.Combine(mapDir, $"{detail}10_01_00_00.hkxbdt"));
+        Console.WriteLine($"{detail}10_01_00_00: {k} parts replaced");
+    }
+    File.WriteAllText(Path.Combine(outDir, "age-of-gold-cagetest.me3"), """
         profileVersion = "v1"
         savefile = "AgeOfGoldSpike.sl2"
 
@@ -73,14 +91,13 @@ if (paths.Length > 0 && paths[0] == "floortest")
         [[packages]]
         path = 'mod/'
         """);
-    Console.WriteLine($"wrote {mapDir}");
     return;
 }
 
-SoulsFormats.BXF4 BxfIn(string map, out SoulsFormats.BXF4 bxf)
+SoulsFormats.BXF4 BxfIn(string map, string detail)
 {
     var dir = $"map/{map[..3]}/{map}";
-    return bxf = SoulsFormats.BXF4.Read(Get($"{dir}/h{map[1..]}.hkxbhd"), Get($"{dir}/h{map[1..]}.hkxbdt"));
+    return SoulsFormats.BXF4.Read(Get($"{dir}/{detail}{map[1..]}.hkxbhd"), Get($"{dir}/{detail}{map[1..]}.hkxbdt"));
 }
 
 static HKLib.Serialization.hk2018.Binary.HavokBinarySerializer Serializer(SoulsFormats.BXF4 bxf)
