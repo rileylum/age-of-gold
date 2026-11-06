@@ -54,7 +54,7 @@ if (paths.Length > 0 && paths[0] == "cagetest")
         Quad(V(w, bottom, -w), V(w, bottom, w), V(w, top, w), V(w, top, -w), -System.Numerics.Vector3.UnitX)           // east and west walls
             .Concat(Quad(V(-w, bottom, -w), V(-w, bottom, w), V(-w, top, w), V(-w, top, -w), System.Numerics.Vector3.UnitX)).ToList(),
         Quad(V(-20, y0, -20), V(20, y0, -20), V(20, y0, 20), V(-20, y0, 20), up)                                     // floor
-            .Concat(Quad(V(-2, y0, -6), V(2, y0, -6), V(2, y0 + 3, 6), V(-2, y0 + 3, 6), up)).ToList(),                // ramp, inside the cage, rising 3 m over 12 m
+            .Concat(Quad(V(4, y0, -6), V(8, y0, -6), V(8, y0 + 3, 6), V(4, y0 + 3, 6), up)).ToList(),                    // ramp beside the spawn, rising 3 m over 12 m
     };
 
     var writer = new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer();
