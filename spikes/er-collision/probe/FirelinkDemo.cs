@@ -299,7 +299,8 @@ static class FirelinkDemo
                 for (int i = 0; i < vertex.Tangents.Count; i++) vertex.Tangents[i] = new Vector4(tangent, 1);
                 for (int i = 0; i < vertex.UVs.Count; i++) vertex.UVs[i] = new Vector3(Vector3.Dot(vertex.Position, tangent) / 4,
                     Vector3.Dot(vertex.Position, Vector3.Cross(normal, tangent)) / 4, 0);
-                for (int i = 0; i < vertex.Colors.Count; i++) vertex.Colors[i] = new FLVER.VertexColor(1, 1, 1, 1);
+                // Integer literals select the byte overload, reducing every channel (including opacity) to 1/255.
+                for (int i = 0; i < vertex.Colors.Count; i++) vertex.Colors[i] = new FLVER.VertexColor(1f, 1f, 1f, 1f);
                 mesh.Vertices.Add(vertex);
             }
         }
@@ -319,7 +320,12 @@ static class FirelinkDemo
         if (written.Vertices.Count != mesh.Vertices.Count || written.FaceSets.Single().Indices.Count != mesh.Vertices.Count)
             throw new InvalidDataException("Visible terrain triangle count changed");
         for (int i = 0; i < mesh.Vertices.Count; i++)
+        {
             if (written.Vertices[i].Position != mesh.Vertices[i].Position || written.FaceSets[0].Indices[i] != i)
                 throw new InvalidDataException("Visible terrain geometry changed");
+            if (written.Vertices[i].Colors.Count == 0 || written.Vertices[i].Colors.Any(
+                color => color.A != 1f || color.R != 1f || color.G != 1f || color.B != 1f))
+                throw new InvalidDataException("Diagnostic terrain must read back with opaque white vertex colours");
+        }
     }
 }
