@@ -175,6 +175,9 @@ The left native control, map, collision, opening events and profile are unchange
 changes to record the new tool fingerprint. Publishing had no warnings.
 
 The offline profile is `/tmp/aog-firelink-bounds/age-of-gold-firelink.me3`, with the same
-separate save. Continuing the current test character is sufficient. Riley's play result is
-pending: do the ground and centre/right samples now remain visible while moving the camera?
-The native left sample's darkness has not been changed or diagnosed by this correction.
+separate save. Riley confirmed that everything remains rendered, the visible terrain matches
+the collision, and lighting looks good. The culling correction is therefore proven in play
+for this diagnostic. Riley could not yet judge exact geometry fidelity without the source
+textures. The current visible geometry is still the source collision mesh, not its visual
+models; the next step is reading and translating those models and their textures. Full-area
+traversal and visual fidelity remain unproven. The supplied screenshot stays outside the repository.
