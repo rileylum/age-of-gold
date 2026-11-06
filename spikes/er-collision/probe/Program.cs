@@ -32,9 +32,11 @@ if (paths.Length > 0 && paths[0] == "cagetest")
     // shapes around the spawn point: two pairs of cage walls, or the floor and ramp.
     SoulsFormats.Oodle.SearchPaths.Add(game);
     var outDir = paths[1];
-    var tmplBxf = BxfIn("m18_00_00_00", "h");
+    // The template supplies physics settings and the triangle material; an ordinary part, not a 9xxxxx special one.
+    var tmplSpec = (Environment.GetEnvironmentVariable("AOG_TEMPLATE") ?? "m10_01_00_00:l:001400").Split(':');
+    var tmplBxf = BxfIn(tmplSpec[0], tmplSpec[1]);
     var tmplSer = Serializer(tmplBxf);
-    var template = tmplBxf.Files.First(f => f.Name.EndsWith("_900000.hkx.dcx")).Bytes;
+    var template = tmplBxf.Files.First(f => f.Name.EndsWith($"_{tmplSpec[2]}.hkx.dcx")).Bytes;
 
     var s = SoulsFormats.MSBE.Read(Get("map/mapstudio/m10_01_00_00.msb.dcx")).Parts.Players.Single(p => p.Name == "c0000_0000").Position;
     float y0 = s.Y - 0.1f;
@@ -140,8 +142,9 @@ if (paths.Length > 0 && paths[0] == "collision")
     var dir = $"map/{map[..3]}/{map}";
     var outDir = Path.Combine(paths.Length > 2 ? paths[2] : ".", map);
     Directory.CreateDirectory(outDir);
-    var bxf = SoulsFormats.BXF4.Read(Get($"{dir}/h{map[1..]}.hkxbhd"), Get($"{dir}/h{map[1..]}.hkxbdt"));
-    Console.WriteLine($"h{map[1..]}: {bxf.Files.Count} files");
+    var det = Environment.GetEnvironmentVariable("AOG_DETAIL") ?? "h";
+    var bxf = SoulsFormats.BXF4.Read(Get($"{dir}/{det}{map[1..]}.hkxbhd"), Get($"{dir}/{det}{map[1..]}.hkxbdt"));
+    Console.WriteLine($"{det}{map[1..]}: {bxf.Files.Count} files");
     var serializer = new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer();
     var comp = bxf.Files.First(f => f.Name.EndsWith(".compendium.dcx"));
     serializer.LoadCompendium(new MemoryStream(SoulsFormats.DCX.Decompress(comp.Bytes)));
