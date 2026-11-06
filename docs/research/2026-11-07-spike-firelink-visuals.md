@@ -96,9 +96,10 @@ identical, including all texture packages, collision, map placement, arrival and
 The report changes only its tool fingerprint. The float-layout hypothesis still needs play
 evidence; material selection, texture images and source geometry are unchanged.
 
-All 195 files also match `/tmp/aog-firelink-packed-uv-repeat` byte for byte. The new profile
-has not been launched because the preceding game process is still running; Riley has been
-asked to exit to the desktop so the changed model files can load on a fresh offline launch.
+All 195 files also match `/tmp/aog-firelink-packed-uv-repeat` byte for byte. Riley confirmed
+exiting the preceding game process, and the new profile was launched offline with the same
+separate save. me3 confirmed attachment; the log is
+`~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_08-09-44.log`. Its play result is pending.
 
 ## Sources and licences
 
