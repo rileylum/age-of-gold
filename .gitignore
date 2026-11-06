@@ -6,3 +6,5 @@ HANDOFF.md
 /build/
 /cache/
 /unpacked/
+bin/
+obj/
