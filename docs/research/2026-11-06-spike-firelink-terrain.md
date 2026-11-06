@@ -2,8 +2,8 @@
 
 A snapshot as of 6 November 2026. This is an intermediate diagnostic for the Firelink demo,
 not the walking skeleton. Riley authorized continuing until a demo or another useful play check.
-The generated terrain has passed readback. The first play check remained in the Chapel; a
-corrected arrival build is awaiting Riley's next check.
+The generated terrain has passed readback. The corrected arrival works in play, and Riley can
+stand and walk on the collision. Rendering is broken, preventing a useful navigation check.
 
 ## What is built
 
@@ -110,7 +110,12 @@ dependency. The host events inspected during diagnosis stay under `/tmp/aog-spaw
 
 The corrected profile is `/tmp/aog-firelink-arrival/age-of-gold-firelink.me3`. It was launched
 offline after Riley exited the first test. New Game is required to exercise the opening event;
-the intended transfer happens after the intro. The corrected arrival is not yet proven in play.
+the transfer happens after the intro. Riley's second play check confirmed arrival on the terrain
+and the ability to stand and walk. Collision felt right from memory, but the terrain appeared as
+black shapes that faded in depending on distance and viewing angle, making navigation impractical.
+This proves arrival and basic collision support in play; it does not prove complete traversal,
+placement fidelity across the area or usable rendering. The rendering cause remains undiagnosed.
+Work stopped after recording this result, as Riley requested for the night.
 
 ## Repeating the diagnostic
 
@@ -132,6 +137,6 @@ Use a fresh temporary output directory for each build. Both install checks refus
 reader keeps its existing audit guard against bundled library resources and unexpected writes.
 The generated files and report contain game-derived data and must never be committed or shared.
 
-The play check uses New Game in `AgeOfGoldSpike.sl2`: after gaining control, can Riley walk on the
-visible Firelink terrain without falling through? Source textures and visual-model translation
-follow after this geometry and placement checkpoint works in play.
+The play check uses New Game in `AgeOfGoldSpike.sl2`. The next session should address rendering
+so Riley can see the terrain and assess navigation, then continue toward source visual models
+and textures. The walking skeleton remains incomplete.
