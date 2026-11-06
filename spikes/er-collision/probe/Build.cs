@@ -13,7 +13,7 @@ static class Build
     public static void ReplaceGeometry(IHavokObject root, IReadOnlyList<Vector3> vertices, IReadOnlyList<(int A, int B, int C)> triangles, string bodyName)
     {
         int n = triangles.Count;
-        if (n is < 1 or > 4) throw new ArgumentOutOfRangeException(nameof(triangles), "spike handles 1–4 triangles: one SIMD leaf");
+        if (n is < 1 or > 16) throw new ArgumentOutOfRangeException(nameof(triangles), "spike handles 1–16 triangles: up to four SIMD leaves");
         dynamic scene = ((hkRootLevelContainer)root).m_namedVariants[0].m_variant!;
         dynamic body = scene.m_systemDatas[0].m_bodyCinfos[0];
         body.m_name = bodyName;
@@ -57,22 +57,29 @@ static class Build
         tree.m_nodes.Add(new Aabb5());
         tree.m_domain = Copy(domain);
 
-        // SIMD tree: an empty node 0, a root holding the whole mesh, and one leaf with a box per triangle.
+        // SIMD tree: an empty node 0, a root whose slots hold up to four leaves, each leaf a box per triangle.
         var simd = data.m_simdTree.m_nodes;
         simd.Clear();
         simd.Add(EmptyNode(false));
         var rootNode = EmptyNode(false);
-        rootNode.m_data[0] = 2;
-        SetSlot(rootNode, 0, lo, hi);
         simd.Add(rootNode);
-        var leaf = EmptyNode(true);
-        for (int i = 0; i < n; i++)
+        for (int first = 0, slot = 0; first < n; first += 4, slot++)
         {
-            var (a, b, c) = triangles[i];
-            leaf.m_data[i] = (uint)(i << 1);
-            SetSlot(leaf, i, Vector3.Min(Vector3.Min(vertices[a], vertices[b]), vertices[c]), Vector3.Max(Vector3.Max(vertices[a], vertices[b]), vertices[c]));
+            var leaf = EmptyNode(true);
+            var leafLo = new Vector3(float.MaxValue); var leafHi = new Vector3(-float.MaxValue);
+            for (int i = first; i < Math.Min(n, first + 4); i++)
+            {
+                var (a, b, c) = triangles[i];
+                var tlo = Vector3.Min(Vector3.Min(vertices[a], vertices[b]), vertices[c]);
+                var thi = Vector3.Max(Vector3.Max(vertices[a], vertices[b]), vertices[c]);
+                leaf.m_data[i - first] = (uint)(i << 1);
+                SetSlot(leaf, i - first, tlo, thi);
+                leafLo = Vector3.Min(leafLo, tlo); leafHi = Vector3.Max(leafHi, thi);
+            }
+            rootNode.m_data[slot] = (uint)simd.Count;
+            SetSlot(rootNode, slot, leafLo, leafHi);
+            simd.Add(leaf);
         }
-        simd.Add(leaf);
         data.m_simdTree.m_isCompact = true;
         data.m_hasSimdTree = true;
         data.m_connectivity.m_headers.Clear(); data.m_connectivity.m_localLinks.Clear(); data.m_connectivity.m_globalLinks.Clear();
@@ -85,7 +92,7 @@ static class Build
         dynamic interior = shape.m_triangleIsInterior;
         interior.m_storage.m_numBits = 2 * n - 1;
         interior.m_storage.m_words.Clear();
-        interior.m_storage.m_words.Add(0u);
+        for (int i = 0; i < (2 * n - 1 + 31) / 32; i++) interior.m_storage.m_words.Add(0u);
 
         var param = (fsnpCustomMeshParameter)shape.m_pParam;
         param.m_triangleDataArray.Clear();

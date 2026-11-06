@@ -79,12 +79,13 @@ if (paths.Length > 0 && paths[0] == "cagetest")
                 var rid = System.Text.RegularExpressions.Regex.Match(f.Name, @"_(\d{6})\.hkx").Groups[1].Value;
                 if (replace.IndexOf(rid) is var slot and >= 0)
                 {
-                    var tris = shapes[slot % shapes.Length];
+                    // One Standard part carries every shape.
+                    var tris = shapes.SelectMany(t => t).ToList();
                     var verts = tris.SelectMany(t => new[] { t.Item1, t.Item2, t.Item3 }).ToList();
                     var root = tmplSer.Read(new MemoryStream(SoulsFormats.DCX.Decompress(template)));
                     Build.ReplaceGeometry(root, verts, Enumerable.Range(0, tris.Count).Select(i => (3 * i, 3 * i + 1, 3 * i + 2)).ToList(), detail + rid);
                     writer.Write(root, ms);
-                    Console.WriteLine($"  {detail}{rid}: our shape {slot % shapes.Length}");
+                    Console.WriteLine($"  {detail}{rid}: our {tris.Count} triangles");
                 }
                 else writer.Write(own.Read(new MemoryStream(raw)), ms);
                 f.Bytes = SoulsFormats.DCX.Compress(ms.ToArray(), info);
@@ -143,7 +144,13 @@ if (paths.Length > 0 && paths[0] == "msb")
     Console.WriteLine($"players {msb.Parts.Players.Count}  collisions {msb.Parts.Collisions.Count}  mapPieces {msb.Parts.MapPieces.Count}  assets {msb.Parts.Assets.Count}  enemies {msb.Parts.Enemies.Count}");
     foreach (var pl in msb.Parts.Players) Console.WriteLine($"  player {pl.Name} model {pl.ModelName} at {pl.Position} rot {pl.Rotation}");
     foreach (var c in msb.Parts.Collisions.Where(c => paths.Length < 3 || c.ModelName.Contains(paths[2])))
+    {
         Console.WriteLine($"  collision {c.Name} model {c.ModelName} at {c.Position} rot {c.Rotation}");
+        if (Environment.GetEnvironmentVariable("AOG_PROPS") is not null)
+            foreach (var prop in c.GetType().GetProperties().Where(q => q.PropertyType.IsPrimitive || q.PropertyType.IsEnum))
+                Console.Write($" {prop.Name}={prop.GetValue(c)}");
+        if (Environment.GetEnvironmentVariable("AOG_PROPS") is not null) Console.WriteLine();
+    }
     return;
 }
 
