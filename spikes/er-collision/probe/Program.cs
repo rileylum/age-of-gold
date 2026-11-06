@@ -63,18 +63,30 @@ if (paths.Length > 0 && paths[0] == "cagetest")
     // AOG_SETS names the sets that get the cage; AOG_ROUNDTRIP rewrites the originals unchanged instead.
     var cageSets = (Environment.GetEnvironmentVariable("AOG_SETS") ?? "h,l").Split(',', StringSplitOptions.RemoveEmptyEntries);
     bool roundTrip = Environment.GetEnvironmentVariable("AOG_ROUNDTRIP") is not null;
-    foreach (var detail in roundTrip ? new[] { "h", "l" } : cageSets)
+    foreach (var detail in roundTrip ? cageSets : cageSets)
     {
         var bxf = BxfIn("m10_01_00_00", detail);
         int k = 0;
         if (roundTrip)
         {
             var own = Serializer(bxf);
+            // AOG_REPLACE lists parts that get our shapes instead; everything else is rewritten unchanged.
+            var replace = (Environment.GetEnvironmentVariable("AOG_REPLACE") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
             foreach (var f in bxf.Files.Where(f => !f.Name.EndsWith(".compendium.dcx")))
             {
                 var raw = SoulsFormats.DCX.Decompress(f.Bytes, out var info);
                 var ms = new MemoryStream();
-                writer.Write(own.Read(new MemoryStream(raw)), ms);
+                var rid = System.Text.RegularExpressions.Regex.Match(f.Name, @"_(\d{6})\.hkx").Groups[1].Value;
+                if (replace.IndexOf(rid) is var slot and >= 0)
+                {
+                    var tris = shapes[slot % shapes.Length];
+                    var verts = tris.SelectMany(t => new[] { t.Item1, t.Item2, t.Item3 }).ToList();
+                    var root = tmplSer.Read(new MemoryStream(SoulsFormats.DCX.Decompress(template)));
+                    Build.ReplaceGeometry(root, verts, Enumerable.Range(0, tris.Count).Select(i => (3 * i, 3 * i + 1, 3 * i + 2)).ToList(), detail + rid);
+                    writer.Write(root, ms);
+                    Console.WriteLine($"  {detail}{rid}: our shape {slot % shapes.Length}");
+                }
+                else writer.Write(own.Read(new MemoryStream(raw)), ms);
                 f.Bytes = SoulsFormats.DCX.Compress(ms.ToArray(), info);
                 k++;
             }
