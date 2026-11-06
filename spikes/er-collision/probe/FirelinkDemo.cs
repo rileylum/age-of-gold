@@ -5,7 +5,7 @@ using HKLib.Serialization.hk2018.Binary;
 using SoulsFormats;
 
 // Diagnostic only: visible collision surfaces with host material, not source visual-model translation.
-static class FirelinkDemo
+static partial class FirelinkDemo
 {
     record Mesh(List<Vector3> Vertices, List<(int A, int B, int C)> Triangles, int ZeroAreaFaces);
 
@@ -138,11 +138,13 @@ static class FirelinkDemo
         var visualBytes = get("map/m10/m10_01_00_00/m10_01_00_00_000000.mapbnd.dcx");
         for (int i = 0; i < parts.Length; i++) WriteVisible(low[i], visualBytes, ids[i], mapDir);
         Console.WriteLine($"PASS: {parts.Length} visible collision surfaces read back");
+        WriteRenderSamples(visualBytes, layout, player, mapDir);
         var layoutDir = Path.Combine(output, "mod", "map", "mapstudio");
         Directory.CreateDirectory(layoutDir);
         var layoutPath = Path.Combine(layoutDir, "m10_01_00_00.msb.dcx");
         layout.Write(layoutPath);
         var readLayout = MSBE.Read(layoutPath);
+        CheckRenderSamples(visualBytes, readLayout, player, mapDir);
         foreach (var id in ids)
         {
             var collision = readLayout.Parts.Collisions.Single(p => p.ModelName == "h" + id);
@@ -175,6 +177,7 @@ static class FirelinkDemo
         {
             placements = parts.Length, collision_parts_checked = collisionChecks, visible_parts_checked = parts.Length,
             spawn_supported = true, opening_arrival_checked = true, source_fingerprints = source.GetProperty("fingerprints"),
+            render_samples_checked = new[] { "placed", "baked", "generated" },
             host_fingerprints = hostFingerprints,
             tool_sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(FirelinkDemo).Assembly.Location))),
             excluded_roles = source.GetProperty("excluded_roles"),

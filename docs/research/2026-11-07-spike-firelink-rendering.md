@@ -1,4 +1,4 @@
-# Spike: Firelink diagnostic colours and facing
+# Spike: Firelink rendering diagnostics
 
 A snapshot as of 7 November 2026, following the arrival play check. Not a spec.
 Riley authorized continuing the Firelink demo spike through useful play checkpoints.
@@ -87,4 +87,49 @@ Compared with the colour checkpoint, only the 39 visible models and the build re
 Collision, map layout, opening events and profile are byte-identical. The next offline play
 profile is `/tmp/aog-firelink-facing/age-of-gold-firelink.me3`, using the same separate save.
 Continuing with the character already on Firelink terrain is sufficient for this rendering
-check. Riley's result is pending: does the ground stay visible as the camera moves?
+check. Riley reported the same problems: fading and invisible ground remain. Matching the
+host's facing convention did not resolve those symptoms.
+
+## Comparing model construction
+
+The next diagnostic places three floating samples in front of the starting player. Their
+main visible geometry is the same host mesh, read from the player's install. Each spans
+four units along its longest axis; their centres are six units ahead, two units above the
+player placement and five units apart. Left and right follow the starting player's yaw.
+The samples have no new collision and use the same map-part settings as the terrain.
+
+- Left: the complete native FLVER bytes are unchanged. Map placement supplies uniform scale
+  and translation.
+- Centre: the complete native model is scaled and translated inside the file, with identity
+  map placement. Its stored mesh, node and overall bounds follow the same transformation.
+- Right: the selected native mesh goes through the existing visible-model writer, including
+  generated normals, texture coordinates, vertex colours, face settings and calculated bounds.
+
+All three use model-only binders, like the diagnostic terrain; the host template's grass
+companion is excluded. The first two retain the native model's other mesh, while the right
+sample exercises the writer's single-mesh output. These are rendering controls, not translated
+source visuals. The original terrain remains present. The earlier facing change is retained
+to follow the observed host convention, with no claim that it improved visibility in play.
+
+The comparison check was written first and failed because the first sample file was missing.
+After implementation it verifies sample placement and visible extents, exact native FLVER
+bytes on the left, and matching geometry. Restoring only positions and bounds in the centre
+sample must reproduce the native model's serialized bytes exactly, proving the other data
+is preserved. The right sample's triangles must match the selected native triangles in
+position and order; it also passes the writer's normal/facing and colour checks.
+
+The native template's library-labelled mesh bounds are not conventional enclosing minima and
+maxima. The centre control transforms those stored values without reinterpreting them; this
+keeps that metadata difference available for diagnosis instead of silently normalizing it.
+
+Both full builds pass, and all 50 files match between `/tmp/aog-firelink-samples` and
+`/tmp/aog-firelink-samples-repeat`. Only the three sample files, map placements and report differ
+from the preceding checkpoint. Terrain models, collision, opening events and profile are
+unchanged. Publishing had no warnings. A temporary ray/triangle check found no intervening
+terrain between an estimated starting camera position and the three sample centres; it does
+not establish actual camera framing or visibility.
+
+The offline play profile is `/tmp/aog-firelink-samples/age-of-gold-firelink.me3`, using the same
+separate save. New Game places the player facing the row. Riley's result is pending: which of
+the left, centre and right samples remain visible while moving and turning the camera?
+This checkpoint is a comparison, not another claim to have fixed terrain visibility.

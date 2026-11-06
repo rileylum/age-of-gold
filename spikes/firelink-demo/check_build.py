@@ -51,6 +51,7 @@ with tempfile.TemporaryDirectory(prefix='aog-firelink-stage-') as temporary:
     assert report['visible_parts_checked'] == len(expected['parts'])
     assert report['spawn_supported'] is True
     assert report['opening_arrival_checked'] is True
+    assert report['render_samples_checked'] == ['placed', 'baked', 'generated']
     assert (output / 'mod/event/m10_01_00_00.emevd.dcx').is_file()
     assert report['source_fingerprints'] == expected['fingerprints']
     assert report['host_fingerprints'] and len(report['tool_sha256']) == 64
