@@ -181,3 +181,22 @@ for this diagnostic. Riley could not yet judge exact geometry fidelity without t
 textures. The current visible geometry is still the source collision mesh, not its visual
 models; the next step is reading and translating those models and their textures. Full-area
 traversal and visual fidelity remain unproven. The supplied screenshot stays outside the repository.
+
+## Source visual inspection
+
+Read-only inspection after that play check resolved all 67 source map-piece placements to 63
+visual models. These contain 330 meshes, distinct from the collision surfaces used by this
+diagnostic. Every referenced material definition was readable, and all 208 explicit texture
+references resolved inside parsed source texture packages. This establishes input availability,
+not a working translation or host texture-loading path.
+
+The materials include opaque surfaces, alpha cutouts, blended and additive surfaces, layered
+textures, baked lighting, foliage, water and sky effects. Texture coordinates and material
+assignments belong to the visual models; applying textures to collision surfaces would not
+recover the source's appearance. The next checkpoint needs visual geometry and an explicit
+material translation, with its limitations recorded. No material mapping was chosen or
+implemented during this inspection, and the proven play build was not changed.
+
+The temporary inspector used the same external SoulsFormatsNEXT checkout already recorded
+above (GPL-3.0), without copying library code. Source-derived metadata and the inspector live
+under `/tmp/aog-visual-inspect`; none enters the repository. No new dependency was introduced.
