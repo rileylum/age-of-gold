@@ -4,7 +4,7 @@
 - Clean: the repository and every release contain only our own code and data. Nothing from either game is ever copied into them.
 - Safe to install: neither game's files are ever changed. Removing the mod is deleting one directory.
 
-**Scope.** A tool the player runs once, offline, that reads both installs and writes the build: a mod directory that Elden Ring loads through a mod loader. Single player, offline only. The source game is Dark Souls: Remastered; the host game is Elden Ring. Lordran replaces the host's world: the build's maps take the place of Elden Ring's, and the Lands Between are not reachable while it is loaded. Not in scope: online play, new content, Dark Souls II or III, other host games, and any download of game files from anywhere.
+**Scope.** A tool the player runs once, offline, that reads both installs and writes the build: a mod directory that Elden Ring loads through me3, the mod loader. The source is read only at build time, never live inside the running game. Single player, offline only. The source game is Dark Souls: Remastered; the host game is Elden Ring. Lordran replaces the host's world: the build's maps take the place of Elden Ring's, and the Lands Between are not reachable while it is loaded. Not in scope: online play, new content, Dark Souls II or III, other host games, and any download of game files from anywhere.
 
 **Proof.** A capability is built when a test proves it against real installs of both games on the developer's machine: the tool reads the source install, writes a build, and the test checks the build by reading it back as the host game would. These tests find the installs through environment variables, write only under the system temp directory, and never run in CI, because CI has no copy of either game. A test that is skipped because an install is missing proves nothing. A capability is proven in play when Riley has played through it in Elden Ring on the build.
 
@@ -26,7 +26,7 @@
 5. Neither game's name is part of the project's name, logo or anything that could suggest it is official; the names appear only to describe what the mod works with. Unlicensed for now. All rights are reserved. Choosing an open-source licence is a later, reversible decision. `NOTICE` records the trademarks and the clean-room posture.
 6. Runtime dependencies are few, and each is a logged decision; so is every third-party tool the build runs.
 
-**Technology.** Not decided; the first code decision sets it. The community's tools and libraries for FromSoftware formats, and Elden Ring's mod loaders, are the first candidates, each checked for licence and for whether it can be used without copying game data. Riley develops on Linux, where both games run under Proton; most players are on Windows. Both are supported unless a decision says otherwise.
+**Technology.** The mod loader is me3: the tool writes a me3 profile beside the build that sets a separate save file and leaves official servers blocked. The language and format libraries are not decided; the community's libraries for FromSoftware formats are the first candidates, each checked for licence and for whether it can be used without copying game data. Riley develops on Linux, where both games run under Proton; most players are on Windows. Both are supported unless a decision says otherwise.
 
 **Architecture.** One pipeline, in stages: locate both installs; read and unpack the source's archives; parse each format into our own model; translate the model into the host's terms; write host formats into the build; check the build. Each format family (archives, models and textures, maps, collision, animation, params, event scripts, AI, talk scripts, text, sound) is one bounded context, with a reader, a model and a writer. Bounded contexts are the Language sections below; a package splits off only when it is built or replaced on its own.
 
@@ -36,12 +36,10 @@ Each is settled one at a time with Riley, and then moves into the section it bel
 
 Research behind these: `docs/research/2026-11-06-landscape.md`.
 
-1. When the source is read: once, by the tool, into a build the game loads; or live, inside the running game, through code injected into it. Recommendation: build time. Every comparable project converts at build time, and no project was found that translates another game's files live.
-2. The mod loader. Recommendation: me3. It is maintained and Apache-2.0, supports Proton, blocks official servers by default and keeps a separate save file.
-3. Collision and navmesh: how the tool writes Elden Ring's Havok 2018 collision and navmesh, when no open tool converts from Remastered's Havok 2015 and the known route needs a proprietary Havok tool. Recommendation: a spike, before the walking skeleton, testing whether the player's own Elden Ring executable can generate them, as ERNavmeshGen already does for navmesh.
-4. The language and format libraries. The ecosystem is almost entirely C#; SoulsFormatsNEXT, the most complete library, is GPL-3.0. Recommendation: C# on .NET with SoulsFormatsNEXT, which settles the licence as GPL-3.0; the alternative is writing our own readers and writers for every format.
-5. Elden Ring's archive keys, file-name hashes and paramdefs: how the tool gets them without depending on data that community tools copied from the game. Recommendation: derive keys from the player's executable, hash the paths our own code names, and settle paramdefs after the spike.
-6. Which of the source's rules, if any, are kept over the host's (principle 2), one at a time as each stage meets them.
+1. Collision and navmesh: how the tool writes Elden Ring's Havok 2018 collision and navmesh, when no open tool converts from Remastered's Havok 2015 and the known route needs a proprietary Havok tool. Recommendation: a spike, before the walking skeleton, testing whether the player's own Elden Ring executable can generate them, as ERNavmeshGen already does for navmesh.
+2. The language and format libraries. The ecosystem is almost entirely C#; SoulsFormatsNEXT, the most complete library, is GPL-3.0. Recommendation: C# on .NET with SoulsFormatsNEXT, which settles the licence as GPL-3.0; the alternative is writing our own readers and writers for every format.
+3. Elden Ring's archive keys, file-name hashes and paramdefs: how the tool gets them without depending on data that community tools copied from the game. Recommendation: derive keys from the player's executable, hash the paths our own code names, and settle paramdefs after the spike.
+4. Which of the source's rules, if any, are kept over the host's (principle 2), one at a time as each stage meets them.
 
 **Language**
 
