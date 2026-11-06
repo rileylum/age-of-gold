@@ -2,7 +2,8 @@
 
 A snapshot as of 6 November 2026. This is an intermediate diagnostic for the Firelink demo,
 not the walking skeleton. Riley authorized continuing until a demo or another useful play check.
-The generated build has passed readback; its in-game result is pending.
+The generated terrain has passed readback. The first play check remained in the Chapel; a
+corrected arrival build is awaiting Riley's next check.
 
 ## What is built
 
@@ -79,6 +80,38 @@ classification was checked against soulstruct's
 No community implementation, bundled resource, material preset or game data was placed in the
 repository. Physics, renderer settings and shader references come from the player's host install.
 
+## Opening arrival correction
+
+Riley's first New Game remained in the Chapel. The me3 log confirmed that the modified map,
+collision binders and all 39 new visible models were loaded, ruling out a missing map override.
+Reading the opening events from the host install showed an intro cutscene and a separate
+respawn-region assignment. Changing the MSB player part alone did not control arrival after
+the intro.
+
+The diagnostic now locates that event by its instruction types, reads its character and respawn
+references at runtime, moves the referenced respawn region to the supported terrain position,
+and appends a short warp after the existing opening event. Appending keeps existing instruction
+indices and relative branch distances intact. Ambiguous or parameterized opening-event layouts
+fail. No host event IDs, character IDs, region IDs, game coordinates or host script fragments were
+embedded in the implementation.
+
+An authored fixture first failed because its respawn region remained at the old position. It
+now passes after serialization, including the warp's argument layout. The real-build check reads
+the written event and map back, verifies the destination, and removes the new instruction from
+the readback in memory: the remaining serialized event file must exactly equal the serialization
+of the untouched host input. Both full builds pass; all 47 generated files match byte for byte.
+The prior terrain files are unchanged. Only the map, build report and new event override differ.
+
+Opcode signatures were checked against the public
+[Elden Ring EMEDF reference](https://soulsmods.github.io/emedf/er-emedf.html).
+Its hosting repository states no licence; it was used as format documentation, with no
+implementation or bundled metadata imported. SoulsFormatsNEXT remains the only event-format
+dependency. The host events inspected during diagnosis stay under `/tmp/aog-spawn-inspect/`.
+
+The corrected profile is `/tmp/aog-firelink-arrival/age-of-gold-firelink.me3`. It was launched
+offline after Riley exited the first test. New Game is required to exercise the opening event;
+the intended transfer happens after the intro. The corrected arrival is not yet proven in play.
+
 ## Repeating the diagnostic
 
 Publish the C# probe from `spikes/er-collision/probe` with
@@ -91,8 +124,8 @@ export WINEPREFIX=/tmp/aog-scale-wine
 export PYTHONPATH=/tmp/aog-soulstruct/src:/tmp/aog-soulstruct-havok/src
 
 /tmp/aog-dsr-collision-venv/bin/python -B spikes/firelink-demo/check_source.py
-/tmp/aog-dsr-collision-venv/bin/python -B spikes/firelink-demo/check_build.py /tmp/aog-firelink-terrain
-me3 launch --online false -p /tmp/aog-firelink-terrain/age-of-gold-firelink.me3
+/tmp/aog-dsr-collision-venv/bin/python -B spikes/firelink-demo/check_build.py /tmp/aog-firelink-arrival
+me3 launch --online false -p /tmp/aog-firelink-arrival/age-of-gold-firelink.me3
 ```
 
 Use a fresh temporary output directory for each build. Both install checks refuse CI. The source

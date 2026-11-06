@@ -55,6 +55,9 @@ static class FirelinkDemo
             throw new InvalidDataException("Source respawn is not close to ordinary solid terrain");
         player.Position = new Vector3(sourceSpawn.X + offset.X, floor + 0.3f, sourceSpawn.Z + offset.Z);
         player.Rotation = V(source.GetProperty("spawn").GetProperty("rotation"));
+        var originalEvents = get("event/m10_01_00_00.emevd.dcx");
+        var events = EMEVD.Read(originalEvents);
+        FirelinkArrival.Apply(events, layout, player);
 
         var mapDir = Path.Combine(output, "mod", "map", "m10", "m10_01_00_00");
         Directory.CreateDirectory(mapDir);
@@ -153,6 +156,12 @@ static class FirelinkDemo
         if (writtenPlayer.Position != player.Position || writtenPlayer.Rotation != player.Rotation
             || Math.Abs(writtenPlayer.Position.Y - GroundBelow(low, writtenPlayer.Position) - 0.3f) > 0.001f)
             throw new InvalidDataException("Written player spawn is not supported");
+        var eventDir = Path.Combine(output, "mod", "event");
+        Directory.CreateDirectory(eventDir);
+        var eventPath = Path.Combine(eventDir, "m10_01_00_00.emevd.dcx");
+        events.Write(eventPath);
+        FirelinkArrival.Verify(originalEvents, File.ReadAllBytes(eventPath), readLayout, writtenPlayer);
+        Console.WriteLine("PASS: opening arrival and relocated respawn read back; pre-existing event data preserved");
         File.WriteAllText(Path.Combine(output, "age-of-gold-firelink.me3"), """
             profileVersion = "v1"
             savefile = "AgeOfGoldSpike.sl2"
@@ -165,7 +174,7 @@ static class FirelinkDemo
         var report = new
         {
             placements = parts.Length, collision_parts_checked = collisionChecks, visible_parts_checked = parts.Length,
-            spawn_supported = true, source_fingerprints = source.GetProperty("fingerprints"),
+            spawn_supported = true, opening_arrival_checked = true, source_fingerprints = source.GetProperty("fingerprints"),
             host_fingerprints = hostFingerprints,
             tool_sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(FirelinkDemo).Assembly.Location))),
             excluded_roles = source.GetProperty("excluded_roles"),

@@ -32,6 +32,7 @@ def run(args, env=None):
 wine_env = dict(os.environ, WINEDEBUG='-all', WINEDLLOVERRIDES='winedbg.exe=d',
                 AOG_DARK_SOULS_REMASTERED=windows(source))
 run(['wine', str(probe), windows(host), 'firelink-transformcheck'], wine_env)
+run(['wine', str(probe), windows(host), 'firelink-arrivalcheck'], wine_env)
 with tempfile.TemporaryDirectory(prefix='aog-firelink-stage-') as temporary:
     layout, geometry = (Path(temporary) / name for name in ('layout.json', 'geometry.json'))
     run(['wine', str(probe), windows(host), 'firelink-layout', windows(layout)], wine_env)
@@ -49,6 +50,8 @@ with tempfile.TemporaryDirectory(prefix='aog-firelink-stage-') as temporary:
     assert report['collision_parts_checked'] == 2 * len(expected['parts'])
     assert report['visible_parts_checked'] == len(expected['parts'])
     assert report['spawn_supported'] is True
+    assert report['opening_arrival_checked'] is True
+    assert (output / 'mod/event/m10_01_00_00.emevd.dcx').is_file()
     assert report['source_fingerprints'] == expected['fingerprints']
     assert report['host_fingerprints'] and len(report['tool_sha256']) == 64
     print(f"PASS: {len(expected['parts'])} visible solid-terrain placements, both collision sets, supported spawn, offline profile; {profile}")
