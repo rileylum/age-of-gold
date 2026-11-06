@@ -136,12 +136,12 @@ After observing that the preceding game had exited, the comparison profile was l
 `~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_08-17-56.log`. The next play check is
 whether source colour patterns appear with this complete native material.
 
-Riley confirmed that this comparison renders the source textures. Source colour loading and
-sampling are therefore proven in play with the complete native material. The surfaces are
-dark. The source lighting has not been translated, and the diagnostic also retains unrelated
-host normal maps and shading settings, so darkness is not yet attributed to lighting alone.
-This result narrows the preceding plain-surface failure to material setup; it does not isolate
-which material field was responsible. The successful build remains available unchanged.
+Riley reported that this comparison renders textures, though the surfaces are dark. This was
+initially recorded as proof of source colour sampling. That conclusion was too strong: the
+diagnostic retains host normal maps and material defaults, which can also produce visible
+surface detail. The colour-pattern check below distinguishes those paths. Source lighting has
+not been translated, and darkness is not yet attributed to lighting alone. The visually improved
+build remains available unchanged.
 
 ### Isolating the missing material-settings reference
 
@@ -174,6 +174,34 @@ a comparison of brightness without the diagnostic's unrelated normal maps. Sourc
 remains untranslated. me3 confirmed attachment; log:
 `~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_08-28-17.log`.
 
+### Distinguishing colour overrides from native defaults
+
+Riley's next screenshot remains particularly dark, with visibly smooth lit ground. Riley could
+not confidently distinguish textures in the grey appearance. The GX-reference-only candidate
+therefore does not establish a rendering fix. No screenshot is stored in the repository.
+
+The next diagnostic returns to the complete native-material build and changes colour images
+to authored, saturated checker patterns. Explicit source-colour package paths contain magenta
+and yellow. Separately, the native material's default colour image contains cyan and green.
+Both full and low packages are covered; secondary native images are unchanged. These are
+temporary authored test fixtures, not replacement scenery for the mod. Geometry, model
+materials, UVs, collision, events, profile and lighting are identical to the visually improved
+native-material build.
+
+The candidate is `/tmp/aog-firelink-colour-pattern/age-of-gold-firelink.me3`. Readback checks
+126 source-path packages and two native-default control packages, including the untouched
+secondary image payloads. All 70 non-texture input files are byte-identical. The additional
+`colour-pattern-check.json` records the diagnostic and tool fingerprint; inherited reports
+describe its input builds. All 201 files match `/tmp/aog-firelink-colour-pattern-repeat`.
+The temporary inspector's `colourpattern` mode generates the pattern at each input dimension
+and mip count, using ordinary BC1 blocks and preserving texture names.
+
+An independent installed Pillow decoder confirms exactly the two authored colours and
+alternating squares in each palette. It does not support the sRGB BC1 header tag, so the check
+uses the equivalent linear BC1 tag in memory only; compressed blocks and written game files
+are unchanged. This verifies block encoding, not runtime binding. The play result will identify
+whether the explicit override, native default, or neither supplies the observed colour.
+
 ## Sources and licences
 
 No new dependency was introduced. SoulsFormatsNEXT (`e25d1a5`, GPL-3.0) supplies FLVER, MSB,
@@ -188,6 +216,12 @@ The [Souls Modding FLVER reference](https://www.soulsmodding.com/doku.php?id=for
 [standalone texture tutorial](https://soulsmodding.wikidot.com/creating-standalone-retextured-assets-using-aegs-and-aets)
 (licence not stated on the retrieved page) supplied background on texture packages and colour
 space. No text, code, presets or screenshots from those pages were incorporated.
+
+Microsoft's [block-compression documentation](https://learn.microsoft.com/en-us/windows/win32/direct3d10/d3d10-graphics-programming-guide-resources-block-compression)
+describes the BC1 block and mip storage used by the authored pattern. Its documentation
+repository is [CC BY 4.0](https://github.com/MicrosoftDocs/win32/blob/docs/LICENSE); no code or
+illustration was incorporated. The already-installed Pillow 13.0.0 decoder (MIT-CMU) was used
+only for an independent temporary image check, not added as a tool dependency.
 
 All game-derived inspection output remains under `/tmp/aog-visual-inspect`,
 `/tmp/aog-host-materials`, `/tmp/aog-host-textures` and `/tmp/aog-render-inspect`. The source
