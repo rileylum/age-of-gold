@@ -77,8 +77,8 @@ _Not used:_ remake, remaster or port for this project (it is a mod), assets as a
 
 In order. Each stage depends on the ones before it.
 
-1. Research: the formats of both games, the mod loaders, the community libraries and their licences, and earlier projects that moved content between FromSoftware games. Written as dated snapshots in `docs/research/`; they inform the open decisions and are not specs.
-2. Walking skeleton: the tool finds both installs, reads one source map's geometry and collision, and writes a build in which the player spawns into that map in Elden Ring and walks around it. Firelink Shrine first.
+1. Research: the formats of both games, the mod loaders, the community libraries and their licences, and earlier projects that moved content between FromSoftware games. Written as dated snapshots in `docs/research/`; they inform the open decisions and are not specs. It ends with a spike proving that the tool can write collision Elden Ring accepts.
+2. Walking skeleton, the first goal: a navigable Firelink Shrine with only the player in it. The tool finds both installs, reads Firelink Shrine's geometry and collision, and writes a build in which the player spawns there in Elden Ring and walks all of it, with no enemies, NPCs, items or events.
 3. The world: every map's geometry, collision and connections, so the player can walk all of Lordran with nothing in it.
 4. Things in the world: objects, items, bonfires and doors, each where the source placed it.
 5. Enemies and NPCs: placement, models, animations, stats and AI.
