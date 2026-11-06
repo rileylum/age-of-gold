@@ -141,7 +141,7 @@ static class FirelinkVisuals
             string id = "m" + model.Id;
             if (layout.Models.MapPieces.Any(m => m.Name == id)) throw new InvalidDataException("Diagnostic visual ID already occupied");
             var hostMaterials = model.Materials.Select((m, i) => new FLVER2.Material {
-                Name = "aog_colour_" + i, MTD = basic[m.Cutout].Path, Index = i,
+                Name = "aog_colour_" + i, MTD = basic[m.Cutout].Path, Index = i, GXIndex = native.Materials[0].GXIndex,
                 Textures = [new FLVER2.Texture { ParamName = basic[m.Cutout].Sampler, Path = texturePaths[m.Texture] }],
             }).ToList();
             var bytes = WriteModel(FLVER2.Read(nativeFile.Bytes), model.Surfaces, hostMaterials);
@@ -155,10 +155,11 @@ static class FirelinkVisuals
             VerifyModel(written, model.Surfaces);
             for (int i = 0; i < hostMaterials.Count; i++)
                 if (written.Materials[i].MTD != hostMaterials[i].MTD
+                    || written.Materials[i].GXIndex != native.Materials[0].GXIndex
                     || written.Materials[i].Textures.Single().Path != hostMaterials[i].Textures.Single().Path
                     || written.Materials[i].Textures.Single().ParamName != hostMaterials[i].Textures.Single().ParamName
                     || written.Materials[i].Textures.Single().TilingScale != hostMaterials[i].Textures.Single().TilingScale)
-                    throw new InvalidDataException("Visual material binding changed in the written model");
+                    throw new InvalidDataException("Visual material binding or native GX settings reference changed in the written model");
             var mapModel = (MSBE.Model.MapPiece)modelTemplate.DeepCopy();
             mapModel.Name = id; mapModel.SibPath = "";
             layout.Models.MapPieces.Add(mapModel);

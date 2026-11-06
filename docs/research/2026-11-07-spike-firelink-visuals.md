@@ -136,6 +136,44 @@ After observing that the preceding game had exited, the comparison profile was l
 `~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_08-17-56.log`. The next play check is
 whether source colour patterns appear with this complete native material.
 
+Riley confirmed that this comparison renders the source textures. Source colour loading and
+sampling are therefore proven in play with the complete native material. The surfaces are
+dark. The source lighting has not been translated, and the diagnostic also retains unrelated
+host normal maps and shading settings, so darkness is not yet attributed to lighting alone.
+This result narrows the preceding plain-surface failure to material setup; it does not isolate
+which material field was responsible. The successful build remains available unchanged.
+
+### Isolating the missing material-settings reference
+
+The proven native material's GX list contains one settings item. The inspected host model
+using the basic colour shader contains that identical item plus another settings item. Our
+written models already retain the proven template's list, but the newly constructed basic
+materials leave their list reference unset. The next candidate changes only that reference,
+using the value read from the host template. It retains the basic opaque/cutout definitions and
+source colour bindings, so unrelated host normal maps are absent.
+
+A new readback requirement compares every material's settings reference against the host
+input. Running the full real-installs workflow before the implementation failed at that
+requirement, after the collision and authored visual checks passed. The implementation now
+assigns the existing template reference when constructing each basic material. This tests one
+field; it does not claim that the missing reference caused the play failure until a play check
+confirms the effect.
+
+The corrected workflow passes for `/tmp/aog-firelink-gx-reference`. A raw-byte comparison of
+all 61 written models against the earlier packed-UV build finds changes only in the 243 material
+GX references. The settings bytes themselves were already present. The first comparison tried
+reserializing parsed models, but the reader omits unreferenced lists; the raw-byte check avoids
+that loss and verifies the stricter claim directly. All 133 non-model/non-report files are
+identical, and the report changes only its tool fingerprint. All 195 files match
+`/tmp/aog-firelink-gx-reference-repeat` byte for byte. Publishing produced no warnings.
+
+After observing that the successful diagnostic's game had exited, the candidate was launched
+offline with the same separate save. The previous successful native-material build is preserved.
+The next play check is whether the basic materials now render the source colours, followed by
+a comparison of brightness without the diagnostic's unrelated normal maps. Source lighting
+remains untranslated. me3 confirmed attachment; log:
+`~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_08-28-17.log`.
+
 ## Sources and licences
 
 No new dependency was introduced. SoulsFormatsNEXT (`e25d1a5`, GPL-3.0) supplies FLVER, MSB,
