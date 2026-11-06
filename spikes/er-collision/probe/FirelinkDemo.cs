@@ -4,8 +4,8 @@ using System.Text.Json;
 using HKLib.Serialization.hk2018.Binary;
 using SoulsFormats;
 
-// Diagnostic only: visible collision surfaces with host material, not source visual-model translation.
-static partial class FirelinkDemo
+// Spike: source terrain collision and visual models above the host's starting map.
+static class FirelinkDemo
 {
     record Mesh(List<Vector3> Vertices, List<(int A, int B, int C)> Triangles, int ZeroAreaFaces);
 
@@ -65,8 +65,6 @@ static partial class FirelinkDemo
         if (collisionTemplate.HitFilterID != MSBE.Part.Collision.HitFilterType.Standard)
             throw new InvalidDataException("Host template must have a Standard hit filter");
         var collisionModel = layout.Models.Collisions.Single(p => p.Name == collisionTemplate.ModelName);
-        var visualTemplate = layout.Parts.MapPieces.First(p => p.ModelName == "m000000");
-        var visualModel = layout.Models.MapPieces.Single(p => p.Name == visualTemplate.ModelName);
         string[] ids = Enumerable.Range(800000, parts.Length).Select(i => i.ToString("D6")).ToArray();
         foreach (var id in ids)
             if (layout.Models.Collisions.Any(m => m.Name == "h" + id) || layout.Models.MapPieces.Any(m => m.Name == "m" + id))
@@ -81,13 +79,6 @@ static partial class FirelinkDemo
             var model = (MSBE.Model.Collision)collisionModel.DeepCopy();
             model.Name = collision.ModelName; model.SibPath = "";
             layout.Models.Collisions.Add(model);
-            var visual = (MSBE.Part.MapPiece)visualTemplate.DeepCopy();
-            SetPlacement(visual, "m" + ids[i]);
-            Enable(visual.Unk1);
-            layout.Parts.MapPieces.Add(visual);
-            var modelVisual = (MSBE.Model.MapPiece)visualModel.DeepCopy();
-            modelVisual.Name = visual.ModelName; modelVisual.SibPath = "";
-            layout.Models.MapPieces.Add(modelVisual);
         }
 
         int collisionChecks = 0;
@@ -136,22 +127,20 @@ static partial class FirelinkDemo
         }
 
         var visualBytes = get("map/m10/m10_01_00_00/m10_01_00_00_000000.mapbnd.dcx");
-        for (int i = 0; i < parts.Length; i++) WriteVisible(low[i], visualBytes, ids[i], mapDir);
-        Console.WriteLine($"PASS: {parts.Length} visible collision surfaces read back");
-        WriteRenderSamples(visualBytes, layout, player, mapDir);
+        FirelinkVisuals.CheckFixture(visualBytes);
+        var visuals = FirelinkVisuals.Build(Environment.GetEnvironmentVariable("AOG_DARK_SOULS_REMASTERED")!,
+            get, visualBytes, layout, offset, output, mapDir);
         var layoutDir = Path.Combine(output, "mod", "map", "mapstudio");
         Directory.CreateDirectory(layoutDir);
         var layoutPath = Path.Combine(layoutDir, "m10_01_00_00.msb.dcx");
         layout.Write(layoutPath);
         var readLayout = MSBE.Read(layoutPath);
-        CheckRenderSamples(visualBytes, readLayout, player, mapDir);
+        FirelinkVisuals.VerifyPlacements(visuals, readLayout);
         foreach (var id in ids)
         {
             var collision = readLayout.Parts.Collisions.Single(p => p.ModelName == "h" + id);
-            var visual = readLayout.Parts.MapPieces.Single(p => p.ModelName == "m" + id);
             if (collision.Position != Vector3.Zero || collision.Rotation != Vector3.Zero || collision.Scale != Vector3.One
-                || collision.HitFilterID != MSBE.Part.Collision.HitFilterType.Standard
-                || visual.Position != Vector3.Zero || visual.Rotation != Vector3.Zero || visual.Scale != Vector3.One)
+                || collision.HitFilterID != MSBE.Part.Collision.HitFilterType.Standard)
                 throw new InvalidDataException("Written terrain placement changed");
         }
         var writtenPlayer = readLayout.Parts.Players.Single(p => p.Name == player.Name);
@@ -175,13 +164,13 @@ static partial class FirelinkDemo
             """);
         var report = new
         {
-            placements = parts.Length, collision_parts_checked = collisionChecks, visible_parts_checked = parts.Length,
+            placements = parts.Length, collision_parts_checked = collisionChecks, visible_parts_checked = visuals.placements,
             spawn_supported = true, opening_arrival_checked = true, source_fingerprints = source.GetProperty("fingerprints"),
-            render_samples_checked = new[] { "placed", "baked", "generated" },
+            source_visuals = visuals,
             host_fingerprints = hostFingerprints,
             tool_sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(FirelinkDemo).Assembly.Location))),
             excluded_roles = source.GetProperty("excluded_roles"),
-            material_translation = "Diagnostic only: one host template material; no source surface behaviour translated",
+            material_translation = "Source visual geometry and colour textures with basic host shading; see source_visuals.material_limits",
             source_materials = parts.Select(p => new
             {
                 name = p.GetProperty("name").GetString(),
@@ -279,81 +268,7 @@ static partial class FirelinkDemo
         return ground;
     }
 
-    static void WriteVisible(Mesh geometry, byte[] template, string id, string mapDir)
-    {
-        var binder = BND4.Read(template);
-        var file = binder.Files.Single(f => f.Name.EndsWith(".flver"));
-        var flver = FLVER2.Read(file.Bytes);
-        if (flver.Header.Version != 0x2001A)
-            throw new InvalidDataException("Visible mesh culling bounds require the checked host FLVER version");
-        var mesh = flver.Meshes[0];
-        if (mesh.UseBoneWeights || flver.Nodes.Count != 1 || flver.Nodes[0].Translation != Vector3.Zero
-            || flver.Nodes[0].Rotation != Vector3.Zero || flver.Nodes[0].Scale != Vector3.One)
-            throw new InvalidDataException("Diagnostic visual template must be static with one identity node");
-        var vertexTemplate = mesh.Vertices[0];
-        mesh.Vertices = new(); mesh.NodeIndex = 0;
-        foreach (var (a, b, c) in geometry.Triangles)
-        {
-            var normal = Vector3.Cross(geometry.Vertices[b] - geometry.Vertices[a], geometry.Vertices[c] - geometry.Vertices[a]);
-            if (normal.LengthSquared() == 0) throw new InvalidDataException("Degenerate source triangle needs an explicit diagnostic policy");
-            normal = Vector3.Normalize(normal);
-            var tangent = Vector3.Normalize(Vector3.Cross(Math.Abs(normal.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitZ, normal));
-            foreach (int at in new[] { a, b, c })
-            {
-                var vertex = new FLVER.Vertex(vertexTemplate) { Position = geometry.Vertices[at], Normal = normal, NormalW = 0 };
-                for (int i = 0; i < vertex.Tangents.Count; i++) vertex.Tangents[i] = new Vector4(tangent, 1);
-                for (int i = 0; i < vertex.UVs.Count; i++) vertex.UVs[i] = new Vector3(Vector3.Dot(vertex.Position, tangent) / 4,
-                    Vector3.Dot(vertex.Position, Vector3.Cross(normal, tangent)) / 4, 0);
-                // Integer literals select the byte overload, reducing every channel (including opacity) to 1/255.
-                for (int i = 0; i < vertex.Colors.Count; i++) vertex.Colors[i] = new FLVER.VertexColor(1f, 1f, 1f, 1f);
-                mesh.Vertices.Add(vertex);
-            }
-        }
-        // Visible host faces are clockwise relative to outward normals; collision uses the opposite order.
-        mesh.FaceSets = [new FLVER2.FaceSet { CullBackfaces = false,
-            Indices = Enumerable.Range(0, geometry.Triangles.Count).SelectMany(i => new[] { 3 * i, 3 * i + 2, 3 * i + 1 }).ToList() }];
-        var lo = geometry.Vertices.Aggregate(Vector3.Min); var hi = geometry.Vertices.Aggregate(Vector3.Max);
-        // The mesh box uses half-extents, Euler angles and centre; keep it unrotated with a small rounding margin.
-        mesh.BoundingBox = new FLVER2.Mesh.BoundingBoxes
-        {
-            Min = (hi - lo) / 2 + new Vector3(0.001f), Max = Vector3.Zero, Unk = (lo + hi) / 2,
-        };
-        flver.Header.BoundingBoxMin = lo; flver.Header.BoundingBoxMax = hi;
-        flver.Nodes[0].BoundingBoxMin = lo; flver.Nodes[0].BoundingBoxMax = hi;
-        flver.Meshes = [mesh]; flver.Dummies.Clear();
-        file.Bytes = flver.Write();
-        file.Name = file.Name.Replace("m10_01_00_00_000000", "m10_01_00_00_" + id);
-        binder.Files = [file];
-        var path = Path.Combine(mapDir, $"m10_01_00_00_{id}.mapbnd.dcx");
-        binder.Write(path);
-        var readback = FLVER2.Read(BND4.Read(path).Files.Single().Bytes);
-        var written = readback.Meshes.Single();
-        CheckVisibleBounds(written);
-        if (written.Vertices.Count != mesh.Vertices.Count || written.FaceSets.Single().Indices.Count != mesh.Vertices.Count)
-            throw new InvalidDataException("Visible terrain triangle count changed");
-        for (int i = 0; i < mesh.Vertices.Count; i++)
-        {
-            if (written.Vertices[i].Position != mesh.Vertices[i].Position)
-                throw new InvalidDataException("Visible terrain geometry changed");
-            if (written.Vertices[i].Colors.Count == 0 || written.Vertices[i].Colors.Any(
-                color => color.A != 1f || color.R != 1f || color.G != 1f || color.B != 1f))
-                throw new InvalidDataException("Diagnostic terrain must read back with opaque white vertex colours");
-        }
-        var indices = written.FaceSets.Single().Indices;
-        for (int i = 0; i < indices.Count; i += 3)
-        {
-            if (!indices.Skip(i).Take(3).Order().SequenceEqual(Enumerable.Range(i, 3)))
-                throw new InvalidDataException("Visible terrain triangle corners changed");
-            var a = written.Vertices[indices[i]];
-            var b = written.Vertices[indices[i + 1]];
-            var c = written.Vertices[indices[i + 2]];
-            if (Vector3.Dot(Vector3.Cross(b.Position - a.Position, c.Position - a.Position),
-                a.Normal + b.Normal + c.Normal) >= 0)
-                throw new InvalidDataException("Visible terrain must use clockwise faces relative to its outward normals");
-        }
-    }
-
-    static void CheckVisibleBounds(FLVER2.Mesh mesh)
+    internal static void CheckVisibleBounds(FLVER2.Mesh mesh)
     {
         // In the checked host version, Min/Max/Unk store half-extents, Z-X-Y Euler angles and centre.
         var box = mesh.BoundingBox;

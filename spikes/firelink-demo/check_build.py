@@ -1,4 +1,4 @@
-"""Build and verify the manual Firelink solid-terrain diagnostic using both installs."""
+"""Build and verify the manual Firelink terrain and textured-scene spike using both installs."""
 
 import json
 import os
@@ -48,11 +48,15 @@ with tempfile.TemporaryDirectory(prefix='aog-firelink-stage-') as temporary:
     report = json.loads((output / 'check.json').read_text())
     assert report['placements'] == len(expected['parts'])
     assert report['collision_parts_checked'] == 2 * len(expected['parts'])
-    assert report['visible_parts_checked'] == len(expected['parts'])
     assert report['spawn_supported'] is True
     assert report['opening_arrival_checked'] is True
-    assert report['render_samples_checked'] == ['placed', 'baked', 'generated']
+    visuals = report['source_visuals']
+    assert visuals['models'] > 0 and visuals['placements'] > 0 and visuals['textures'] > 0
+    assert report['visible_parts_checked'] == visuals['placements']
+    assert visuals['geometry_checked'] and visuals['texture_payloads_checked']
+    assert visuals['source_fingerprints'] and visuals['material_limits']
+    assert len(list((output / 'mod/asset/aet/aet999').glob('*.tpf.dcx'))) == 2 * visuals['textures']
     assert (output / 'mod/event/m10_01_00_00.emevd.dcx').is_file()
     assert report['source_fingerprints'] == expected['fingerprints']
     assert report['host_fingerprints'] and len(report['tool_sha256']) == 64
-    print(f"PASS: {len(expected['parts'])} visible solid-terrain placements, both collision sets, supported spawn, offline profile; {profile}")
+    print(f"PASS: {visuals['placements']} source visual placements, {visuals['textures']} colour textures, both collision sets, supported spawn, offline profile; {profile}")
