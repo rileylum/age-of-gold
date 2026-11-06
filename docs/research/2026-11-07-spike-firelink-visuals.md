@@ -202,6 +202,36 @@ uses the equivalent linear BC1 tag in memory only; compressed blocks and written
 are unchanged. This verifies block encoding, not runtime binding. The play result will identify
 whether the explicit override, native default, or neither supplies the observed colour.
 
+Riley confirmed exiting the prior game, and the pattern profile was launched offline with the
+same separate save. me3 attached; log:
+`~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_09-00-09.log`. The supplied play image
+clearly shows magenta/yellow checks on the terrain. This proves that the explicit colour
+override is sampled with the complete native material; native-default colour and normal-map
+detail alone cannot account for those checks. The severe darkness remains a separate problem.
+The screenshot is not stored in the repository.
+
+### Complete native colour-only material
+
+The next candidate is `/tmp/aog-firelink-basic-native/age-of-gold-firelink.me3`. It returns to
+the unchanged source images and uses the complete colour-only material from one of the
+previously inspected host map models, including its native material identity and both GX
+settings items. Its definition uses the same basic opaque colour shader family as the first
+writer, but is a material assigned to a real model rather than the generic base definition.
+It has one colour binding and no normal or other secondary bindings. All surfaces temporarily
+use that opaque material; restoring cutout behaviour remains part of the eventual mapping.
+
+The temporary `nativematerial` inspector accepts the selected host binder as its template. It
+records that binder's fingerprint and verifies all 243 material overrides across 61 models.
+Restoring only materials and GX lists makes the serialized models identical to the checked
+input. All 134 other input files are unchanged, including all source colour packages, geometry
+placements, collision, events and the offline separate-save profile. All 196 files match
+`/tmp/aog-firelink-basic-native-repeat`. The additional report describes this diagnostic;
+the inherited build report describes its input. No lighting values were changed.
+
+The preceding game was observed to have exited, and this profile was launched offline with
+the same separate save. me3 confirmed attachment; log `~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_09-04-03.log`.
+Its texture appearance and brightness still need play evidence.
+
 ## Sources and licences
 
 No new dependency was introduced. SoulsFormatsNEXT (`e25d1a5`, GPL-3.0) supplies FLVER, MSB,
