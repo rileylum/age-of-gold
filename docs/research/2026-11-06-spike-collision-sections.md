@@ -1,8 +1,8 @@
 # Spike: collision across several sections
 
 A snapshot as of 6 November 2026, from `spikes/er-collision/probe`. Not a spec. Follows
-`2026-11-06-spike-dsr-collision.md`. This checks synthetic geometry through serialized host-format
-readback; the larger collision has not been tested in play, and no Firelink build was made.
+`2026-11-06-spike-dsr-collision.md`. Synthetic geometry passes serialized host-format readback,
+and Riley confirmed the larger cage's invisible walls work in play. No Firelink build was made.
 
 ## Result
 
@@ -33,8 +33,8 @@ second command run also produced byte-identical files for all six fixtures acros
 The scalar-tree decoder was also checked against a multi-section collision part read from the
 host install: every node and leaf was accounted for, including each section's reference back to
 its top-level leaf. HKLib provides the binary serialization and reading; our checks walk the
-stored trees and reconstruct the geometry. This does not establish game performance or physics
-behaviour.
+stored trees and reconstruct the geometry. These readback checks do not establish game
+performance or physics behaviour; the separate play result below covers the cage walls.
 
 The first 17-triangle test failed at the old 16-triangle limit before the deeper tree was written.
 It then passed. The 86-disjoint-triangle test next failed at the single-section vertex limit;
@@ -90,7 +90,7 @@ were format references. Its root licence at that revision is MIT. No implementat
 physics defaults were copied; the writer uses our own implementation and reads physics settings
 from the player's host install. These files are references, not build dependencies.
 
-## Playable test prepared
+## Playable test confirmed
 
 `check_playable.py` builds a denser version of the established Chapel cage, with four midpoint
 subdivisions of each of its twelve triangles. Both detail sets contain 3,072 triangles across
@@ -107,8 +107,12 @@ The manual check first failed because the command still emitted twelve triangles
 both synthetic parts pass geometry and tree readback, and their compressed binder entries
 decompress to exactly the checked bytes. The six geometry fixtures also pass after sharing their
 verifier with the playable command. Publishing the probe produced no warnings. me3 accepts the
-profile, with `start_online = false` and the separate `AgeOfGoldSpike.sl2` save. In-game confirmation
-is pending.
+profile, with `start_online = false` and the separate `AgeOfGoldSpike.sl2` save.
+
+Riley confirmed on 6 November 2026 that the invisible walls work in the launched build. The
+3,072-triangle, 37-section cage is therefore proven in play for wall collision. This does not
+confirm the ramp, performance, the 257-section fixture, or source collision translated into the
+host; those were outside this short play check.
 
 The harness requires both install environment variables, refuses CI and existing output, and
 writes only under the system temp directory. Run it from the repository root after publishing:
@@ -157,5 +161,4 @@ The passing results from this session are under
 They contain host-derived physics settings and must stay outside the repository. A host-layout
 inspection and its output also live under `/tmp/aog-scale-hostlayout*`; never commit those.
 
-Next: validate the larger synthetic collision in play, then decide with Riley how to carry
-Firelink's placement and material submeshes into a host map.
+Next: decide with Riley how to carry Firelink's placement and material submeshes into a host map.
