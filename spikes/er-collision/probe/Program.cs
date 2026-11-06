@@ -26,6 +26,33 @@ foreach (var bhd in archives)
 byte[] Get(string path) =>
     index.TryGetValue(Hash(path), out var hit) ? ReadFile(hit.Bdt, hit.Entry) : throw new FileNotFoundException(path);
 
+if (paths.Length > 0 && paths[0] == "geometrycheck")
+{
+    if (Environment.GetEnvironmentVariable("CI") is not null)
+        throw new InvalidOperationException("Install checks must never run in CI");
+    var source = Environment.GetEnvironmentVariable("AOG_DARK_SOULS_REMASTERED")
+        ?? throw new ArgumentException("set AOG_DARK_SOULS_REMASTERED");
+    var checkOutput = Path.GetFullPath(paths[1]);
+    foreach (var install in new[] { source, game })
+    {
+        var installRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(install));
+        if (checkOutput.Equals(installRoot, StringComparison.OrdinalIgnoreCase)
+            || checkOutput.StartsWith(installRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("geometry check output must be outside both installs");
+    }
+    using var sourceHeader = File.OpenRead(Path.Combine(source, "map", "m10_02_00_00", "l10_02_00_00.hkxbhd"));
+    if (sourceHeader.ReadByte() < 0) throw new InvalidDataException("empty source collision header");
+    SoulsFormats.Oodle.SearchPaths.Add(game);
+    var binder = BxfIn("m10_01_00_00", "l");
+    var reader = Serializer(binder);
+    GeometryCheck.CheckTrees(reader.Read(new MemoryStream(SoulsFormats.DCX.Decompress(
+        binder.Files.Single(f => f.Name.EndsWith("_001000.hkx.dcx")).Bytes))));
+    Console.WriteLine("PASS: tree decoder checked against a host collision part");
+    var template = SoulsFormats.DCX.Decompress(binder.Files.Single(f => f.Name.EndsWith("_001400.hkx.dcx")).Bytes);
+    GeometryCheck.Run(() => reader.Read(new MemoryStream(template)), checkOutput);
+    return;
+}
+
 if (paths.Length > 0 && paths[0] == "cagetest")
 {
     // Every collision part in the Chapel of Anticipation, high and low detail, becomes one of three

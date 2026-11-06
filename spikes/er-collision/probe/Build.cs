@@ -9,11 +9,16 @@ static class Build
 {
     const float Margin = 0.015f;
 
-    // Triangles wind counter-clockwise seen from their front (right-handed, Y up).
+    /// <summary>Replace template geometry with counter-clockwise triangles in right-handed, Y-up space.</summary>
     public static void ReplaceGeometry(IHavokObject root, IReadOnlyList<Vector3> vertices, IReadOnlyList<(int A, int B, int C)> triangles, string bodyName)
     {
         int n = triangles.Count;
-        if (n is < 1 or > 16) throw new ArgumentOutOfRangeException(nameof(triangles), "spike handles 1–16 triangles: up to four SIMD leaves");
+        if (n < 1) throw new ArgumentOutOfRangeException(nameof(triangles), "a mesh needs triangles");
+        // lazy: one shared-vertex page; add paging or packed vertices when a part exceeds 65,536 vertices.
+        if (vertices.Count is < 1 or > 65536) throw new ArgumentOutOfRangeException(nameof(vertices), "spike handles 1–65,536 vertices per part");
+        foreach (var v in vertices)
+            if (!float.IsFinite(v.X) || !float.IsFinite(v.Y) || !float.IsFinite(v.Z))
+                throw new ArgumentException("mesh positions must be finite", nameof(vertices));
         dynamic scene = ((hkRootLevelContainer)root).m_namedVariants[0].m_variant!;
         dynamic body = scene.m_systemDatas[0].m_bodyCinfos[0];
         body.m_name = bodyName;
@@ -23,76 +28,95 @@ static class Build
 
         var lo = vertices.Aggregate(Vector3.Min); var hi = vertices.Aggregate(Vector3.Max);
         var domain = new hkAabb { m_min = new Vector4(lo - new Vector3(Margin), 1 - Margin), m_max = new Vector4(hi + new Vector3(Margin), 1 + Margin) };
-        int bits = BitsFor(n) + 1;
+        var extent = domain.m_max - domain.m_min;
+        if (!float.IsFinite(extent.X) || !float.IsFinite(extent.Y) || !float.IsFinite(extent.Z)
+            || extent.X <= 0 || extent.Y <= 0 || extent.Z <= 0)
+            throw new ArgumentException("mesh extent is not representable", nameof(vertices));
 
         tree.m_packedVertices.Clear();
         tree.m_sharedVertices.Clear();
         tree.m_sharedVertices.AddRange(vertices.Select(v => PackShared(v, domain)));
         tree.m_sharedVerticesIndex.Clear();
-        tree.m_sharedVerticesIndex.AddRange(Enumerable.Range(0, vertices.Count).Select(i => (ushort)i));
         tree.m_primitives.Clear();
-        foreach (var (a, b, c) in triangles)
-        {
-            var p = new Primitive(); p.m_indices[0] = (byte)a; p.m_indices[1] = (byte)b; p.m_indices[2] = (byte)c; p.m_indices[3] = (byte)c;
-            tree.m_primitives.Add(p);
-        }
         tree.m_primitiveDataRuns.Clear();
-        tree.m_primitiveDataRuns.Add(new hkcdDefaultStaticMeshTree.PrimitiveDataRun { m_value = 0xFFFF, m_index = 0, m_count = (byte)n });
+        tree.m_sections.Clear();
+        var primitiveKeys = new uint[n];
+        for (int first = 0; first < n;)
+        {
+            int sectionIndex = tree.m_sections.Count;
+            if (sectionIndex == 32768) throw new ArgumentOutOfRangeException(nameof(triangles), "top tree has at most 32,768 section leaves");
+            var section = new Section
+            {
+                m_firstSharedVertexIndex = (uint)tree.m_sharedVerticesIndex.Count,
+                m_firstPrimitiveIndex = (uint)first,
+                m_firstDataRunIndex = (uint)tree.m_primitiveDataRuns.Count,
+                m_numDataRuns = 1,
+                m_domain = Copy(domain),
+            };
+            var local = new Dictionary<int, byte>();
+            int end = first;
+            while (end < n && end - first < 127)
+            {
+                var (a, b, c) = triangles[end];
+                int[] corners = [a, b, c];
+                foreach (int index in corners)
+                    if ((uint)index >= vertices.Count) throw new ArgumentException($"triangle {end} has an invalid vertex index", nameof(triangles));
+                if (local.Count + corners.Distinct().Count(i => !local.ContainsKey(i)) > 256) break;
+                foreach (int index in corners)
+                    if (!local.ContainsKey(index))
+                    {
+                        local.Add(index, checked((byte)local.Count));
+                        tree.m_sharedVerticesIndex.Add(checked((ushort)index));
+                    }
+                var primitive = new Primitive();
+                primitive.m_indices[0] = local[a]; primitive.m_indices[1] = local[b];
+                primitive.m_indices[2] = primitive.m_indices[3] = local[c];
+                tree.m_primitives.Add(primitive);
+                primitiveKeys[end] = (uint)((sectionIndex << 8) | ((end - first) << 1));
+                end++;
+            }
+            section.m_numPrimitives = checked((byte)(end - first));
+            AddSectionNodes(section.m_nodes, 0, end - first);
+            tree.m_sections.Add(section);
+            tree.m_primitiveDataRuns.Add(new hkcdDefaultStaticMeshTree.PrimitiveDataRun
+                { m_value = 0xFFFF, m_index = 0, m_count = section.m_numPrimitives });
+            first = end;
+        }
+        uint maxKey = primitiveKeys[^1];
+        int bits = Math.Max(1, BitsFor(checked((int)maxKey + 1)));
         tree.m_numPrimitiveKeys = n;
         tree.m_bitsPerKey = bits;
-        tree.m_maxKeyValue = (uint)((n - 1) << 1);
-
-        var section = tree.m_sections[0];
-        tree.m_sections.Clear();
-        tree.m_sections.Add(section);
-        section.m_firstPackedVertexIndex = 0; section.m_firstSharedVertexIndex = 0;
-        section.m_firstPrimitiveIndex = 0; section.m_firstDataRunIndex = 0;
-        section.m_numPackedVertices = 0; section.m_numPrimitives = (byte)n; section.m_numDataRuns = 1;
-        section.m_leafIndex = 0;
-        section.m_domain = Copy(domain);
-        section.m_nodes.Clear();
-        AddSectionNodes(section.m_nodes, 0, n);
+        tree.m_maxKeyValue = maxKey;
 
         tree.m_nodes.Clear();
-        tree.m_nodes.Add(new Aabb5());
+        AddTopNodes(tree.m_nodes, tree.m_sections, 0, tree.m_sections.Count);
         tree.m_domain = Copy(domain);
 
-        // SIMD tree: an empty node 0, a root whose slots hold up to four leaves, each leaf a box per triangle.
+        // Node zero is the sentinel; node one remains an inner root even for a small mesh.
         var simd = data.m_simdTree.m_nodes;
         simd.Clear();
         simd.Add(EmptyNode(false));
-        var rootNode = EmptyNode(false);
-        simd.Add(rootNode);
-        for (int first = 0, slot = 0; first < n; first += 4, slot++)
-        {
-            var leaf = EmptyNode(true);
-            var leafLo = new Vector3(float.MaxValue); var leafHi = new Vector3(-float.MaxValue);
-            for (int i = first; i < Math.Min(n, first + 4); i++)
-            {
-                var (a, b, c) = triangles[i];
-                var tlo = Vector3.Min(Vector3.Min(vertices[a], vertices[b]), vertices[c]);
-                var thi = Vector3.Max(Vector3.Max(vertices[a], vertices[b]), vertices[c]);
-                leaf.m_data[i - first] = (uint)(i << 1);
-                SetSlot(leaf, i - first, tlo, thi);
-                leafLo = Vector3.Min(leafLo, tlo); leafHi = Vector3.Max(leafHi, thi);
-            }
-            rootNode.m_data[slot] = (uint)simd.Count;
-            SetSlot(rootNode, slot, leafLo, leafHi);
-            simd.Add(leaf);
-        }
+        // Include quantisation error as well as the collision margin in each SIMD box.
+        var padding = new Vector3(Margin) + new Vector3(extent.X / 2097151f, extent.Y / 2097151f, extent.Z / 4194303f);
+        var boxes = triangles.Select(t => (
+            Lo: Vector3.Min(Vector3.Min(vertices[t.A], vertices[t.B]), vertices[t.C]) - padding,
+            Hi: Vector3.Max(Vector3.Max(vertices[t.A], vertices[t.B]), vertices[t.C]) + padding)).ToArray();
+        AddSimdNodes(simd, boxes, primitiveKeys, 0, n, true);
         data.m_simdTree.m_isCompact = true;
         data.m_hasSimdTree = true;
         data.m_connectivity.m_headers.Clear(); data.m_connectivity.m_localLinks.Clear(); data.m_connectivity.m_globalLinks.Clear();
+        shape.m_externShapes.Clear();
 
         shape.m_numShapeKeyBits = (byte)bits;
         List<uint> keys = shape.m_triangleIndexToShapeKey;
         keys.Clear();
         uint low = (1u << (32 - bits)) - 1;
-        for (int i = 0; i < n; i++) keys.Add(((uint)(i << 1) << (32 - bits)) | low);
+        foreach (uint key in primitiveKeys) keys.Add((key << (32 - bits)) | low);
         dynamic interior = shape.m_triangleIsInterior;
-        interior.m_storage.m_numBits = 2 * n - 1;
+        int bitCount = checked((int)maxKey + 1);
+        interior.m_storage.m_numBits = bitCount;
         interior.m_storage.m_words.Clear();
-        for (int i = 0; i < (2 * n - 1 + 31) / 32; i++) interior.m_storage.m_words.Add(0u);
+        for (int i = 0; i < (bitCount + 31) / 32; i++) interior.m_storage.m_words.Add(0u);
 
         var param = (fsnpCustomMeshParameter)shape.m_pParam;
         param.m_triangleDataArray.Clear();
@@ -118,8 +142,8 @@ static class Build
         return Q(v.X, d.m_min.X, d.m_max.X, 21) | Q(v.Y, d.m_min.Y, d.m_max.Y, 21) << 21 | Q(v.Z, d.m_min.Z, d.m_max.Z, 22) << 42;
     }
 
-    // Depth first; a leaf stores its primitive index doubled, an inner node half the distance to its right child, plus one.
-    // Zero boxes mean "same as parent", which is loose but always encloses.
+    // A leaf stores its primitive index doubled; an inner node stores its right-child distance with bit zero set.
+    // lazy: scalar trees keep their parent's box; tighten m_xyz when whole-map play exposes traversal cost.
     static void AddSectionNodes(List<Aabb4> nodes, int first, int count)
     {
         var node = new Aabb4();
@@ -131,11 +155,48 @@ static class Build
         AddSectionNodes(nodes, first + left, count - left);
     }
 
+    static void AddTopNodes(List<Aabb5> nodes, List<Section> sections, int first, int count)
+    {
+        int at = nodes.Count;
+        var node = new Aabb5();
+        nodes.Add(node);
+        if (count == 1)
+        {
+            node.m_hiData = checked((byte)(first >> 8));
+            node.m_loData = (byte)(first & 255);
+            sections[first].m_leafIndex = checked((ushort)at);
+            return;
+        }
+        int left = count / 2;
+        node.m_hiData = (byte)(128 | (left >> 8));
+        node.m_loData = (byte)(left & 255);
+        AddTopNodes(nodes, sections, first, left);
+        AddTopNodes(nodes, sections, first + left, count - left);
+    }
+
     static hkcdSimdTree.Node EmptyNode(bool leaf)
     {
         var node = new hkcdSimdTree.Node { m_isLeaf = leaf };
         for (int i = 0; i < 4; i++) SetSlot(node, i, new Vector3(float.MaxValue), new Vector3(-float.MaxValue));
         return node;
+    }
+
+    static (Vector3 Lo, Vector3 Hi) AddSimdNodes(List<hkcdSimdTree.Node> nodes,
+        (Vector3 Lo, Vector3 Hi)[] boxes, uint[] keys, int first, int count, bool root = false)
+    {
+        var node = EmptyNode(count <= 4 && !root);
+        nodes.Add(node);
+        var lo = new Vector3(float.MaxValue); var hi = new Vector3(-float.MaxValue);
+        int step = node.m_isLeaf ? 1 : (count + 3) / 4;
+        for (int at = first, slot = 0; at < first + count; at += step, slot++)
+        {
+            node.m_data[slot] = node.m_isLeaf ? keys[at] : (uint)nodes.Count;
+            var box = node.m_isLeaf ? boxes[at]
+                : AddSimdNodes(nodes, boxes, keys, at, Math.Min(step, first + count - at));
+            SetSlot(node, slot, box.Lo, box.Hi);
+            lo = Vector3.Min(lo, box.Lo); hi = Vector3.Max(hi, box.Hi);
+        }
+        return (lo, hi);
     }
 
     static void SetSlot(hkcdSimdTree.Node node, int i, Vector3 lo, Vector3 hi)
