@@ -46,7 +46,7 @@ if (paths.Length > 0 && paths[0] == "cagetest")
         foreach (var (p, q, r) in new[] { (a, b, c), (a, c, d) })
             yield return System.Numerics.Vector3.Dot(System.Numerics.Vector3.Cross(q - p, r - p), facing) > 0 ? (p, q, r) : (p, r, q);
     }
-    float w = 3, top = y0 + 10, bottom = y0 - 1;
+    float w = float.Parse(Environment.GetEnvironmentVariable("AOG_CAGE") ?? "10"), top = y0 + 10, bottom = y0 - 1;
     var shapes = new[]
     {
         Quad(V(-w, bottom, w), V(w, bottom, w), V(w, top, w), V(-w, top, w), -System.Numerics.Vector3.UnitZ)          // north wall, facing in
@@ -54,7 +54,7 @@ if (paths.Length > 0 && paths[0] == "cagetest")
         Quad(V(w, bottom, -w), V(w, bottom, w), V(w, top, w), V(w, top, -w), -System.Numerics.Vector3.UnitX)           // east and west walls
             .Concat(Quad(V(-w, bottom, -w), V(-w, bottom, w), V(-w, top, w), V(-w, top, -w), System.Numerics.Vector3.UnitX)).ToList(),
         Quad(V(-20, y0, -20), V(20, y0, -20), V(20, y0, 20), V(-20, y0, 20), up)                                     // floor
-            .Concat(Quad(V(-2, y0, 3), V(2, y0, 3), V(2, y0 + 5, 13), V(-2, y0 + 5, 13), up)).ToList(),               // ramp
+            .Concat(Quad(V(-2, y0, -6), V(2, y0, -6), V(2, y0 + 3, 6), V(-2, y0 + 3, 6), up)).ToList(),                // ramp, inside the cage, rising 3 m over 12 m
     };
 
     var writer = new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer();
