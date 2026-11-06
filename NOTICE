@@ -1,0 +1,20 @@
+Age of Gold — NOTICE
+
+Copyright (c) 2026 Riley Lum.
+
+An open-source licence has deliberately not yet been chosen for Age of Gold;
+it is all-rights-reserved for now. See docs/core.md.
+
+Trademarks
+----------
+Dark Souls and Elden Ring are trademarks of their respective owners, including
+FromSoftware, Inc. and Bandai Namco Entertainment Inc. Age of Gold is an
+unofficial fan project, not affiliated with or endorsed by either.
+
+Clean-room posture
+------------------
+This repository and every release of Age of Gold contain only our own code and
+data. No file, asset, text, executable code or decompiled code from either
+game is included. The tool reads the player's own installed copies of both
+games, on the player's machine, and writes the mod there; that output is never
+distributed.

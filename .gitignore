@@ -1,0 +1,8 @@
+HANDOFF.md
+.env
+
+# Game data never enters the repository: builds, caches and anything unpacked
+# from an install stay local.
+/build/
+/cache/
+/unpacked/
