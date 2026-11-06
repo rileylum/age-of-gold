@@ -26,6 +26,81 @@ foreach (var bhd in archives)
 byte[] Get(string path) =>
     index.TryGetValue(Hash(path), out var hit) ? ReadFile(hit.Bdt, hit.Entry) : throw new FileNotFoundException(path);
 
+if (paths.Length > 0 && paths[0] == "floortest")
+{
+    // Every high-detail collision part in the Chapel of Anticipation becomes our floor and ramp.
+    SoulsFormats.Oodle.SearchPaths.Add(game);
+    var outDir = paths[1];
+    BxfIn("m18_00_00_00", out var tmplBxf);
+    var tmplSer = Serializer(tmplBxf);
+    var template = tmplBxf.Files.First(f => f.Name.EndsWith("_900000.hkx.dcx")).Bytes;
+
+    var spawn = SoulsFormats.MSBE.Read(Get("map/mapstudio/m10_01_00_00.msb.dcx")).Parts.Players.Single(p => p.Name == "c0000_0000").Position;
+    float y0 = spawn.Y - 0.1f, y1 = y0 + 5;
+    System.Numerics.Vector3 V(float dx, float y, float dz) => new(spawn.X + dx, y, spawn.Z + dz);
+    var verts = new[] { V(-20, y0, -20), V(20, y0, -20), V(20, y0, 20), V(-20, y0, 20),   // floor, 40 m square
+                        V(-2, y0, 3), V(2, y0, 3), V(2, y1, 13), V(-2, y1, 13) };          // ramp, 4 m wide, rising 5 m over 10 m
+    var tris = new[] { (0, 3, 2), (0, 2, 1), (4, 7, 6), (4, 6, 5) };
+    foreach (var (a, b, c) in tris)
+        if (System.Numerics.Vector3.Cross(verts[b] - verts[a], verts[c] - verts[a]).Y <= 0) throw new InvalidOperationException("triangle faces down");
+
+    var chapel = BxfIn("m10_01_00_00", out var bxf);
+    var writer = new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer();
+    foreach (var f in bxf.Files.Where(f => !f.Name.EndsWith(".compendium.dcx")))
+    {
+        var root = tmplSer.Read(new MemoryStream(SoulsFormats.DCX.Decompress(template)));
+        var id = System.Text.RegularExpressions.Regex.Match(f.Name, @"_(\d{6})\.hkx").Groups[1].Value;
+        Build.ReplaceGeometry(root, verts, tris, "h" + id);
+        var ms = new MemoryStream();
+        writer.Write(root, ms);
+        var hkx = ms.ToArray();
+        var back = new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer().Read(new MemoryStream(hkx));
+        Console.Write($"  {Path.GetFileName(f.Name.Replace('\\', '/'))}: {hkx.Length} bytes, reads back as");
+        Summary(back);
+        SoulsFormats.DCX.Decompress(f.Bytes, out var dcx);
+        f.Bytes = SoulsFormats.DCX.Compress(hkx, dcx);
+    }
+    var mapDir = Path.Combine(outDir, "mod", "map", "m10", "m10_01_00_00");
+    Directory.CreateDirectory(mapDir);
+    bxf.Write(Path.Combine(mapDir, "h10_01_00_00.hkxbhd"), Path.Combine(mapDir, "h10_01_00_00.hkxbdt"));
+    File.WriteAllText(Path.Combine(outDir, "age-of-gold-floortest.me3"), """
+        profileVersion = "v1"
+        savefile = "AgeOfGoldSpike.sl2"
+
+        [[supports]]
+        game = "eldenring"
+
+        [[packages]]
+        path = 'mod/'
+        """);
+    Console.WriteLine($"wrote {mapDir}");
+    return;
+}
+
+SoulsFormats.BXF4 BxfIn(string map, out SoulsFormats.BXF4 bxf)
+{
+    var dir = $"map/{map[..3]}/{map}";
+    return bxf = SoulsFormats.BXF4.Read(Get($"{dir}/h{map[1..]}.hkxbhd"), Get($"{dir}/h{map[1..]}.hkxbdt"));
+}
+
+static HKLib.Serialization.hk2018.Binary.HavokBinarySerializer Serializer(SoulsFormats.BXF4 bxf)
+{
+    var s = new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer();
+    s.LoadCompendium(new MemoryStream(SoulsFormats.DCX.Decompress(bxf.Files.First(f => f.Name.EndsWith(".compendium.dcx")).Bytes)));
+    return s;
+}
+
+if (paths.Length > 0 && paths[0] == "msb")
+{
+    SoulsFormats.Oodle.SearchPaths.Add(game);
+    var msb = SoulsFormats.MSBE.Read(Get($"map/mapstudio/{paths[1]}.msb.dcx"));
+    Console.WriteLine($"players {msb.Parts.Players.Count}  collisions {msb.Parts.Collisions.Count}  mapPieces {msb.Parts.MapPieces.Count}  assets {msb.Parts.Assets.Count}  enemies {msb.Parts.Enemies.Count}");
+    foreach (var pl in msb.Parts.Players) Console.WriteLine($"  player {pl.Name} model {pl.ModelName} at {pl.Position} rot {pl.Rotation}");
+    foreach (var c in msb.Parts.Collisions.Where(c => paths.Length < 3 || c.ModelName.Contains(paths[2])))
+        Console.WriteLine($"  collision {c.Name} model {c.ModelName} at {c.Position} rot {c.Rotation}");
+    return;
+}
+
 if (paths.Length > 0 && paths[0] == "collision")
 {
     SoulsFormats.Oodle.SearchPaths.Add(game);
@@ -38,7 +113,7 @@ if (paths.Length > 0 && paths[0] == "collision")
     var serializer = new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer();
     var comp = bxf.Files.First(f => f.Name.EndsWith(".compendium.dcx"));
     serializer.LoadCompendium(new MemoryStream(SoulsFormats.DCX.Decompress(comp.Bytes)));
-    foreach (var f in bxf.Files.Where(f => f != comp).Take(int.Parse(Environment.GetEnvironmentVariable("AOG_TAKE") ?? "3")))
+    foreach (var f in bxf.Files.Where(f => f != comp).Take(int.Parse(Environment.GetEnvironmentVariable("AOG_TAKE") ?? "41")))
     {
         var raw = SoulsFormats.DCX.Decompress(f.Bytes, out var dcx);
         var name = Path.GetFileName(f.Name.Replace('\\', '/'));
@@ -47,8 +122,10 @@ if (paths.Length > 0 && paths[0] == "collision")
         try
         {
             var compendium = serializer.ReadAllObjects(new MemoryStream(raw));
-            foreach (var o in compendium.Take(12)) Console.WriteLine($"    {o.GetType().Name}");
-            if (Environment.GetEnvironmentVariable("AOG_DUMP") is not null) new HKLib.Serialization.hk2018.Xml.HavokXmlSerializer().Write(compendium.First(), Path.Combine(outDir, name.Replace(".hkx.dcx", ".xml")));
+            if (Environment.GetEnvironmentVariable("AOG_SUMMARY") is not null) { Summary(compendium.First()); continue; }
+            if (Environment.GetEnvironmentVariable("AOG_INSPECT") is { } want && name.Contains(want)) Inspect.Dump(compendium.First(), "    ");
+            else foreach (var o in compendium.Take(12)) Console.WriteLine($"    {o.GetType().Name}");
+            if (Environment.GetEnvironmentVariable("AOG_DUMP") is { } dump && name.Contains(dump)) new HKLib.Serialization.hk2018.Xml.HavokXmlSerializer().Write(compendium.First(), Path.Combine(outDir, name.Replace(".hkx.dcx", ".xml")));
         }
         catch (Exception ex) { Console.WriteLine($"    HKLib: {ex.GetType().Name}: {ex.Message}"); }
     }
@@ -61,6 +138,17 @@ foreach (var p in paths)
     var data = ReadFile(hit.Bdt, hit.Entry);
     var magic = Encoding.ASCII.GetString(data, 0, 4).Replace('\0', '.');
     Console.WriteLine($"HIT  {p}  in {Path.GetFileName(hit.Bdt)}  {hit.Entry.Size} bytes  magic '{magic}'");
+}
+
+static void Summary(HKLib.hk2018.IHavokObject root)
+{
+    dynamic scene = ((HKLib.hk2018.hkRootLevelContainer)root).m_namedVariants[0].m_variant!;
+    dynamic body = scene.m_systemDatas[0].m_bodyCinfos[0];
+    dynamic shape = body.m_shape;
+    dynamic tree = shape.m_data.m_meshTree;
+    int sections = tree.m_sections.Count;
+    int maxSecNodes = 0; foreach (var s in tree.m_sections) maxSecNodes = Math.Max(maxSecNodes, (int)s.m_nodes.Count);
+    Console.WriteLine($"    bodies {scene.m_systemDatas[0].m_bodyCinfos.Count}  sections {sections}  prims {tree.m_primitives.Count}  packed {tree.m_packedVertices.Count}  shared {tree.m_sharedVertices.Count}  topNodes {tree.m_nodes.Count}  maxSectionNodes {maxSecNodes}  simd {shape.m_data.m_hasSimdTree}  tris {shape.m_pParam.m_triangleDataArray.Count}");
 }
 
 static IEnumerable<RSAParameters> PemKeys(string text)
