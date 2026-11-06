@@ -58,11 +58,26 @@ if (paths.Length > 0 && paths[0] == "cagetest")
     };
 
     var writer = new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer();
-    foreach (var detail in new[] { "h", "l" })
+    // AOG_SETS names the sets that get the cage; AOG_ROUNDTRIP rewrites the originals unchanged instead.
+    var cageSets = (Environment.GetEnvironmentVariable("AOG_SETS") ?? "h,l").Split(',', StringSplitOptions.RemoveEmptyEntries);
+    bool roundTrip = Environment.GetEnvironmentVariable("AOG_ROUNDTRIP") is not null;
+    foreach (var detail in roundTrip ? new[] { "h", "l" } : cageSets)
     {
         var bxf = BxfIn("m10_01_00_00", detail);
         int k = 0;
-        foreach (var f in bxf.Files.Where(f => !f.Name.EndsWith(".compendium.dcx")))
+        if (roundTrip)
+        {
+            var own = Serializer(bxf);
+            foreach (var f in bxf.Files.Where(f => !f.Name.EndsWith(".compendium.dcx")))
+            {
+                var raw = SoulsFormats.DCX.Decompress(f.Bytes, out var info);
+                var ms = new MemoryStream();
+                writer.Write(own.Read(new MemoryStream(raw)), ms);
+                f.Bytes = SoulsFormats.DCX.Compress(ms.ToArray(), info);
+                k++;
+            }
+        }
+        else foreach (var f in bxf.Files.Where(f => !f.Name.EndsWith(".compendium.dcx")))
         {
             var tris = shapes[k++ % shapes.Length];
             var verts = tris.SelectMany(t => new[] { t.Item1, t.Item2, t.Item3 }).ToList();
@@ -79,7 +94,7 @@ if (paths.Length > 0 && paths[0] == "cagetest")
         var mapDir = Path.Combine(outDir, "mod", "map", "m10", "m10_01_00_00");
         Directory.CreateDirectory(mapDir);
         bxf.Write(Path.Combine(mapDir, $"{detail}10_01_00_00.hkxbhd"), Path.Combine(mapDir, $"{detail}10_01_00_00.hkxbdt"));
-        Console.WriteLine($"{detail}10_01_00_00: {k} parts replaced");
+        Console.WriteLine($"{detail}10_01_00_00: {k} parts {(roundTrip ? "rewritten unchanged" : "replaced")}");
     }
     File.WriteAllText(Path.Combine(outDir, "age-of-gold-cagetest.me3"), """
         profileVersion = "v1"
