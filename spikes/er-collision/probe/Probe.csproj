@@ -4,5 +4,12 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
   </PropertyGroup>
+  <!-- Spike only: libraries live outside the repository, see docs/research. -->
+  <ItemGroup>
+    <ProjectReference Include="$(HOME)/dev/tmp/aog-spike-tools/SoulsFormatsNEXT/SoulsFormats/SoulsFormats.csproj" />
+    <ProjectReference Include="$(HOME)/dev/tmp/aog-spike-tools/HKLib/HKLib.Serialization/HKLib.Serialization.csproj" />
+  </ItemGroup>
 </Project>

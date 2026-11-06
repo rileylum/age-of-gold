@@ -23,6 +23,38 @@ foreach (var bhd in archives)
     foreach (var e in entries) index[e.Hash] = (Path.ChangeExtension(bhd, ".bdt"), e);
 }
 
+byte[] Get(string path) =>
+    index.TryGetValue(Hash(path), out var hit) ? ReadFile(hit.Bdt, hit.Entry) : throw new FileNotFoundException(path);
+
+if (paths.Length > 0 && paths[0] == "collision")
+{
+    SoulsFormats.Oodle.SearchPaths.Add(game);
+    var map = paths[1];                       // e.g. m18_00_00_00
+    var dir = $"map/{map[..3]}/{map}";
+    var outDir = Path.Combine(paths.Length > 2 ? paths[2] : ".", map);
+    Directory.CreateDirectory(outDir);
+    var bxf = SoulsFormats.BXF4.Read(Get($"{dir}/h{map[1..]}.hkxbhd"), Get($"{dir}/h{map[1..]}.hkxbdt"));
+    Console.WriteLine($"h{map[1..]}: {bxf.Files.Count} files");
+    var serializer = new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer();
+    var comp = bxf.Files.First(f => f.Name.EndsWith(".compendium.dcx"));
+    serializer.LoadCompendium(new MemoryStream(SoulsFormats.DCX.Decompress(comp.Bytes)));
+    foreach (var f in bxf.Files.Where(f => f != comp).Take(int.Parse(Environment.GetEnvironmentVariable("AOG_TAKE") ?? "3")))
+    {
+        var raw = SoulsFormats.DCX.Decompress(f.Bytes, out var dcx);
+        var name = Path.GetFileName(f.Name.Replace('\\', '/'));
+        File.WriteAllBytes(Path.Combine(outDir, name.Replace(".dcx", "")), raw);
+        Console.WriteLine($"  {name}  {dcx}  {f.Bytes.Length} -> {raw.Length} bytes  magic '{System.Text.Encoding.ASCII.GetString(raw, 4, 4)}'");
+        try
+        {
+            var compendium = serializer.ReadAllObjects(new MemoryStream(raw));
+            foreach (var o in compendium.Take(12)) Console.WriteLine($"    {o.GetType().Name}");
+            if (Environment.GetEnvironmentVariable("AOG_DUMP") is not null) new HKLib.Serialization.hk2018.Xml.HavokXmlSerializer().Write(compendium.First(), Path.Combine(outDir, name.Replace(".hkx.dcx", ".xml")));
+        }
+        catch (Exception ex) { Console.WriteLine($"    HKLib: {ex.GetType().Name}: {ex.Message}"); }
+    }
+    return;
+}
+
 foreach (var p in paths)
 {
     if (!index.TryGetValue(Hash(p), out var hit)) { Console.WriteLine($"MISS {p}"); continue; }
@@ -36,9 +68,13 @@ static IEnumerable<RSAParameters> PemKeys(string text)
     const string begin = "-----BEGIN RSA PUBLIC KEY-----", end = "-----END RSA PUBLIC KEY-----";
     for (int at = text.IndexOf(begin); at >= 0; at = text.IndexOf(begin, at + 1))
     {
-        using var rsa = RSA.Create();
-        rsa.ImportFromPem(text.AsSpan(at, text.IndexOf(end, at) + end.Length - at));
-        yield return rsa.ExportParameters(false);
+        // Parsed with the managed ASN.1 reader: Wine's platform RSA import is unreliable.
+        var body = text[(at + begin.Length)..text.IndexOf(end, at)];
+        var der = Convert.FromBase64String(string.Concat(body.Where(c => !char.IsWhiteSpace(c))));
+        var seq = new System.Formats.Asn1.AsnReader(der, System.Formats.Asn1.AsnEncodingRules.DER).ReadSequence();
+        var n = seq.ReadIntegerBytes().ToArray().SkipWhile(b => b == 0).ToArray();
+        var e = seq.ReadIntegerBytes().ToArray();
+        yield return new RSAParameters { Modulus = n, Exponent = e };
     }
 }
 

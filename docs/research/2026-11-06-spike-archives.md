@@ -25,9 +25,40 @@ A snapshot as of 6 November 2026, from `spikes/er-collision/probe` run against R
   (`.nvmhktbnd.dcx`), `.nva.dcx`, map pieces (`_000000.mapbnd.dcx`) and lights (`_0000.btl.dcx`).
   Map layouts are at `map/mapstudio/mXX_YY_ZZ_WW.msb.dcx`.
 
-## Not yet proven
+## Proven with SoulsFormatsNEXT and HKLib, under Wine
 
-- Decompressing DCX files. Elden Ring uses Oodle Kraken, and the player's install has only the
-  Windows library, `oo2core_6_win64.dll`. A native Linux process cannot load it. Options: run the
-  tool, or a helper process for Oodle, under Wine/Proton; or find a licensed Linux Oodle.
-- Reading binders (BND4, BXF4) and the collision itself.
+For speed, the spike reads binders, DCX and Havok with SoulsFormatsNEXT (GPL-3.0, commit
+`e25d1a5`) and HKLib (MIT, commit `ac40bc9`), cloned outside the repository under
+`~/dev/tmp/aog-spike-tools/`. It is built as a self-contained `win-x64` program and run with Wine
+11.20. This settles nothing about decision 2.
+
+- Wine's platform RSA import mangles the keys; parsing the PEM with .NET's managed ASN.1 reader
+  works on both Linux and Wine.
+- The player's `oo2core_6_win64.dll` loads under Wine and decompresses Kraken DCX. SoulsFormatsNEXT
+  asks the library for `OodleCore_Plugins_SetPrintf`, which version 6 lacks; the local clone is
+  patched to skip it.
+- The Stranded Graveyard's high-detail collision binder holds 42 files: one
+  `h18_00_00_00.compendium.dcx` (shared Havok type information, magic `TCM0`) and one
+  `hkx.dcx` per collision part (Havok 2018 tagfiles, magic `TAG0`). The smallest part is 2.9 KB
+  uncompressed and the largest about 3 MB.
+- HKLib reads every part once the compendium is loaded. Each part is a physics scene:
+  `hknpPhysicsSceneData` holding one `hknpPhysicsSystemData` with materials, motion properties and
+  a body whose shape is FromSoftware's `fsnpCustomParamCompressedMeshShape`.
+
+## What the tool must build
+
+The shape is a Havok compressed mesh (`hknpCompressedMeshShape`) whose data,
+`hknpCompressedMeshShapeData`, holds:
+
+- a mesh tree: sections, each with a compressed bounding-box tree over its primitives
+  (`Aabb5BytesCodec`), vertices quantised per section (`packedVertices`), vertices shared across
+  sections (`sharedVertices`), and runs of primitive data;
+- optionally a SIMD tree (`hkcdSimdTree`) over the sections;
+- connectivity between triangles, and a bit field of interior triangles;
+
+plus FromSoftware's `fsnpCustomMeshParameter`: per-triangle and per-primitive data, which
+presumably carries the material (footstep sound, slipperiness) for each triangle.
+
+Building these from a triangle mesh is the open question: a bounding-volume tree, quantisation and
+FromSoftware's per-triangle data, all in shapes the game accepts. The smallest real part is the
+reference to compare against, locally, without committing it.
