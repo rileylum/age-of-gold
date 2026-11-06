@@ -304,7 +304,9 @@ static class FirelinkDemo
                 mesh.Vertices.Add(vertex);
             }
         }
-        mesh.FaceSets = [new FLVER2.FaceSet { CullBackfaces = false, Indices = Enumerable.Range(0, mesh.Vertices.Count).ToList() }];
+        // Visible host faces are clockwise relative to outward normals; collision uses the opposite order.
+        mesh.FaceSets = [new FLVER2.FaceSet { CullBackfaces = false,
+            Indices = Enumerable.Range(0, geometry.Triangles.Count).SelectMany(i => new[] { 3 * i, 3 * i + 2, 3 * i + 1 }).ToList() }];
         var lo = geometry.Vertices.Aggregate(Vector3.Min); var hi = geometry.Vertices.Aggregate(Vector3.Max);
         mesh.BoundingBox = new FLVER2.Mesh.BoundingBoxes { Min = lo, Max = hi };
         flver.Header.BoundingBoxMin = lo; flver.Header.BoundingBoxMax = hi;
@@ -321,11 +323,23 @@ static class FirelinkDemo
             throw new InvalidDataException("Visible terrain triangle count changed");
         for (int i = 0; i < mesh.Vertices.Count; i++)
         {
-            if (written.Vertices[i].Position != mesh.Vertices[i].Position || written.FaceSets[0].Indices[i] != i)
+            if (written.Vertices[i].Position != mesh.Vertices[i].Position)
                 throw new InvalidDataException("Visible terrain geometry changed");
             if (written.Vertices[i].Colors.Count == 0 || written.Vertices[i].Colors.Any(
                 color => color.A != 1f || color.R != 1f || color.G != 1f || color.B != 1f))
                 throw new InvalidDataException("Diagnostic terrain must read back with opaque white vertex colours");
+        }
+        var indices = written.FaceSets.Single().Indices;
+        for (int i = 0; i < indices.Count; i += 3)
+        {
+            if (!indices.Skip(i).Take(3).Order().SequenceEqual(Enumerable.Range(i, 3)))
+                throw new InvalidDataException("Visible terrain triangle corners changed");
+            var a = written.Vertices[indices[i]];
+            var b = written.Vertices[indices[i + 1]];
+            var c = written.Vertices[indices[i + 2]];
+            if (Vector3.Dot(Vector3.Cross(b.Position - a.Position, c.Position - a.Position),
+                a.Normal + b.Normal + c.Normal) >= 0)
+                throw new InvalidDataException("Visible terrain must use clockwise faces relative to its outward normals");
         }
     }
 }
