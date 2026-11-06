@@ -1,4 +1,4 @@
-**Goal.** Dark Souls: Age of Gold is a mod for Elden Ring that rebuilds Dark Souls's world and game in Elden Ring's engine. It is a mod, not a remake: it holds nothing from either game. It reads the player's own installed copies of both on the player's machine, so playing it needs both games bought and installed.
+**Goal.** Age of Gold is a Dark Souls mod for Elden Ring: it rebuilds Dark Souls's world and game in Elden Ring's engine. It is a mod, not a remake: it holds nothing from either game. It reads the player's own installed copies of both on the player's machine, so playing it needs both games bought and installed.
 
 - Faithful: Lordran is the world Dark Souls built, place for place: its maps, its connections, its enemies, items and events where Dark Souls put them.
 - Clean: the repository and every release contain only our own code and data. Nothing from either game is ever copied into them.
@@ -23,7 +23,7 @@
 2. Both games must be installed. The tool refuses to build without a readable install of each and names what it could not find.
 3. Neither install is written to. The tool opens game files read-only and writes only into the build directory and its own cache.
 4. Offline only. The build is only loaded with Elden Ring's anti-cheat off and the game offline, as the mod loader runs it. Nothing we ship connects a modded game to FromSoftware's servers, and the README says so.
-5. Unlicensed for now. All rights are reserved. Choosing an open-source licence is a later, reversible decision. `NOTICE` records the trademarks and the clean-room posture.
+5. Neither game's name is part of the project's name, logo or anything that could suggest it is official; the names appear only to describe what the mod works with. Unlicensed for now. All rights are reserved. Choosing an open-source licence is a later, reversible decision. `NOTICE` records the trademarks and the clean-room posture.
 6. Runtime dependencies are few, and each is a logged decision; so is every third-party tool the build runs.
 
 **Technology.** Not decided; the first code decision sets it. The community's tools and libraries for FromSoftware formats, and Elden Ring's mod loaders, are the first candidates, each checked for licence and for whether it can be used without copying game data. Riley develops on Linux, where both games run under Proton; most players are on Windows. Both are supported unless a decision says otherwise.

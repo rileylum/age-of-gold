@@ -1,8 +1,8 @@
-# Dark Souls: Age of Gold — agent guide
+# Age of Gold — agent guide
 
-Dark Souls: Age of Gold is a mod for Elden Ring that rebuilds Dark Souls's world and game in
-Elden Ring's engine, reading both games from the player's own installs. Riley is the owner.
-"Age of Gold" alone is fine in prose.
+Age of Gold is a Dark Souls mod for Elden Ring: it rebuilds Dark Souls's world and game in Elden
+Ring's engine, reading both games from the player's own installs. Riley is the owner. The name
+never includes either game's name; they appear only to describe what the mod works with.
 
 Read `docs/core.md` first: goal, scope, proof, principles, constraints, open decisions, language
 and roadmap. Use its language exactly, including the words it rules out. Then read `HANDOFF.md`,
