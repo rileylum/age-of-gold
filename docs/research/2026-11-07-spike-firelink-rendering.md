@@ -130,6 +130,51 @@ terrain between an estimated starting camera position and the three sample centr
 not establish actual camera framing or visibility.
 
 The offline play profile is `/tmp/aog-firelink-samples/age-of-gold-firelink.me3`, using the same
-separate save. New Game places the player facing the row. Riley's result is pending: which of
-the left, centre and right samples remain visible while moving and turning the camera?
-This checkpoint is a comparison, not another claim to have fixed terrain visibility.
+separate save. New Game places the player facing the row. Riley reported that the left sample
+stays visible but is quite dark; the centre is almost always hidden; the right looks correctly
+shaded but disappears before it leaves the screen. Two screenshots illustrate the premature
+disappearance and remain outside the repository. This narrows attention to model placement and
+mesh culling bounds, while the native sample's darkness may be a separate shading issue.
+
+## Mesh culling bounds
+
+The comparison exposed a format interpretation error in our writer. In the checked host
+FLVER version (`0x2001A`), the library's mesh-bound fields have these meanings:
+
+| Library property | Meaning observed in the host model |
+|---|---|
+| `Min` | Half-extents along the box's own axes |
+| `Max` | Euler rotation in radians, applied Z, X, Y |
+| `Unk` | Box centre in model coordinates |
+
+Reading both native meshes and transforming their vertices into that box frame encloses
+every vertex within floating-point rounding. Comparing rotation orders identified Z-X-Y;
+treating the first vector as full size instead of half-extents cannot enclose the meshes.
+This comes from the player's model data and ordinary geometry calculations, without reading
+executable or shader code. The library's property names and comments had led us to write
+corner coordinates and leave the box centre at zero. That explains why our bounds did not
+follow the visible geometry, though the play check is still required to confirm the symptom.
+
+Generated meshes now use unrotated boxes centred on their geometry, with half-extents and a
+0.001-unit rounding margin. The centre comparison sample scales its native half-extents,
+translates its native centre and preserves rotation. Header and node bounds retain their
+existing minimum/maximum representation. Geometry, normals, colours and materials are unchanged.
+The writer rejects other FLVER versions rather than applying this interpretation to them.
+
+The new box decoder first passed both untouched native meshes. The old centre sample failed
+the corrected bound-transformation check, and the real terrain workflow failed on invalid
+half-extents before the encoding was fixed. Readback now checks enclosure of every generated
+vertex and the transformed native control, as well as the existing geometry and metadata checks.
+No new dependency was introduced; SoulsFormatsNEXT supplies the stored fields, and our own
+code performs the mapping and geometry checks.
+
+Both corrected full builds pass and all 50 files match byte for byte under
+`/tmp/aog-firelink-bounds` and `/tmp/aog-firelink-bounds-repeat`. A separate comparison of
+serialized models confirms that all 41 changed models differ only in mesh culling bounds.
+The left native control, map, collision, opening events and profile are unchanged. The report
+changes to record the new tool fingerprint. Publishing had no warnings.
+
+The offline profile is `/tmp/aog-firelink-bounds/age-of-gold-firelink.me3`, with the same
+separate save. Continuing the current test character is sufficient. Riley's play result is
+pending: do the ground and centre/right samples now remain visible while moving the camera?
+The native left sample's darkness has not been changed or diagnosed by this correction.

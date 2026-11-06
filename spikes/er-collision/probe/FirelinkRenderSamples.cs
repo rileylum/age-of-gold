@@ -9,6 +9,7 @@ static partial class FirelinkDemo
     {
         var nativeFile = BND4.Read(template).Files.Single(f => f.Name.EndsWith(".flver"));
         var native = FLVER2.Read(nativeFile.Bytes);
+        foreach (var nativeMesh in native.Meshes) CheckVisibleBounds(nativeMesh);
         if (native.Nodes.Count != 1 || native.Nodes[0].Translation != Vector3.Zero
             || native.Nodes[0].Rotation != Vector3.Zero || native.Nodes[0].Scale != Vector3.One
             || native.Meshes.Any(m => m.UseBoneWeights || m.BoundingBox is null
@@ -52,9 +53,9 @@ static partial class FirelinkDemo
                 foreach (var m in baked.Meshes)
                 {
                     foreach (var v in m.Vertices) v.Position = v.Position * scale + shift;
-                    // Transform the stored bounds as they are; this control preserves native metadata conventions.
-                    m.BoundingBox.Min = m.BoundingBox.Min * scale + shift;
-                    m.BoundingBox.Max = m.BoundingBox.Max * scale + shift;
+                    // Uniform scale changes half-extents; translation moves the centre, while rotation stays intact.
+                    m.BoundingBox.Min *= scale;
+                    m.BoundingBox.Unk = m.BoundingBox.Unk * scale + shift;
                 }
                 baked.Header.BoundingBoxMin = baked.Header.BoundingBoxMin * scale + shift;
                 baked.Header.BoundingBoxMax = baked.Header.BoundingBoxMax * scale + shift;
@@ -122,6 +123,7 @@ static partial class FirelinkDemo
         var baked = samples[1];
         if (baked.Meshes.Count != native.Meshes.Count || baked.Nodes.Count != native.Nodes.Count)
             throw new InvalidDataException("Baked render sample changed native structure");
+        foreach (var mesh in baked.Meshes) CheckVisibleBounds(mesh);
         for (int m = 0; m < native.Meshes.Count; m++)
         {
             if (baked.Meshes[m].Vertices.Count != native.Meshes[m].Vertices.Count)
@@ -133,8 +135,12 @@ static partial class FirelinkDemo
                     throw new InvalidDataException("Baked and placed render samples differ in geometry");
                 baked.Meshes[m].Vertices[v].Position = native.Meshes[m].Vertices[v].Position;
             }
-            CheckBounds(baked.Meshes[m].BoundingBox.Min, baked.Meshes[m].BoundingBox.Max,
-                native.Meshes[m].BoundingBox.Min, native.Meshes[m].BoundingBox.Max);
+            var box = baked.Meshes[m].BoundingBox;
+            var nativeBox = native.Meshes[m].BoundingBox;
+            var shift = placed.Position + centers[1] - centers[0];
+            if (Vector3.Distance(box.Min, nativeBox.Min * placed.Scale) > 0.001f || box.Max != nativeBox.Max
+                || Vector3.Distance(box.Unk, nativeBox.Unk * placed.Scale + shift) > 0.001f)
+                throw new InvalidDataException("Baked render sample must transform culling-box half-extents and centre, retaining rotation");
             baked.Meshes[m].BoundingBox = native.Meshes[m].BoundingBox;
         }
         CheckBounds(baked.Header.BoundingBoxMin, baked.Header.BoundingBoxMax, native.Header.BoundingBoxMin, native.Header.BoundingBoxMax);

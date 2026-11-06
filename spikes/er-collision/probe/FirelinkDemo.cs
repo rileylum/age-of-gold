@@ -284,6 +284,8 @@ static partial class FirelinkDemo
         var binder = BND4.Read(template);
         var file = binder.Files.Single(f => f.Name.EndsWith(".flver"));
         var flver = FLVER2.Read(file.Bytes);
+        if (flver.Header.Version != 0x2001A)
+            throw new InvalidDataException("Visible mesh culling bounds require the checked host FLVER version");
         var mesh = flver.Meshes[0];
         if (mesh.UseBoneWeights || flver.Nodes.Count != 1 || flver.Nodes[0].Translation != Vector3.Zero
             || flver.Nodes[0].Rotation != Vector3.Zero || flver.Nodes[0].Scale != Vector3.One)
@@ -311,7 +313,11 @@ static partial class FirelinkDemo
         mesh.FaceSets = [new FLVER2.FaceSet { CullBackfaces = false,
             Indices = Enumerable.Range(0, geometry.Triangles.Count).SelectMany(i => new[] { 3 * i, 3 * i + 2, 3 * i + 1 }).ToList() }];
         var lo = geometry.Vertices.Aggregate(Vector3.Min); var hi = geometry.Vertices.Aggregate(Vector3.Max);
-        mesh.BoundingBox = new FLVER2.Mesh.BoundingBoxes { Min = lo, Max = hi };
+        // The mesh box uses half-extents, Euler angles and centre; keep it unrotated with a small rounding margin.
+        mesh.BoundingBox = new FLVER2.Mesh.BoundingBoxes
+        {
+            Min = (hi - lo) / 2 + new Vector3(0.001f), Max = Vector3.Zero, Unk = (lo + hi) / 2,
+        };
         flver.Header.BoundingBoxMin = lo; flver.Header.BoundingBoxMax = hi;
         flver.Nodes[0].BoundingBoxMin = lo; flver.Nodes[0].BoundingBoxMax = hi;
         flver.Meshes = [mesh]; flver.Dummies.Clear();
@@ -322,6 +328,7 @@ static partial class FirelinkDemo
         binder.Write(path);
         var readback = FLVER2.Read(BND4.Read(path).Files.Single().Bytes);
         var written = readback.Meshes.Single();
+        CheckVisibleBounds(written);
         if (written.Vertices.Count != mesh.Vertices.Count || written.FaceSets.Single().Indices.Count != mesh.Vertices.Count)
             throw new InvalidDataException("Visible terrain triangle count changed");
         for (int i = 0; i < mesh.Vertices.Count; i++)
@@ -343,6 +350,25 @@ static partial class FirelinkDemo
             if (Vector3.Dot(Vector3.Cross(b.Position - a.Position, c.Position - a.Position),
                 a.Normal + b.Normal + c.Normal) >= 0)
                 throw new InvalidDataException("Visible terrain must use clockwise faces relative to its outward normals");
+        }
+    }
+
+    static void CheckVisibleBounds(FLVER2.Mesh mesh)
+    {
+        // In the checked host version, Min/Max/Unk store half-extents, Z-X-Y Euler angles and centre.
+        var box = mesh.BoundingBox;
+        if (box is null || new[] { box.Min, box.Max, box.Unk }.Any(v =>
+            !float.IsFinite(v.X) || !float.IsFinite(v.Y) || !float.IsFinite(v.Z))
+            || box.Min.X < 0 || box.Min.Y < 0 || box.Min.Z < 0)
+            throw new InvalidDataException("Visible mesh culling box requires finite, nonnegative half-extents");
+        var rotation = Matrix4x4.CreateRotationZ(box.Max.Z) * Matrix4x4.CreateRotationX(box.Max.X)
+            * Matrix4x4.CreateRotationY(box.Max.Y);
+        var inverse = Matrix4x4.Transpose(rotation);
+        foreach (var vertex in mesh.Vertices)
+        {
+            var local = Vector3.Abs(Vector3.TransformNormal(vertex.Position - box.Unk, inverse));
+            if (local.X > box.Min.X + 0.001f || local.Y > box.Min.Y + 0.001f || local.Z > box.Min.Z + 0.001f)
+                throw new InvalidDataException("Visible mesh culling box does not contain its vertices");
         }
     }
 }
