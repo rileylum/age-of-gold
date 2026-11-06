@@ -8,6 +8,32 @@ var game = args.Length > 0 ? args[0] : Environment.GetEnvironmentVariable("AOG_E
     ?? throw new ArgumentException("pass the Elden Ring Game directory or set AOG_ELDEN_RING");
 var paths = args.Skip(1).ToArray();
 
+if (paths.Length > 0 && paths[0] == "firelink-transformcheck")
+{
+    FirelinkDemo.CheckTransform();
+    return;
+}
+
+if (paths.Length > 0 && paths[0] == "firelink-layout")
+{
+    if (Environment.GetEnvironmentVariable("CI") is not null)
+        throw new InvalidOperationException("Install checks must never run in CI");
+    var source = Environment.GetEnvironmentVariable("AOG_DARK_SOULS_REMASTERED")
+        ?? throw new ArgumentException("set AOG_DARK_SOULS_REMASTERED");
+    var output = Path.GetFullPath(paths[1]);
+    foreach (var install in new[] { source, game })
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(install));
+        if (output.Equals(root, StringComparison.OrdinalIgnoreCase)
+            || output.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("output must be outside both installs");
+    }
+    using var host = File.OpenRead(Path.Combine(game, "eldenring.exe"));
+    if (host.ReadByte() < 0) throw new InvalidDataException("empty host executable");
+    FirelinkSource.Export(source, output);
+    return;
+}
+
 var exe = File.ReadAllBytes(Path.Combine(game, "eldenring.exe"));
 var keys = PemKeys(Encoding.Latin1.GetString(exe)).ToList();
 Console.WriteLine($"public keys found in executable: {keys.Count}");
@@ -25,6 +51,28 @@ foreach (var bhd in archives)
 
 byte[] Get(string path) =>
     index.TryGetValue(Hash(path), out var hit) ? ReadFile(hit.Bdt, hit.Entry) : throw new FileNotFoundException(path);
+
+if (paths.Length > 0 && paths[0] == "firelink-demo")
+{
+    if (Environment.GetEnvironmentVariable("CI") is not null)
+        throw new InvalidOperationException("Install checks must never run in CI");
+    var source = Environment.GetEnvironmentVariable("AOG_DARK_SOULS_REMASTERED")
+        ?? throw new ArgumentException("set AOG_DARK_SOULS_REMASTERED");
+    using var sourceHeader = File.OpenRead(Path.Combine(source, "map", "m10_02_00_00", "l10_02_00_00.hkxbhd"));
+    if (sourceHeader.ReadByte() < 0) throw new InvalidDataException("empty source collision header");
+    var output = Path.GetFullPath(paths[2]);
+    foreach (var install in new[] { source, game })
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(install));
+        if (output.Equals(root, StringComparison.OrdinalIgnoreCase)
+            || output.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("output must be outside both installs");
+    }
+    if (Directory.Exists(output) || File.Exists(output)) throw new ArgumentException("use a fresh output directory");
+    SoulsFormats.Oodle.SearchPaths.Add(game);
+    FirelinkDemo.Run(paths[1], output, Get);
+    return;
+}
 
 if (paths.Length > 0 && paths[0] == "geometrycheck")
 {
