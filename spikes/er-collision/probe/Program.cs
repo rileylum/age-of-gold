@@ -55,17 +55,31 @@ if (paths.Length > 0 && paths[0] == "geometrycheck")
 
 if (paths.Length > 0 && paths[0] == "cagetest")
 {
-    // Every collision part in the Chapel of Anticipation, high and low detail, becomes one of three
-    // shapes around the spawn point: two pairs of cage walls, or the floor and ramp.
+    if (Environment.GetEnvironmentVariable("CI") is not null)
+        throw new InvalidOperationException("Install checks must never run in CI");
+    var source = Environment.GetEnvironmentVariable("AOG_DARK_SOULS_REMASTERED")
+        ?? throw new ArgumentException("set AOG_DARK_SOULS_REMASTERED");
+    var outDir = Path.GetFullPath(paths[1]);
+    foreach (var install in new[] { source, game })
+    {
+        var installRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(install));
+        if (outDir.Equals(installRoot, StringComparison.OrdinalIgnoreCase)
+            || outDir.StartsWith(installRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("cage output must be outside both installs");
+    }
+    if (Directory.Exists(outDir) || File.Exists(outDir))
+        throw new ArgumentException("use a fresh cage output directory");
+    using var sourceHeader = File.OpenRead(Path.Combine(source, "map", "m10_02_00_00", "l10_02_00_00.hkxbhd"));
+    if (sourceHeader.ReadByte() < 0) throw new InvalidDataException("empty source collision header");
     SoulsFormats.Oodle.SearchPaths.Add(game);
-    var outDir = paths[1];
     // The template supplies physics settings and the triangle material; an ordinary part, not a 9xxxxx special one.
     var tmplSpec = (Environment.GetEnvironmentVariable("AOG_TEMPLATE") ?? "m10_01_00_00:l:001400").Split(':');
     var tmplBxf = BxfIn(tmplSpec[0], tmplSpec[1]);
     var tmplSer = Serializer(tmplBxf);
     var template = tmplBxf.Files.First(f => f.Name.EndsWith($"_{tmplSpec[2]}.hkx.dcx")).Bytes;
 
-    var s = SoulsFormats.MSBE.Read(Get("map/mapstudio/m10_01_00_00.msb.dcx")).Parts.Players.Single(p => p.Name == "c0000_0000").Position;
+    var layout = SoulsFormats.MSBE.Read(Get("map/mapstudio/m10_01_00_00.msb.dcx"));
+    var s = layout.Parts.Players.Single(p => p.Name == "c0000_0000").Position;
     float y0 = s.Y - 0.1f;
     System.Numerics.Vector3 V(float dx, float y, float dz) => new(s.X + dx, y, s.Z + dz);
     var up = System.Numerics.Vector3.UnitY;
@@ -75,7 +89,9 @@ if (paths.Length > 0 && paths[0] == "cagetest")
         foreach (var (p, q, r) in new[] { (a, b, c), (a, c, d) })
             yield return System.Numerics.Vector3.Dot(System.Numerics.Vector3.Cross(q - p, r - p), facing) > 0 ? (p, q, r) : (p, r, q);
     }
-    float w = float.Parse(Environment.GetEnvironmentVariable("AOG_CAGE") ?? "10"), top = y0 + 10, bottom = y0 - 1;
+    float w = float.Parse(Environment.GetEnvironmentVariable("AOG_CAGE") ?? "10", System.Globalization.CultureInfo.InvariantCulture);
+    if (!float.IsFinite(w) || w <= 0) throw new ArgumentException("AOG_CAGE must be finite and positive");
+    float top = y0 + 10, bottom = y0 - 1;
     var shapes = new[]
     {
         Quad(V(-w, bottom, w), V(w, bottom, w), V(w, top, w), V(-w, top, w), -System.Numerics.Vector3.UnitZ)          // north wall, facing in
@@ -86,33 +102,61 @@ if (paths.Length > 0 && paths[0] == "cagetest")
             .Concat(Quad(V(4, y0, -6), V(8, y0, -6), V(8, y0 + 3, 6), V(4, y0 + 3, 6), up)).ToList(),                    // ramp beside the spawn, rising 3 m over 12 m
     };
 
+    int refinements = int.Parse(Environment.GetEnvironmentVariable("AOG_REFINEMENTS") ?? "0");
+    // lazy: five subdivisions fit one shared-vertex page; raise only when the writer supports more pages.
+    if (refinements is < 0 or > 5) throw new ArgumentException("AOG_REFINEMENTS must be between 0 and 5");
+    for (int pass = 0; pass < refinements; pass++)
+        shapes = shapes.Select(shape => shape.SelectMany(t =>
+        {
+            var (a, b, c) = t;
+            var ab = (a + b) / 2; var bc = (b + c) / 2; var ca = (c + a) / 2;
+            return new[] { (a, ab, ca), (ab, b, bc), (ca, bc, c), (ab, bc, ca) };
+        }).ToList()).ToArray();
+
     var writer = new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer();
-    // AOG_SETS names the sets that get the cage; AOG_ROUNDTRIP rewrites the originals unchanged instead.
+    // HKLib writes standalone files, so every part is rewritten to keep the established test setup.
     var cageSets = (Environment.GetEnvironmentVariable("AOG_SETS") ?? "h,l").Split(',', StringSplitOptions.RemoveEmptyEntries);
+    if (cageSets.Length == 0 || cageSets.Any(d => d is not ("h" or "l")))
+        throw new ArgumentException("AOG_SETS must name h and/or l");
     bool roundTrip = Environment.GetEnvironmentVariable("AOG_ROUNDTRIP") is not null;
-    foreach (var detail in roundTrip ? cageSets : cageSets)
+    foreach (var detail in cageSets)
     {
         var bxf = BxfIn("m10_01_00_00", detail);
+        var checkedParts = new Dictionary<string, byte[]>();
         int k = 0;
         if (roundTrip)
         {
             var own = Serializer(bxf);
             // AOG_REPLACE lists parts that get our shapes instead; everything else is rewritten unchanged.
             var replace = (Environment.GetEnvironmentVariable("AOG_REPLACE") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+            foreach (var id in replace)
+            {
+                var part = layout.Parts.Collisions.Single(p => p.ModelName == "h" + id);
+                if (part.HitFilterID != SoulsFormats.MSBE.Part.Collision.HitFilterType.Standard
+                    || part.Position != Vector3.Zero || part.Rotation != Vector3.Zero || part.Scale != Vector3.One)
+                    throw new InvalidDataException($"h{id}: expected Standard collision with identity placement");
+                if (!bxf.Files.Any(f => f.Name.EndsWith($"_{id}.hkx.dcx")))
+                    throw new InvalidDataException($"{detail}{id}: missing collision file");
+            }
             foreach (var f in bxf.Files.Where(f => !f.Name.EndsWith(".compendium.dcx")))
             {
                 var raw = SoulsFormats.DCX.Decompress(f.Bytes, out var info);
                 var ms = new MemoryStream();
                 var rid = System.Text.RegularExpressions.Regex.Match(f.Name, @"_(\d{6})\.hkx").Groups[1].Value;
-                if (replace.IndexOf(rid) is var slot and >= 0)
+                if (replace.Contains(rid))
                 {
                     // One Standard part carries every shape.
                     var tris = shapes.SelectMany(t => t).ToList();
                     var verts = tris.SelectMany(t => new[] { t.Item1, t.Item2, t.Item3 }).ToList();
                     var root = tmplSer.Read(new MemoryStream(SoulsFormats.DCX.Decompress(template)));
-                    Build.ReplaceGeometry(root, verts, Enumerable.Range(0, tris.Count).Select(i => (3 * i, 3 * i + 1, 3 * i + 2)).ToList(), detail + rid);
+                    var indices = Enumerable.Range(0, tris.Count).Select(i => (3 * i, 3 * i + 1, 3 * i + 2)).ToList();
+                    Build.ReplaceGeometry(root, verts, indices, detail + rid);
                     writer.Write(root, ms);
-                    Console.WriteLine($"  {detail}{rid}: our {tris.Count} triangles");
+                    var written = ms.ToArray();
+                    int sections = GeometryCheck.CheckMesh(new HKLib.Serialization.hk2018.Binary.HavokBinarySerializer()
+                        .Read(new MemoryStream(written)), verts, indices);
+                    checkedParts.Add(f.Name, written);
+                    Console.WriteLine($"  {detail}{rid}: our {tris.Count} triangles, {sections} sections checked");
                 }
                 else writer.Write(own.Read(new MemoryStream(raw)), ms);
                 f.Bytes = SoulsFormats.DCX.Compress(ms.ToArray(), info);
@@ -135,12 +179,19 @@ if (paths.Length > 0 && paths[0] == "cagetest")
         }
         var mapDir = Path.Combine(outDir, "mod", "map", "m10", "m10_01_00_00");
         Directory.CreateDirectory(mapDir);
-        bxf.Write(Path.Combine(mapDir, $"{detail}10_01_00_00.hkxbhd"), Path.Combine(mapDir, $"{detail}10_01_00_00.hkxbdt"));
-        Console.WriteLine($"{detail}10_01_00_00: {k} parts {(roundTrip ? "rewritten unchanged" : "replaced")}");
+        var headerPath = Path.Combine(mapDir, $"{detail}10_01_00_00.hkxbhd");
+        var dataPath = Path.Combine(mapDir, $"{detail}10_01_00_00.hkxbdt");
+        bxf.Write(headerPath, dataPath);
+        var readback = SoulsFormats.BXF4.Read(headerPath, dataPath);
+        foreach (var (name, expected) in checkedParts)
+            if (!SoulsFormats.DCX.Decompress(readback.Files.Single(f => f.Name == name).Bytes).AsSpan().SequenceEqual(expected))
+                throw new InvalidDataException("written binder changed checked collision bytes");
+        Console.WriteLine($"{detail}10_01_00_00: {k} parts written, {checkedParts.Count} synthetic parts verified in binder");
     }
     File.WriteAllText(Path.Combine(outDir, "age-of-gold-cagetest.me3"), """
         profileVersion = "v1"
         savefile = "AgeOfGoldSpike.sl2"
+        start_online = false
 
         [[supports]]
         game = "eldenring"

@@ -90,6 +90,49 @@ were format references. Its root licence at that revision is MIT. No implementat
 physics defaults were copied; the writer uses our own implementation and reads physics settings
 from the player's host install. These files are references, not build dependencies.
 
+## Playable test prepared
+
+`check_playable.py` builds a denser version of the established Chapel cage, with four midpoint
+subdivisions of each of its twelve triangles. Both detail sets contain 3,072 triangles across
+37 sections in the ordinary Standard-filter part. The cage's half-width is two units so Riley
+can reach its invisible walls within a few steps of the primary spawn. The floor and ramp are
+retained; this test asks only whether the walls contain the player.
+
+Placement comes from the host map's primary player placement at runtime. The command checks
+that the chosen collision part has a Standard hit filter and an identity placement. Its template
+material and physics settings, and the round-trip of the remaining collision parts through
+HKLib, match the earlier working setup. The previous stutter may therefore remain.
+
+The manual check first failed because the command still emitted twelve triangles. It now passes:
+both synthetic parts pass geometry and tree readback, and their compressed binder entries
+decompress to exactly the checked bytes. The six geometry fixtures also pass after sharing their
+verifier with the playable command. Publishing the probe produced no warnings. me3 accepts the
+profile, with `start_online = false` and the separate `AgeOfGoldSpike.sl2` save. In-game confirmation
+is pending.
+
+The harness requires both install environment variables, refuses CI and existing output, and
+writes only under the system temp directory. Run it from the repository root after publishing:
+
+```sh
+WINEPREFIX=/tmp/aog-scale-wine \
+  AOG_DARK_SOULS_REMASTERED='/mnt/storage/SteamLibrary/steamapps/common/DARK SOULS REMASTERED' \
+  AOG_ELDEN_RING='/mnt/storage/SteamLibrary/steamapps/common/ELDEN RING/Game' \
+  python3 -B spikes/er-collision/check_playable.py /tmp/aog-sections
+me3 launch --online false -p /tmp/aog-sections/age-of-gold-cagetest.me3
+```
+
+Use New Game in that separate save. Continue may load a character away from the Chapel spawn.
+The generated files are game-derived and must never be committed or shared.
+
+During preparation, a previously committed spawn-coordinate literal was confirmed to come from
+the host map. Riley approved replacing it with the runtime read and correcting local history.
+The affected source blobs were replaced across all local branches; an audit checked all twenty
+historical trees against the intended substitution and checked every Git blob and commit,
+including unreachable objects, for the removed literal and its coordinate components. No such
+values remain. The rewrite also removed historical commit signatures and changed ancestor IDs,
+including the documentation branch; its file contents were verified unchanged. Nothing was
+pushed.
+
 ## Repeating the check
 
 Build the probe with `dotnet publish -c Release -o bin/publish` from its project directory.

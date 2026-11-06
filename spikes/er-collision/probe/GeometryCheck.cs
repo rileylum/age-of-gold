@@ -46,6 +46,21 @@ static class GeometryCheck
         var path = Path.Combine(output, $"mesh-{count}{(reuseLast ? "-256-slots" : "")}.hkx");
         using (var file = new FileStream(path, FileMode.CreateNew)) file.Write(bytes.ToArray());
         var readback = new HavokBinarySerializer().Read(path);
+        int sections = CheckMesh(readback, vertices, triangles);
+        if (reuseLast) Require(sections == 1, "256 local vertex slots should fit one section");
+        var repeated = template();
+        Build.ReplaceGeometry(repeated, vertices, triangles, "synthetic-mesh");
+        using var second = new MemoryStream();
+        new HavokBinarySerializer().Write(repeated, second);
+        Require(bytes.ToArray().AsSpan().SequenceEqual(second.ToArray()), "repeated geometry build changed bytes");
+        Console.WriteLine($"PASS: {count} triangles read back, {sections} sections; {path}");
+    }
+
+    /// <summary>Check written geometry and its lookup trees against the supplied mesh.</summary>
+    public static int CheckMesh(IHavokObject readback, IReadOnlyList<Vector3> vertices,
+        IReadOnlyList<(int A, int B, int C)> triangles)
+    {
+        int count = triangles.Count;
         var scene = (hknpPhysicsSceneData)((hkRootLevelContainer)readback).m_namedVariants[0].m_variant!;
         var shape = (fsnpCustomParamCompressedMeshShape)scene.m_systemDatas[0]!.m_bodyCinfos[0].m_shape!;
         var data = (hknpCompressedMeshShapeData)shape.m_data!;
@@ -54,7 +69,6 @@ static class GeometryCheck
         Require(tree.m_numPrimitiveKeys == count, "primitive-key count changed");
         Require(shape.m_triangleIndexToShapeKey.Count == count, "shape-key count changed");
         Require(shape.m_numShapeKeyBits == tree.m_bitsPerKey, "shape and tree key widths disagree");
-        if (reuseLast) Require(tree.m_sections.Count == 1, "256 local vertex slots should fit one section");
         var boxes = new Dictionary<uint, (Vector3 Lo, Vector3 Hi)>();
         int triangle = 0;
         for (int sectionIndex = 0; sectionIndex < tree.m_sections.Count; sectionIndex++)
@@ -118,12 +132,7 @@ static class GeometryCheck
         }
         CheckTrees(readback);
         CheckSimd(data, boxes);
-        var repeated = template();
-        Build.ReplaceGeometry(repeated, vertices, triangles, "synthetic-mesh");
-        using var second = new MemoryStream();
-        new HavokBinarySerializer().Write(repeated, second);
-        Require(bytes.ToArray().AsSpan().SequenceEqual(second.ToArray()), "repeated geometry build changed bytes");
-        Console.WriteLine($"PASS: {count} triangles read back, {tree.m_sections.Count} sections; {path}");
+        return tree.m_sections.Count;
     }
 
     /// <summary>Check top-level and section-tree reachability and leaf identities.</summary>
