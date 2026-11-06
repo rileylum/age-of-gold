@@ -1,17 +1,17 @@
-**Goal.** Age of Gold is a mod for Elden Ring that rebuilds Dark Souls's world and game in Elden Ring's engine. It is a mod, not a remake: it holds nothing from either game. It reads the player's own installed copies of both on the player's machine, so playing it needs both games bought and installed.
+**Goal.** Dark Souls: Age of Gold is a mod for Elden Ring that rebuilds Dark Souls's world and game in Elden Ring's engine. It is a mod, not a remake: it holds nothing from either game. It reads the player's own installed copies of both on the player's machine, so playing it needs both games bought and installed.
 
 - Faithful: Lordran is the world Dark Souls built, place for place: its maps, its connections, its enemies, items and events where Dark Souls put them.
 - Clean: the repository and every release contain only our own code and data. Nothing from either game is ever copied into them.
 - Safe to install: neither game's files are ever changed. Removing the mod is deleting one directory.
 
-**Scope.** A tool the player runs once, offline, that reads both installs and writes the build: a mod directory that Elden Ring loads through a mod loader. Single player, offline only. The source game is Dark Souls; the host game is Elden Ring. Not in scope: online play, new content, Dark Souls II or III, other host games, and any download of game files from anywhere. Which edition of Dark Souls is the source, and which mechanics come from which game, are open decisions (see Open decisions).
+**Scope.** A tool the player runs once, offline, that reads both installs and writes the build: a mod directory that Elden Ring loads through a mod loader. Single player, offline only. The source game is Dark Souls: Remastered; the host game is Elden Ring. Lordran replaces the host's world: the build's maps take the place of Elden Ring's, and the Lands Between are not reachable while it is loaded. Not in scope: online play, new content, Dark Souls II or III, other host games, and any download of game files from anywhere.
 
 **Proof.** A capability is built when a test proves it against real installs of both games on the developer's machine: the tool reads the source install, writes a build, and the test checks the build by reading it back as the host game would. These tests find the installs through environment variables, write only under the system temp directory, and never run in CI, because CI has no copy of either game. A test that is skipped because an install is missing proves nothing. A capability is proven in play when Riley has played through it in Elden Ring on the build.
 
 **Principles**
 
 1. The player's copy is the only source. Every asset, map, param, script, text and sound in the build is read from the player's installs at build time. A capability that would need a game file we cannot read from an install is not built.
-2. Dark Souls as it was. Where the source and host disagree on what the world is (geometry, placement, connections, who is where), the source wins. Where they disagree on how the engine works, the host's engine does the work and the translation is recorded.
+2. Dark Souls's world, Elden Ring's rules. Where the source and host disagree on what the world is (geometry, placement, connections, who is where), the source wins. Where they disagree on how the game plays (stats, healing, resting, equipment, movement, combat), the host's rules win by default, and keeping one of the source's rules is a logged decision. Where they disagree on how the engine works, the host's engine does the work and the translation is recorded.
 3. Unknown fails loudly. A file, format version, record or value the tool cannot classify stops the build and names it. It is never skipped, guessed or replaced with a stand-in.
 4. Deterministic builds. The same two installs and the same version of the tool give the same build, byte for byte. A build records the tool's version and a fingerprint of each install it read.
 5. Translations are explicit. Each format is translated by one module that owns the mapping between the source's shape and the host's. Source concepts stop at the reader; host concepts start at the writer; our own model sits between them.
@@ -34,11 +34,9 @@
 
 Each is settled one at a time with Riley, and then moves into the section it belongs to.
 
-1. Which edition is the source: Dark Souls: Remastered (the edition on sale, 64-bit), Prepare to Die Edition, or both. Recommendation: Remastered only, first.
-2. When the source is read: once, by the tool, into a build the game loads (recommended, since Elden Ring loads only its own formats); or live, inside the running game, through code injected into it.
-3. Mechanics: which rules are Dark Souls's (bonfires, Estus, humanity, stats, equip load, the absence of jumping as an action) and which are Elden Ring's.
-4. The mod loader, the language and the format libraries (see Technology).
-5. Where the build sits in Elden Ring's world: its own maps added beside the host's, or the host's maps replaced.
+1. When the source is read: once, by the tool, into a build the game loads (favoured, since Elden Ring loads only its own formats); or live, inside the running game, through code injected into it. Settled by the research stage.
+2. The mod loader, the language and the format libraries (see Technology). Settled by the research stage.
+3. Which of the source's rules, if any, are kept over the host's (principle 2), one at a time as each stage meets them.
 
 **Language**
 

@@ -1,4 +1,4 @@
-# Age of Gold
+# Dark Souls: Age of Gold
 
 A mod for Elden Ring that rebuilds Dark Souls's world and game in Elden Ring's engine. It is a mod,
 not a remake: this repository holds none of either game's files. A tool you run on your own
