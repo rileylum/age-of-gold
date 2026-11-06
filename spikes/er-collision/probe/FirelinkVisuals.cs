@@ -156,7 +156,8 @@ static class FirelinkVisuals
             for (int i = 0; i < hostMaterials.Count; i++)
                 if (written.Materials[i].MTD != hostMaterials[i].MTD
                     || written.Materials[i].Textures.Single().Path != hostMaterials[i].Textures.Single().Path
-                    || written.Materials[i].Textures.Single().ParamName != hostMaterials[i].Textures.Single().ParamName)
+                    || written.Materials[i].Textures.Single().ParamName != hostMaterials[i].Textures.Single().ParamName
+                    || written.Materials[i].Textures.Single().TilingScale != hostMaterials[i].Textures.Single().TilingScale)
                     throw new InvalidDataException("Visual material binding changed in the written model");
             var mapModel = (MSBE.Model.MapPiece)modelTemplate.DeepCopy();
             mapModel.Name = id; mapModel.SibPath = "";
@@ -276,6 +277,8 @@ static class FirelinkVisuals
         ];
         var written = FLVER2.Read(WriteModel(native, surfaces, native.Materials.Take(2).ToList()));
         VerifyModel(written, surfaces);
+        if (written.Materials.SelectMany(m => m.Textures).Any(t => t.TilingScale != new Vector2(4, 4)))
+            throw new InvalidDataException("Authored wide UVs require fourfold sampler scale with native vertex packing");
         Console.WriteLine("PASS: authored visual geometry, material separation, winding and wide UV coordinates");
     }
 
@@ -376,8 +379,17 @@ static class FirelinkVisuals
         var layout = new FLVER2.BufferLayout();
         layout.AddRange(template.BufferLayouts[template.Meshes[0].VertexBuffers.Single().LayoutIndex]
             .Select(member => new FLVER.LayoutMember(member)));
-        // Float UVs preserve source tiling beyond the host template's signed-short range.
-        layout.Single(m => m.Semantic == FLVER.LayoutSemantic.UV).Type = FLVER.LayoutType.Float2;
+        if (layout.Single(m => m.Semantic == FLVER.LayoutSemantic.UV).Type != FLVER.LayoutType.Short2)
+            throw new InvalidDataException("Visual UV encoding requires the checked host packed layout");
+        // Keep the shader's native input format; sampler scaling recovers source UVs beyond its packed range.
+        float uvScale = 1;
+        float largest = surfaces.SelectMany(s => s.Vertices).Max(v => Math.Max(Math.Abs(v.UV.X), Math.Abs(v.UV.Y)));
+        while (largest / uvScale > short.MaxValue / 2048f) uvScale *= 2;
+        foreach (var texture in materials.SelectMany(m => m.Textures))
+        {
+            texture.TilingScale = new Vector2(uvScale);
+            texture.TilingTypeU = texture.TilingTypeV = FLVER2.Texture.TilingType.Repeat;
+        }
         template.BufferLayouts = [layout];
         template.Materials = materials;
         template.Meshes.Clear(); template.Dummies.Clear();
@@ -389,7 +401,7 @@ static class FirelinkVisuals
             foreach (var source in surface.Vertices)
             {
                 var vertex = new FLVER.Vertex(vertexTemplate) { Position = source.Position, Normal = source.Normal,
-                    NormalW = 0, UVs = [new Vector3(source.UV, 0)] };
+                    NormalW = 0, UVs = [new Vector3(source.UV / uvScale, 0)] };
                 var tangent = Vector3.Normalize(Vector3.Cross(Math.Abs(source.Normal.Y) < 0.9f
                     ? Vector3.UnitY : Vector3.UnitZ, source.Normal));
                 for (int i = 0; i < vertex.Tangents.Count; i++) vertex.Tangents[i] = new Vector4(tangent, 1);
@@ -416,6 +428,15 @@ static class FirelinkVisuals
         for (int i = 0; i < surfaces.Length; i++)
         {
             var mesh = model.Meshes[i]; var expected = surfaces[i];
+            var textures = model.Materials[mesh.MaterialIndex].Textures;
+            var scale = textures.First().TilingScale;
+            if (textures.Any(t => t.TilingScale != scale || t.TilingTypeU != FLVER2.Texture.TilingType.Repeat
+                || t.TilingTypeV != FLVER2.Texture.TilingType.Repeat))
+                throw new InvalidDataException("Visual material must consistently repeat and scale its packed UVs");
+            var uvLayout = model.BufferLayouts[mesh.VertexBuffers.Single().LayoutIndex]
+                .Single(m => m.Semantic == FLVER.LayoutSemantic.UV);
+            if (uvLayout.Type != FLVER.LayoutType.Short2)
+                throw new InvalidDataException("Visual UVs must retain the checked host shader's packed vertex layout");
             FirelinkDemo.CheckVisibleBounds(mesh);
             var faces = mesh.FaceSets.Single();
             if (mesh.MaterialIndex != expected.Material || faces.CullBackfaces != expected.CullBackfaces
@@ -425,7 +446,8 @@ static class FirelinkVisuals
             for (int v = 0; v < expected.Vertices.Length; v++)
             {
                 var actual = mesh.Vertices[v]; var vertex = expected.Vertices[v];
-                if (actual.Position != vertex.Position || actual.UVs.Single() != new Vector3(vertex.UV, 0)
+                var sampledUV = actual.UVs.Single() * new Vector3(scale, 1);
+                if (actual.Position != vertex.Position || sampledUV != new Vector3(vertex.UV, 0)
                     || Vector3.Distance(actual.Normal, vertex.Normal) > 0.02f
                     || actual.Colors.Count == 0 || actual.Colors.Any(c => c.A != 1f || c.R != 1f || c.G != 1f || c.B != 1f))
                     throw new InvalidDataException("Visual vertex position, normal or texture coordinate changed");

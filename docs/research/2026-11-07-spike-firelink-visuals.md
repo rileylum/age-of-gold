@@ -71,6 +71,35 @@ The profile was launched with `me3 launch --online false`; me3 confirmed attachm
 is `~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_07-35-56.log`. Continuing the existing
 test character is sufficient; arrival and the save profile have not changed.
 
+### Texture play result and native UV packing
+
+Riley's next screenshot shows the detailed scenery rendering, but with plain surfaces instead
+of the source colour textures. The screenshot stays outside the repository. The loader log
+confirms requests for the source visual models and multiple new full and low-detail texture
+packages. This establishes that those paths resolve; it does not prove shader binding or
+correct image sampling. The textured appearance is not yet proven in play.
+
+One unproven change in the first writer was replacing the native packed UV layout with floats.
+Readback preserved those numbers, but did not establish that the host shader interpreted them
+correctly. The source uses a wider coordinate range: 36,384 vertices in this build exceed the
+host's direct packed range, so merely changing the field type would corrupt their UVs.
+
+The next check restores the host template's packed UV layout. A per-model power-of-two divisor
+brings the stored coordinates into range; the material's repeat scale restores the source
+coordinates. Readback requires that product to equal every source UV exactly, without rounding
+loss. The authored wide-coordinate fixture also checks its expected fourfold sampler scale.
+The new native-layout assertion failed on the float writer before the change and passes now.
+The real-installs workflow passes for `/tmp/aog-firelink-packed-uv`. All 61 visual models differ
+from the first textured candidate only in UV layout, stored coordinates and sampler scaling;
+a separate serialized-model comparison verifies that restriction. The other 133 files are
+identical, including all texture packages, collision, map placement, arrival and profile files.
+The report changes only its tool fingerprint. The float-layout hypothesis still needs play
+evidence; material selection, texture images and source geometry are unchanged.
+
+All 195 files also match `/tmp/aog-firelink-packed-uv-repeat` byte for byte. The new profile
+has not been launched because the preceding game process is still running; Riley has been
+asked to exit to the desktop so the changed model files can load on a fresh offline launch.
+
 ## Sources and licences
 
 No new dependency was introduced. SoulsFormatsNEXT (`e25d1a5`, GPL-3.0) supplies FLVER, MSB,
