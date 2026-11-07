@@ -54,6 +54,13 @@ has not been checked at night. This is appearance progress, not a complete match
 material decision. The experimental material bindings, game-derived metadata, builds and images
 remain outside the repository.
 
+## Player review
+
+Riley played the appearance preview and reports it works well, with the same remaining visual
+problems identified in the comparison. This adds in-play confirmation of the preview, not a
+complete appearance match. Riley also noticed aqueduct oddities and explicitly deferred them:
+the current appearance pass focuses on Firelink Shrine proper.
+
 ## Sources and licensing
 
 - Own installed source and host games: proprietary; read locally, no data included here.
