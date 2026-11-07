@@ -1,7 +1,7 @@
 # Visual comparison tooling — 7 November 2026
 
-Research and proposal, not an accepted implementation or a proven capability. Riley asked to
-pause lighting experiments and investigate tooling that lets the agent launch both games,
+Dated proposal and subsequent local spike evidence; later sections record what passed. Riley
+asked to pause lighting experiments and investigate tooling that lets the agent launch both games,
 enter the world, position the camera, and capture matching views without repeated manual
 navigation. The latest light-mask experiment did not improve the black chapel.
 
@@ -158,3 +158,46 @@ They and their outputs were not copied into the repository. Hyprland's own
 was used for focus, fullscreen and key events. The external startup diagnostics also consulted
 [phnt's thread-information declarations](https://github.com/winsiderss/phnt/blob/master/ntpsapi.h)
 (MIT) without copying implementation code.
+
+
+## Completed sequential launch proof
+
+A subsequent complete run passed with both games initially closed. The controller launched the
+host offline, recognized its menus, loaded the dedicated test save, restored the calibrated
+camera and captured it twice. It then released the camera and completed the normal save-and-exit
+UI before launching the source. The source followed the same sequence through its offline menu
+and cloned save, with two captures and a normal exit. The report was written only after both
+sessions exited. All four images were 2560 by 1440 and passed pose, FOV and player-position
+readback. Visual inspection found aligned tree branches, arches and chapel windows, with no
+menu or desktop overlays. Animated particles and character poses vary between repetitions.
+
+Two additional restart issues were exposed and corrected during this proof:
+
+- The source renderer could retain the tiled window's earlier drawable size when fullscreen
+  was requested during startup. Its title text then shifted enough for template recognition
+  to reject it. A second resize after the initial focus settled corrected the observed case.
+- Positions changed slightly when reloading the evolving test saves. Both external launchers
+  now restore fixed checkpoints into their own isolated test saves before launch. They refuse
+  restoration while the corresponding game process is running. Normal saves are not selected.
+  Positions were measured again from those checkpoints, and the final run passed the existing
+  strict checks without relaxing tolerances.
+
+The generic runner now calls an external normal-exit command between games and requires the
+window to disappear. A failed exit stops the run and leaves processes running. There is no kill
+fallback. The earlier hung source process was closed only after Riley explicitly authorized
+that exception; the earlier hung host finished exiting during cleanup. That exception does not
+apply to future sessions.
+
+All authored CLI checks pass, including a full sequential workflow using two fake adapters and
+a rejection when a player position changes. The real run's local configuration records hashes
+for both executables, both native adapters, graphics settings, checkpoints, launch helpers and
+every file in the selected build. These are recorded evidence, not automatic install-version
+compatibility detection. Game-specific bindings, menu images, saves, native dependencies and
+captures remain external. A private local archive outside Git preserves them across temporary
+directory cleanup; it is not a distributable artifact.
+
+This establishes the first autonomous Firelink comparison. It does not establish arbitrary
+map navigation, automatic recalibration, player hiding, frozen time/weather or deterministic
+pixels. The source shows readable shaded masonry where the current host build is almost black.
+No lighting candidate was changed as part of this proof. The next lighting work can use this
+comparison without Riley manually positioning cameras or supplying screenshots.

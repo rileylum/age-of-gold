@@ -12,6 +12,27 @@ from PIL import Image, ImageChops, ImageStat
 import camera
 
 
+def leave(target, output):
+    """Run the external normal-exit command and require the game window to disappear."""
+    command = target['shutdown']
+    if not isinstance(command, list) or not command or any(not isinstance(v, str) for v in command):
+        raise ValueError('Shutdown must be an argument list')
+    camera.temporary_path(Path(command[0]))
+    camera.request(camera.temporary_path(Path(target['endpoint'])), 'release')
+    with (camera.temporary_path(output) / 'shutdown.log').open('wb') as log:
+        process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=log,
+                                   stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            code = process.wait(timeout=90)
+        except subprocess.TimeoutExpired:
+            raise TimeoutError('Normal exit timed out; processes left running') from None
+    if code:
+        raise ValueError('Normal exit failed; see shutdown.log')
+    windows = json.loads(subprocess.check_output(['hyprctl', '-j', 'clients']))
+    if any(w.get('class') == target['window_class'] and w.get('title') == target['window_title'] for w in windows):
+        raise ValueError('Game window remains after normal exit')
+
+
 def matches(frame, template, box, tolerance):
     """Compare a menu region, giving empty screens a large error."""
     images = []
@@ -62,9 +83,16 @@ def enter(target, output, attach=False):
         (output / 'launcher.json').write_text(json.dumps({'pid': process.pid, 'command': command}))
     deadline = time.monotonic() + 120
     while not windows():
+        if not attach and process.poll() not in (None, 0):
+            raise ValueError('Launcher failed; see launch.log')
         if time.monotonic() > deadline:
             raise TimeoutError('Game window did not appear; see launch.log')
         time.sleep(.5)
+    camera.focus(target['window_class'], target['window_title'])
+    # A renderer created during the first resize can retain its earlier drawable size.
+    subprocess.run(['hyprctl', 'dispatch',
+                    'hl.dsp.window.fullscreen({action="unset"})'], check=True, capture_output=True)
+    time.sleep(1)
     window = camera.focus(target['window_class'], target['window_title'])
     address = window['address']
     for index, step in enumerate(steps):

@@ -34,7 +34,7 @@ with tempfile.TemporaryDirectory(prefix='aog-start-check-') as directory:
     result = subprocess.run([sys.executable, str(Path(__file__).with_name('start.py')),
                              str(root / 'config.json'), 'source', str(root / 'out'), '--attach'],
                             env=dict(os.environ, PATH=str(root)+os.pathsep+os.environ['PATH']),
-                            capture_output=True, text=True, timeout=12)
+                            capture_output=True, text=True, timeout=18)
     assert result.returncode != 0, 'An unknown screen was accepted'
     assert 'Unrecognized startup screen' in result.stderr, result.stderr
     assert not (root / 'key-sent').exists(), 'Input sent on an unknown screen'

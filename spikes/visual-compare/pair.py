@@ -64,6 +64,8 @@ def run(config, output, launch=False):
                 raise ValueError('Capture dimensions differ; comparison is incomplete')
             size = report['pixel_size']
             reports.append(result)
+        if launch:
+            start.leave(target, output / f'{name}-startup')
     (output / 'report.json').write_text(json.dumps({
         'captured_at': time.time(), 'captures': reports, 'pixel_size': size,
         'alignment': 'Supplied calibration; inspect matching landmarks in the overlay',
