@@ -59,3 +59,18 @@ The private adapter, material bindings, texture payloads, shader inspection and 
 remain outside the repository. The existing SoulsFormatsNEXT dependency is GPL-3.0;
 the external RenderDoc tool is MIT-licensed. No code from either tool or either game
 is incorporated into this change, and no production dependency decision is made.
+
+## Wider single-layer trial
+
+The private adapter now applies source normal textures and transformed tangents to 70
+classified opaque single-layer surfaces, covering 187,876 vertices and 19 normal textures.
+It reconstructs the packed-UV subdivision correspondence before assigning each tangent.
+Restoring tangents and material bindings reproduces the previous model bytes, and two
+complete builds match across 427 files. Three background camera views, each captured
+twice, passed state checks and normal UI exit. Inspected chapel and stair views show
+surface relief on the supported stone.
+
+One subdivided surface has opposing tangent handedness at its source corners. Interpolating
+those signs does not produce a valid tangent frame. The trial records that surface as
+deferred and retains its previous material; it does not claim complete normal coverage.
+Layered stone and source specular response remain separate unresolved translations.

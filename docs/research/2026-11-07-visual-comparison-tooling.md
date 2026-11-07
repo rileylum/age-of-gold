@@ -257,3 +257,25 @@ Additional sources and licences:
 - [Hyprland compositor](https://github.com/hyprwm/Hyprland/blob/v0.57.0/src/Compositor.cpp) and
   [Aquamarine backend](https://github.com/hyprwm/aquamarine/blob/v0.15.1/src/backend/Backend.cpp):
   BSD-3-Clause. Read to assess an alternative separate session; no implementation adopted.
+
+## Ordinary rendering camera correction — 8 November
+
+The host debug camera suppresses distance blur. This invalidated earlier negative lens tests:
+changing a lens setting while using that camera did not test ordinary play's postprocessing.
+The private host adapter now overrides the ordinary rendering camera after its normal update,
+without selecting debug-camera mode. Its command interface is unchanged; game-specific hooks
+and bindings remain external.
+
+Three repeated-view controls establish the distinction. The ordinary rendering override without
+a lens change preserved the aligned landmarks and sharp distance. Adding a distance-blur trial
+softened distant trees while keeping foreground stone sharp. The same build and lens trial under
+the earlier debug camera remained sharp. A selected clear-sky patch's mean adjacent-pixel change
+fell from about 0.45 to 0.24 displayed intensity levels only with the ordinary rendering override;
+the source reference measured about 0.20. This is a local diagnostic measurement, not an image-wide
+fidelity score or a completed translation of the source lens settings.
+
+Each control captured the view twice, passed camera/FOV/anchor readback, and exited through the
+normal UI. Matching landmarks support alignment. The ordinary override is now selected for
+private host comparisons so that future material and atmosphere checks include normal
+postprocessing. The user's ordinary play launcher and save were not changed. The source adapter
+already overrides its rendering camera and was not changed in this experiment.
