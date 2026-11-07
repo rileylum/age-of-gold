@@ -31,6 +31,30 @@ the two inspected test draws contributed no visible pixels in the chapel view. P
 history identified a different surface as the visible chapel face. Subsequent material
 tests must use that visible surface before drawing conclusions about normal-map support.
 
+The corrected trial targets four visible chapel surfaces. GPU replay shows the brick
+and mortar relief in the normal render target. A separate material defect initially
+masked much of the improvement: an authored zero-metal control texture had a malformed
+DDS header, so the host bound a white fallback and treated the stone as metal. The
+format library could read its own output, which did not establish runtime acceptance.
+
+A header check fails on that control and passes after declaring its FourCC and
+compressed linear-size fields. Only two texture packages change across the complete
+build. A fresh background game capture then binds the intended small black texture,
+retains the source normal texture, and restores the stone's brightness. The game exits
+through its normal UI. An earlier workaround changed both format and package grouping;
+the header-only comparison establishes that regrouping is unnecessary.
+
+This remains a normal-map attribution test. Zero metal and maximum roughness are
+diagnostic settings, not a translation of source specular response. Layered surfaces,
+sky rendering and complete illumination are still unresolved.
+
+The header requirements were checked against Microsoft's
+[DDS pixel-format documentation](https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dds-pixelformat)
+and [DDS header documentation](https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dds-header).
+These references are subject to the
+[Microsoft Learn terms](https://learn.microsoft.com/en-us/legal/termsofuse);
+no implementation or sample code was copied.
+
 The private adapter, material bindings, texture payloads, shader inspection and captures
 remain outside the repository. The existing SoulsFormatsNEXT dependency is GPL-3.0;
 the external RenderDoc tool is MIT-licensed. No code from either tool or either game
