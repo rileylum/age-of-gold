@@ -106,3 +106,55 @@ dependency or a change to Age of Gold's own licence.
   stay offline. Normal saves are never reset or overwritten to make automation easier.
 - A subsequent command launches, enters the world, restores that view and captures it without
   Riley navigating. Only then expand the view set and resume the lighting investigation.
+
+## Local implementation results later the same day
+
+The initial investigation above has now been followed by a developer spike in
+`spikes/visual-compare/`. The command interface is ours; both game adapters and all game-specific
+bindings remain external. This is not a production dependency decision.
+
+Observed successes:
+
+- Launched each game offline, entered the world with scripted menu input and used isolated saves.
+  The source uses a complete cloned Proton prefix with its Documents path inside the clone.
+  The host uses an offline me3 profile and a dedicated cloned save. Neither install was changed.
+- Applied a requested camera frame/FOV, read it back, moved the view and restored it. A source
+  follow-camera override initially changed only the character render path; inspection identified
+  the scenery submission path and the corrected override visibly moved the world view.
+- Moved the source's cloned character to Firelink and disabled its HUD through the normal menu.
+  The host adapter can hide its HUD. Player/NPC hiding and animation freeze remain unimplemented.
+- Captured the same Firelink view in both engines. Tree branches, arches and chapel windows
+  align visually with the same native FOV. This makes the difference between the source's
+  readable shaded stone and the host's almost-black shade directly inspectable.
+- Checked source and host placement translation, rotation and scale across all 65 included
+  scenery placements. Applied an additional measured host runtime-origin shift. This calibration
+  belongs to that session; it is not evidence that a moving player or a new session shares it.
+
+The repository controller rejects mismatched pose/FOV readback and ambiguous game windows.
+The first repeated-pair attempt stopped on window focus; a second stopped on the normal follow
+camera changing after a compositor focus switch. The pair command now checks player position
+instead, because a follow-camera rotation is not evidence of player movement. The new external
+position readback still needs its real-game restart proof.
+
+Menu automation recognizes two successive frames of an externally stored template region,
+checks focus before input, and stops on an unknown screen. Authored CLI checks cover these
+failure cases without either install. Capture makes a game window fullscreen, waits four
+seconds, checks camera readback on either side of the screenshot, and verifies dimensions.
+This fixed settling interval is a temporary bound. It does not prove temporal rendering has
+settled, and visible notifications still need inspection.
+
+A fresh-launch attempt has not passed. With the source at its main menu, starting the host
+left the host on a black screen and the source unresponsive. Normal key and close requests did
+not recover either game. The cause is unresolved; concurrent startup is a hypothesis, not a
+finding. The earlier individually captured alignment proof remains valid. A complete repeated
+pair report and unattended fresh launch-to-capture remain required before claiming the requested
+workflow is finished. No lighting build changed during this work.
+
+Additional local tools used: llvm-mingw (LLVM/Clang and MinGW component licences), pefile
+2024.8.26 (MIT), Capstone 5.0.9 (BSD-3-Clause), and the already-installed Pillow 13.0.0
+(MIT-CMU). These supplied compilation, local executable inspection and menu-image comparison.
+They and their outputs were not copied into the repository. Hyprland's own
+[dispatcher documentation](https://wiki.hypr.land/0.57.0/configuring/core/dispatchers/)
+was used for focus, fullscreen and key events. The external startup diagnostics also consulted
+[phnt's thread-information declarations](https://github.com/winsiderss/phnt/blob/master/ntpsapi.h)
+(MIT) without copying implementation code.

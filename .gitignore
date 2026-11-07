@@ -8,3 +8,5 @@ HANDOFF.md
 /unpacked/
 bin/
 obj/
+__pycache__/
+*.pyc
