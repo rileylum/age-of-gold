@@ -168,3 +168,67 @@ builds match across all 500 files. Three standard views captured twice pass came
 anchor and clock checks, followed by normal exit; the inspected views show no new
 black surfaces or texture corruption. The close stair comparison remains the stronger
 material check, since not every selected surface is visible in these wider views.
+
+## Private shader reconstruction controls
+
+A wider installed-shader survey examined the vertex signatures of 952 programs and
+the sampling operations of selected blend families. The additional candidates still
+combine detail, overlays or several layers on a common mapping; none of those examined
+directly supplies the required independent mapping and vertex-alpha blend. This is a
+bounded survey, not a claim that every possible host material has been exhausted.
+
+A private utility now rebuilds a compiled shader container from its local intermediate
+representation. An authored root-signature fixture exposed a missing root-signature
+part in the first reconstruction. Preserving that part passes the fixture and compiler
+validation. An unchanged installed pixel program then rendered correctly in two close
+captures. A separately named clone with a temporary colour marker changed only the
+selected stairs in the inspected view. Both game sessions exited normally. These
+controls establish that the override is loaded and that unrelated materials can retain
+their existing shader; they do not establish source shading fidelity.
+
+The compiler is Microsoft's DirectX Shader Compiler, release v1.9.2609. Its Linux archive
+was checked against the release's published digest. The project describes its compiler
+licence as the University of Illinois Open Source License; its licence file also contains
+component-specific notices. The downloaded distribution includes additional Microsoft
+terms, so these observations do not settle redistribution rights for every bundled file.
+Only private development tooling is being used here. No compiler, game program,
+intermediate representation or derived output enters the repository, and no production
+dependency decision has been made. Primary references:
+[release](https://github.com/microsoft/DirectXShaderCompiler/releases/tag/v1.9.2609),
+[project description](https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/README.md),
+[licences](https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/LICENSE.TXT).
+
+## Independent ground-mapping experiment
+
+The nearby ground has varying vertex colour as well as two different mappings.
+A private adapter preserves both mappings, colour and blend weight, and the source
+frame information. Its check first rejects the earlier build for missing layer-frame
+attributes. The converted geometry then passes correspondence and serialized-attribute
+checks, preserves topology and positions, and restores unrelated model data exactly.
+Source texture payloads and their mip chains are retained without atlas reduction.
+
+The source ground contains triangles whose tangent handedness differs across their
+vertices. A fresh source GPU capture, identified by matching both bound colour textures
+against installed texture payloads, confirms that its bitangents are formed before
+interpolation. Each layer's resulting normal is normalized before blending, followed by
+another normalization. It also confirms a shared tangent axis in that program's two
+normal transforms. The private prototype carries the interpolated bitangents explicitly
+instead of reconstructing them after interpolation. Earlier private bake assumptions
+about these operations are therefore not sufficient evidence of exact source normals.
+
+The first host capture omitted the selected ground. The host was using a second vertex
+program variant whose interface had not been extended. Extending that variant restores
+the ground, including the moss placement around the stairs. GPU replay confirms the
+added floating-point colour, mapping and frame fields are consumed, both colour textures
+and both normal textures match the source mip-zero payloads, and their full mip ranges
+are bound. The normal render target contains the ground's detailed surface relief.
+
+Two complete private builds match across all 513 files. The close GPU capture and a
+wider capture sequence both exit normally. The latter checks three named views twice;
+two names share an angle, so it represents two distinct orientations. Inspected views
+show no renewed holes or black surfaces. This establishes a working independent-layer
+path for one selected ground surface without a large atlas. It does not establish exact
+per-pixel source normals or colour: the host remains warmer and more contrasty in the
+close comparison. Colour-processing order, specular response, remaining shader passes
+and wider surface applicability are unresolved. All experiment inputs, code that rewrites
+installed programs, generated bundles and captures remain outside the repository.
