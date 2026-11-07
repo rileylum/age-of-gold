@@ -406,3 +406,12 @@ The event metadata was inspected through the already external Soulstruct checkou
 (GPL-3.0-or-later). No metadata, game instruction values, script data or third-party code
 is incorporated here; the adapter and generated event stay private. The ordinary user
 play profile and save are unchanged.
+
+
+A subsequent interaction check distinguishes ordinary rest from explicit time selection.
+Resting retains the chosen daylight with external time-hold disabled. Choosing nightfall
+through the native pass-time menu changes the clock despite the native freeze. The freeze
+therefore does not guarantee a fixed atmosphere across explicit time-changing actions.
+After leaving the menu, six world samples retain the newly selected time with external
+time-hold disabled. The session exits normally after recovering from an exit helper
+that initially encountered the rest menu. This limitation keeps the control private.

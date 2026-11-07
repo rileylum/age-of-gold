@@ -162,3 +162,9 @@ at its declared density limit. It has not been silently reduced to fit.
 
 All new adapters, install-derived inputs, native templates, bindings and captures remain
 private. Existing SoulsFormatsNEXT and RenderDoc licence qualifications above still apply.
+
+The four shared-mapping controls now coexist in one private build. Two independent
+builds match across all 500 files. Three standard views captured twice pass camera,
+anchor and clock checks, followed by normal exit; the inspected views show no new
+black surfaces or texture corruption. The close stair comparison remains the stronger
+material check, since not every selected surface is visible in these wider views.
