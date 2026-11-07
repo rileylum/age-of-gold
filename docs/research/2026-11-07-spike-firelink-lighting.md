@@ -211,6 +211,39 @@ The previous game was observed to have exited. The candidate was launched offlin
 The play question is whether shaded scenery becomes readable, particularly near the arrival.
 Source environment translation and material ambient response remain unresolved.
 
+Riley reports a partial improvement from the relocated environment regions: more brickwork
+and rock detail is visible, but the average image remains too dark and some areas are almost
+black. This supports an environment-lighting contribution in play. It does not establish
+faithful source lighting or adequate coverage and fill throughout Firelink. No screenshots
+were saved in the repository.
+
+## Environment fill strength diagnostic
+
+A read-only geometry check tests the generated scenery vertices against the moved boxes.
+Using the map editor's bottom-origin box convention, about 99% of vertices within an authored
+80-unit radius of arrival are inside at least one box. Across the whole generated scene,
+about 74% are inside. These are vertex counts, not surface-area or engine-selection measurements;
+box priority, blending, camera position and the lighting data remain separate concerns.
+Coverage away from arrival is incomplete and is not fixed by a strength change.
+
+The next controlled candidate doubles only the effect boxes' `PointLightMult` field. The
+library identifies this as light supplied from environment points. Specular multipliers,
+point and box placement, dimensions, directional lights, exposure and materials are unchanged.
+The factor is an authored diagnostic gain, not a source-derived calibration or a fidelity claim.
+It tests whether stronger environment illumination lifts the remaining nearby shaded surfaces.
+
+The temporary inspector's `environmentgain` first failed with the unchanged multiplier, before
+the write was added. The completed transformation verifies all twenty doubled values after
+serialization and disk readback. Restoring those values reproduces every uncompressed input
+map byte. All 199 non-map input files remain identical. All 201 output files match the repeat
+build; publishing succeeded before each run. Both installs were available and the offline
+profile retains the same separate save.
+
+The previous game had exited. The candidate was launched offline at
+`/tmp/aog-firelink-environment-fill/age-of-gold-firelink.me3`; me3 confirmed attachment in
+`~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_16-10-41.log`.
+Its effect on the dark chapel and walls still needs a play check.
+
 ## Sources and licences
 
 No new dependency was introduced. The existing external
@@ -230,3 +263,9 @@ Its licence was not verified during this inspection; no code or dependency was i
 SoulsFormatsNEXT's existing region and light-bank readers supplied the structural inspection.
 Broader community descriptions of probe grids and lightmaps were not treated as proof of
 this host's runtime lighting behavior.
+
+[DSMapStudio's region rendering](https://github.com/soulsmods/DSMapStudio/blob/master/src/StudioCore/Scene/RenderableProxy.cs)
+and [region transforms](https://github.com/soulsmods/DSMapStudio/blob/master/src/StudioCore/MsbEditor/Entity.cs)
+confirm that its box display extends upward from the region origin and uses the stored full
+dimensions. Its licence is MIT. Only the coordinate convention informed the independent
+coverage calculation; no implementation, bundled metadata or game values were incorporated.
