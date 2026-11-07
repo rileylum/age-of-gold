@@ -82,3 +82,39 @@ def check_ambiguous_window():
 
 check_ambiguous_window()
 print('PASS: ambiguous game windows are rejected before focusing or capturing')
+
+
+def check_disk_temporary_directory():
+    if os.name != 'posix':
+        return
+    with tempfile.TemporaryDirectory(prefix='aog-camera-check-', dir='/var/tmp') as directory:
+        root = Path(directory)
+        (root / 'view.json').write_text(json.dumps(VIEW))
+        stop = threading.Event()
+        def adapter():
+            while not stop.is_set():
+                if (root / 'request.txt').exists():
+                    command_id = (root / 'request.txt').read_text().split()[0]
+                    response = dict(VIEW, id=command_id, protocol=1, ready=True, active=True, frame=123)
+                    (root / 'response.tmp').write_text(json.dumps(response))
+                    (root / 'response.tmp').replace(root / 'response.json')
+                    return
+                stop.wait(.01)
+        worker = threading.Thread(target=adapter); worker.start()
+        try:
+            result = subprocess.run([sys.executable, str(CAMERA), '--endpoint', str(root),
+                                     'apply', str(root / 'view.json')],
+                                    capture_output=True, text=True, timeout=8)
+        finally:
+            stop.set(); worker.join()
+        assert result.returncode == 0, result.stderr
+        (root / 'outside').symlink_to(Path.home(), target_is_directory=True)
+        rejected = subprocess.run([sys.executable, str(CAMERA), '--endpoint', str(root / 'outside'),
+                                   'apply', str(root / 'view.json')],
+                                  capture_output=True, text=True, timeout=8)
+        assert rejected.returncode != 0 and 'system temporary' in rejected.stderr, rejected.stderr
+        return True
+
+
+if check_disk_temporary_directory():
+    print('PASS: disk-backed temporary camera data is accepted; escaping symlinks are rejected')

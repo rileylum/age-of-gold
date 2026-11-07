@@ -3,6 +3,7 @@
 import argparse
 import json
 import math
+import os
 from pathlib import Path
 import struct
 import subprocess
@@ -12,9 +13,13 @@ import uuid
 
 
 def temporary_path(path):
-    """Require game-derived output to stay under the system temporary directory."""
+    """Require game-derived output to stay under a system temporary directory."""
     path = path.resolve()
-    if not path.is_relative_to(Path(tempfile.gettempdir()).resolve()):
+    roots = [Path(tempfile.gettempdir())]
+    if os.name == 'posix':
+        # Large GPU captures can exceed the quota on a RAM-backed /tmp.
+        roots.extend((Path('/tmp'), Path('/var/tmp')))
+    if not any(path.is_relative_to(root.resolve()) for root in roots):
         raise ValueError('Camera data must stay under the system temporary directory')
     return path
 

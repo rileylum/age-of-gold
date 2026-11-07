@@ -9,6 +9,9 @@ The repository contains only the controller and authored checks. Camera DLLs, th
 sources, executable inspection, save clones, real bookmarks, menu templates and captures live
 outside the repository. Runtime data and captures use the system temporary directory; a
 private local backup outside Git preserves the setup. None belongs in a release.
+On Linux, both `/tmp` and `/var/tmp` are accepted, alongside Python's configured temporary
+directory. Use disk-backed `/var/tmp` for large captures when `/tmp` has a RAM quota.
+Paths are resolved before validation, so a symlink out of temporary storage is rejected.
 
 ## Commands
 
