@@ -74,3 +74,32 @@ One subdivided surface has opposing tangent handedness at its source corners. In
 those signs does not produce a valid tangent frame. The trial records that surface as
 deferred and retains its previous material; it does not claim complete normal coverage.
 Layered stone and source specular response remain separate unresolved translations.
+
+## Layered-surface investigation
+
+Source pixel history identifies the visible tree draw before material analysis. Its
+surface blends two independently mapped colour and normal layers by vertex alpha.
+Each normal layer has its own tangent frame. A survey of the three selected trees
+finds blended triangles whose two mappings differ, so replacing both with a single
+mapping would change the transition even though most vertices share coordinates.
+
+Two native host controls are rejected for this translation. The first blends layers
+using a common texture mapping; its extra vertex channels supply blend controls rather
+than a second mapping. The second accepts two mappings but combines colour with a
+nonlinear overlay operation instead of the source alpha blend. Authored colour textures
+are bound in fresh GPU captures, so the rejection is based on executed material
+behavior. Both game sessions exit through the normal UI.
+
+Searching placed objects as well as map pieces locates another native candidate with
+two mappings and two tangent frames. A third GPU capture shows that its blended layers
+still share one mapping, with the other reserved for an additional overlay and mask. It
+also cannot directly reproduce the source blend. Normal exit completed after temporary
+storage was freed and the menu sequence was recovered. None of these controls establishes
+a completed layer translation. A private build-time bake now combines the blended
+regions; regions using a single layer retain their source textures. An authored check
+first failed, then proved blend endpoints, an interior blend and equivalent normals
+expressed in different tangent frames. The host-build experiment is still unverified
+in play, with specular response, colour-processing equivalence and distant mip isolation
+remaining explicit limits.
+The inspection tools, native templates, shader text and captures remain private under
+the existing local-tool authorization; this record contains only our own description.
