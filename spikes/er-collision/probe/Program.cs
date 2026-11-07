@@ -8,6 +8,12 @@ var game = args.Length > 0 ? args[0] : Environment.GetEnvironmentVariable("AOG_E
     ?? throw new ArgumentException("pass the Elden Ring Game directory or set AOG_ELDEN_RING");
 var paths = args.Skip(1).ToArray();
 
+if (paths.Length > 0 && paths[0] == "firelink-environmentcheck")
+{
+    FirelinkEnvironmentCheck.Run();
+    return;
+}
+
 if (paths.Length > 0 && paths[0] == "firelink-ambientcheck")
 {
     FirelinkAmbientCheck.Reader();
@@ -91,6 +97,25 @@ foreach (var bhd in archives)
 
 byte[] Get(string path) =>
     index.TryGetValue(Hash(path), out var hit) ? ReadFile(hit.Bdt, hit.Entry) : throw new FileNotFoundException(path);
+
+if (paths.Length > 0 && paths[0] == "firelink-environment")
+{
+    if (Environment.GetEnvironmentVariable("CI") is not null)
+        throw new InvalidOperationException("Install checks must never run in CI");
+    var source = Environment.GetEnvironmentVariable("AOG_DARK_SOULS_REMASTERED")
+        ?? throw new ArgumentException("set AOG_DARK_SOULS_REMASTERED");
+    var input = Path.GetFullPath(paths[1]); var output = Path.GetFullPath(paths[2]);
+    foreach (var protectedPath in new[] { source, game, input })
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(protectedPath));
+        if (output.Equals(root, StringComparison.OrdinalIgnoreCase)
+            || output.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("output must be outside both installs and the input build");
+    }
+    SoulsFormats.Oodle.SearchPaths.Add(game);
+    FirelinkEnvironment.Build(source, Get("map/mapstudio/m10_01_00_00.msb.dcx"), input, output);
+    return;
+}
 
 if (paths.Length > 0 && paths[0] == "firelink-demo")
 {

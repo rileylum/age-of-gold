@@ -320,3 +320,68 @@ provided environment-package naming and member-family descriptions. This version
 GPL-3.0-or-later; no library code, test fixtures, bundled metadata or dependency was incorporated.
 Our own filename candidates were checked against the player's install and existing
 SoulsFormatsNEXT readers parsed the resulting binders, texture packages and DDS headers.
+
+
+## Matched-view diagnosis and room-volume repair
+
+Riley authorized autonomous comparison and lighting iterations after the camera tooling passed.
+Three matched views now cover the chapel, the opposite cliff and the nearby wall. Each was
+captured twice in both games from the same checked streaming anchor. Geometry landmarks align;
+source foliage, characters, sky and fog still differ from the diagnostic build.
+
+The external host adapter can request a fixed time and suspend normal clock passage. It records
+the actual clock and current weather type in each capture. Noon still left the chapel nearly
+black while the cliff received strong direct light. The darkness was therefore reproducible
+without relying on the earlier checkpoint's nighttime conditions. Weather requests use the
+checkpoint's existing type; full weather interpolation is not instrumented.
+
+A controlled diagnostic displaced only the nineteen smaller environment effect boxes, leaving
+the enclosing outdoor volume, environment points, textures, sunlight, materials and exposure
+unchanged. The previously black chapel, ground and tree became readable. The cliff and wall
+views improved too. This establishes that the inherited local environment volumes were
+suppressing the outdoor illumination in those views. It does not establish which stored
+coefficient or internal blend operation caused that suppression.
+
+The repair restores those local volumes to the positions read from the host install. The
+relocated enclosing outdoor volume remains over Firelink, with its preceding fill multiplier.
+It preserves the other map fields and every other build file. This replaces the earlier policy
+of moving every native room volume into the translated scenery. It still reuses the host's
+outdoor environment: source sky, fog, baked lighting, direct-light translation and complete
+materials are separate unfinished work. No new runtime component is required by the build.
+
+`FirelinkEnvironment` classifies one upright box enclosing all other environment boxes, using
+their rotated corners and bottom-origin height. It refuses an ambiguous arrangement or changed
+volume identities. An authored map check failed when room positions were left moved, then passed
+after restoration. Restoring the affected positions reproduces the full input map bytes; outdoor
+settings, point positions and strengths are preserved. The real-install check requires the input
+build's source and host map fingerprints to match the current installs and verifies that only
+the layout file changes.
+
+Manual command: `spikes/firelink-demo/check_environment.py INPUT_BUILD FRESH_TEMP_OUTPUT`, with
+`AOG_DARK_SOULS_REMASTERED`, `AOG_ELDEN_RING` and the isolated `WINEPREFIX`. Publish the existing
+probe first. The input is the checked doubled-fill diagnostic. Build reports describe this
+repair separately from inherited reports for earlier stages.
+
+Additional research used the [Minecraft-Ring environment controller](https://github.com/siddoff/Minecraft-Ring/blob/main/bridge-base/elden-ring/er-bridge/src/game.cpp)
+(MIT) as a local time/weather interface reference. Its bindings did not match the installed host
+version; the external adapter validates bindings obtained from the installed executable before
+use. The [fromsoftware-rs clock description](https://github.com/vswarte/fromsoftware-rs/blob/main/crates/eldenring/src/cs/world_area_time.rs)
+was also consulted; that repository currently declares a custom ASL2-NON-AI licence, not ordinary
+Apache-2.0. No implementation from it was adopted. These external files, runtime bindings,
+native binaries, game data and comparison images are not committed or released.
+
+
+The repaired build passed the real-install check twice, with all output files identical across
+independent runs. Fresh launches reproduced the improvement in all three daytime views. The
+nighttime chapel also retains readable stone and ground, although native nighttime lighting is
+still darker than the source's fixed atmosphere. The repair does not freeze time in normal play;
+clock control belongs only to the external comparison adapter.
+
+
+All three repaired nighttime views also completed with matching camera, position and condition
+readback. Both sessions exited through the normal UI. An external comparison report includes
+source, preceding build and repaired build images, repetitions, a night switch and an opacity
+overlay. A selected shaded masonry patch is now close to the source's displayed brightness at
+noon; this local measurement is descriptive, not a whole-scene fidelity score. Source atmosphere
+matching remains visibly incomplete, especially the brighter host cliff and native nighttime
+appearance. The generic camera/start/pair checks pass with the updated external adapter.
