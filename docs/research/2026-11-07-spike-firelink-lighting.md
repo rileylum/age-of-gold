@@ -169,6 +169,48 @@ Riley accidentally closed that launch; process inspection confirmed exit before 
 me3 confirmed attachment on the relaunch; log
 `~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_13-23-06.log`. Play evidence is pending.
 
+Riley's next play result shows magenta sunlit scenery and cyan illumination on the character.
+The supplied images agree. This establishes that the scenery selects the newly allocated light
+sets and that their main diffuse-light fields affect rendering. It rules out failed per-piece
+selection as the explanation for the ambient candidate's apparent lack of effect. Riley sees
+no other diagnostic colour; shaded scenery stays very dark. The green hemisphere contribution
+is therefore not visibly established. Cyan on the character does not separately prove a green
+hemisphere response, since its direct-light control is already cyan.
+
+The next investigation is the host's environment-lighting coverage and the complete basic
+material's ambient response. Firelink is placed above the host starting map while environment
+data has not been translated. That positional mismatch is a hypothesis to check, not a proven
+cause. The source numeric mapping should not be retuned until the rendering route is understood.
+
+## Environment coverage diagnostic
+
+Read-only inspection found twenty environment points and twenty effect boxes in the host map.
+The generated arrival is above every box even when allowing the full height above its origin;
+all boxes have only horizontal rotation. This establishes a coverage gap at the arrival, not
+that it causes the dark scenery. The builder retained those native regions while moving the
+player and generated scenery upward. One native light bank also parsed, but its lights are
+not changed by this diagnostic. No external filename dictionary was used.
+
+The next candidate starts from the source-valued ambient build, removing the temporary colour
+controls. It shifts all native environment points and effect boxes by the difference between
+the native player placement and the generated supported arrival. The points and boxes retain
+their identities, dimensions, orientation and settings. No environment texture, intensity,
+sun, material, geometry or collision changes are proposed. This uses the host environment to
+test the rendering route; it does not translate the source's environment lighting.
+
+The position check failed on the unchanged input for unmoved environment regions. The written
+candidate passes serialization and disk readback for all forty regions. Restoring their positions
+reproduces every uncompressed input map byte, preserving unknown fields and all other regions.
+The extracted native map fingerprint matches the checked build input. All 198 non-map input
+files remain identical, and all 200 files match the repeat build. The offline profile and
+separate save are unchanged. These checks establish the diagnostic's scope, not its visual result.
+
+The previous game was observed to have exited. The candidate was launched offline at
+`/tmp/aog-firelink-environment/age-of-gold-firelink.me3`; me3 confirmed attachment in
+`~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_13-36-45.log`.
+The play question is whether shaded scenery becomes readable, particularly near the arrival.
+Source environment translation and material ambient response remain unresolved.
+
 ## Sources and licences
 
 No new dependency was introduced. The existing external
@@ -181,3 +223,10 @@ describes directional lighting and graphics-file organization for another host v
 licence was not stated on the retrieved page. It supplied background only: its angle convention
 was not assumed to apply to this host, and no text, code, presets, values or illustrations were
 incorporated. Format observations here come from read-only inspection of Riley's installs.
+
+The [fromsoft-formats documentation](https://docs.rs/fromsoft-formats/latest/fromsoft_formats/)
+provided the map light-bank filename convention, then verified against the local install.
+Its licence was not verified during this inspection; no code or dependency was incorporated.
+SoulsFormatsNEXT's existing region and light-bank readers supplied the structural inspection.
+Broader community descriptions of probe grids and lightmaps were not treated as proof of
+this host's runtime lighting behavior.
