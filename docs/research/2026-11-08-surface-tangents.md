@@ -353,3 +353,38 @@ remains provisional. Unexamined atmosphere rows, source lighting and specular re
 unresolved, and the ordinary play preview has not been replaced. All installed programs,
 their reconstructions and comparison captures stay outside the repository under the
 existing private-research authorization.
+
+## Transparent cloud controls — 8 November
+
+A source replay that removes cloud opacity confirms that a separate transparent surface
+supplies the missing horizon detail. The private build now translates that surface using
+a native transparent family with depth testing and no depth writes. Its check first
+rejects the preceding build, then verifies geometry, source frames, both coordinate sets,
+vertex opacity, material state and all texture mip payloads. Restoring the previous model
+lists reproduces its earlier bytes; the placement is unchanged. Two builds match across
+538 files.
+
+A fresh GPU capture confirms the new draw and intended blend/depth state. Both cloud
+textures retain all eleven source mip payloads on the GPU. Native illumination alone gives
+too much cloud contrast. A second private control applies the already checked source sky
+atmosphere calculation in the transparent forward pass. Its runtime diagnostic covers
+310,415 pixels, with mean absolute linear error about 0.000831 and a 99th percentile
+relative error near 1.64% against its bound inputs. The unfogged control's mean error is
+about 0.1005. Quantized diagnostic inputs limit precision; this verifies execution rather
+than equivalence to all source shading.
+
+Two builds of that control again match all 538 files. Three distinct views captured twice
+pass camera, anchor and environment checks and normal shutdown. Clouds are visibly softer
+and horizon detail is restored. Source cloud illumination and texture scrolling remain
+untranslated, and the scene's broad blue haze and material response still differ. The
+ordinary play preview remains unchanged.
+
+A separate source replay removes opacity from ten draws sharing a mist program. In the
+tested view, about 1.9% of pixels change by more than one byte level in any colour channel;
+mean absolute colour difference is about 0.07 byte levels. This is a shared-program control,
+not an isolated surface test. It makes the missing mist a weaker explanation for the broad
+haze in that view, so the next comparison addresses lighting and material response.
+
+All reconstructed programs, source-derived controls and captures remain private under the
+existing authorization. The previously recorded tool licences and production-dependency
+qualifications still apply; no new library decision is made.
