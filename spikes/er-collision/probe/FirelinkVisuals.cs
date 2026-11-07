@@ -92,7 +92,8 @@ static class FirelinkVisuals
                     if (uv < 0 || uv >= v.UVs.Count || !Finite(v.Position) || !Finite(v.Normal)
                         || !Finite(v.UVs[uv]) || v.Normal.LengthSquared() == 0)
                         throw new InvalidDataException($"Invalid visual vertex in {name}, {material.MTD}: colour UV {uv}/{v.UVs.Count}, normal length squared {v.Normal.LengthSquared()}");
-                    return new Vertex(v.Position, Vector3.Normalize(v.Normal), new(v.UVs[uv].X, v.UVs[uv].Y));
+                    var baked = FirelinkRigidGeometry.Bake(model, mesh, v);
+                    return new Vertex(baked.Position, baked.Normal, new(v.UVs[uv].X, v.UVs[uv].Y));
                 }).ToArray();
                 var faces = mesh.FaceSets.Single(f => f.Flags == FLVER2.FaceSet.FSFlags.None);
                 if (mesh.FaceSets.Any(f => f.Flags is not (FLVER2.FaceSet.FSFlags.None

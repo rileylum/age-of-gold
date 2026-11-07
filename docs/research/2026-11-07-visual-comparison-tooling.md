@@ -201,3 +201,59 @@ map navigation, automatic recalibration, player hiding, frozen time/weather or d
 pixels. The source shows readable shaded masonry where the current host build is almost black.
 No lighting candidate was changed as part of this proof. The next lighting work can use this
 comparison without Riley manually positioning cameras or supplying screenshots.
+
+## Background capture, later on 7 November
+
+Riley asked to keep using the Arch/Hyprland desktop during comparisons. A private headless
+Gamescope compositor now supplies a separate Xwayland display, input focus and screenshot path.
+The desktop compositor is not reconfigured. A virtual output in the same compositor would still
+share its input focus, so the experiment uses a separate compositor process instead.
+
+Gamescope and its missing library were extracted from official Arch packages into a temporary
+private directory. Their SHA-256 hashes match the existing package database. No system package
+was installed. A private Python environment supplies Xlib. The external compatibility adapter
+implements only the window, focus, key, close and capture operations used by the existing harness;
+unsupported operations fail. It checks the private display and compositor identity before input,
+and refuses the desktop display. Gamescope supplies base-plane screenshots directly. Its process
+wrapper scopes environment and PATH changes to the capture subprocess tree.
+
+Proof proceeded from a Vulkan scene and an authored keyboard window to real games. The keyboard
+window received the synthetic key while desktop focus stayed unchanged. Both games then completed
+a fresh sequential launch, menu navigation, world load, three fixed views repeated twice and normal
+UI exit. All twelve captures passed camera, FOV, position and dimension checks; host clock and
+weather readback stayed fixed. A separate desktop monitor sampled window/focus state during the
+run and found no source or host game windows on the physical desktop. All three views from both
+games were visually inspected. The host views' average channel values differed from corresponding
+foreground captures by less than one displayed intensity level; animation still prevents pixel
+identity, and this measurement is not a general colour-accuracy proof.
+
+The private output is 2560 by 1440 at 30 Hz with a 30 fps limit, no scaling, SDR and compositor
+colour management disabled. Rendering still uses the shared GPU, CPU and memory; this is input
+and display isolation, not resource isolation or a VM. Audio also remains shared. The compositor
+was stopped only after both games had exited, and an empty restart/stop check passed.
+
+Two diagnostics failed before the successful fresh run. A different menu highlight required a
+separately observed private-display template. The input helper's startup overhead made the old
+keypress timing long enough to repeat menu movement; shorter private pulses fixed the exit path.
+Both failures stopped on unrecognized screens rather than claiming success or terminating games.
+Normal-exit recovery was verified visually. The successful fresh run is the acceptance evidence.
+
+External entry points are `/tmp/aog-background/{start-compositor.py,run.py,stop-compositor.py}`.
+Start the compositor, run the existing external suite through `run.py`, then stop it once normal
+exits finish. The stop command refuses while private windows or either game remain. Reuse this
+background wrapper for future comparisons instead of asking Riley to leave desktop input idle.
+Keep sequential game launches, dedicated checkpoints and offline enforcement unchanged.
+
+Additional sources and licences:
+
+- [Gamescope source and command options](https://github.com/ValveSoftware/gamescope/blob/3.17.0/src/main.cpp):
+  core BSD-2-Clause; the Arch package additionally declares BSD-3-Clause and LicenseRef-Reshade.
+  Used as an external executable, not copied into the repository or chosen for the released tool.
+- [Gamescope screenshot command](https://github.com/ValveSoftware/gamescope/blob/3.17.0/src/steamcompmgr.cpp):
+  same project licensing; inspected to select base-plane capture.
+- [python-xlib](https://github.com/python-xlib/python-xlib): LGPL-2.0-or-later; version 0.33 in the
+  private environment. X11 input/window operations only; not shipped.
+- libXres: MIT/X11, extracted from the Arch package as an external Gamescope dependency.
+- [Hyprland compositor](https://github.com/hyprwm/Hyprland/blob/v0.57.0/src/Compositor.cpp) and
+  [Aquamarine backend](https://github.com/hyprwm/aquamarine/blob/v0.15.1/src/backend/Backend.cpp):
+  BSD-3-Clause. Read to assess an alternative separate session; no implementation adopted.
