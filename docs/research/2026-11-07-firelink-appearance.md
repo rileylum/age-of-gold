@@ -61,9 +61,54 @@ problems identified in the comparison. This adds in-play confirmation of the pre
 complete appearance match. Riley also noticed aqueduct oddities and explicitly deferred them:
 the current appearance pass focuses on Firelink Shrine proper.
 
+## Follow-up experiments: atmosphere and cliff contrast
+
+Private background captures separated several possible causes of the remaining differences.
+Changing only the sky texture's colour encoding overexposed it. Reducing its material intensity
+recovered brightness but retained the colour blocks. Restoring source vertex RGB on the sky and
+cliff surfaces also did not establish a correction. These experiments are not part of the next
+preview. The alternative sky texture found in the install is not selected by this source map;
+its presence alone does not justify substituting it.
+
+The source's scene settings include distance blur and atmospheric scattering as well as fog.
+Those are missing from the current translation. Distance-blur experiments in both the area's
+graphics configuration and the shared configuration left the sky visibly unchanged. Their runtime
+effect is unresolved; they are not a proven translation and are excluded from the candidate.
+
+Increasing height-dependent fog improves the horizon transition and reduces the cliff's contrast.
+A red material diagnostic confirms that the native lit shader reads the diffuse colour control.
+Its material definitions are shared by rock, tree and masonry surfaces, so changing those shared
+definitions would affect unrelated scenery. The candidate instead gives the nine cliff surfaces
+three separate definitions and attenuates only their colour intensity. This remains a visual
+calibration for the spike, not a source-derived production material rule.
+
+Readback verifies the material colours and model references. Restoring those references reproduces
+the previous model bytes; removing the added definitions reproduces the previous material binder.
+Restoring the fog values reproduces the previous graphics bytes. Collision, placement and texture
+payloads are unchanged. Two candidate builds contain the same 342 files byte for byte.
+
+Three matched views were captured twice at noon and twice at night, with both runs ending through
+the normal game UI. All three views were visually inspected at each clock. The cliff is less
+harsh and the horizon blends more smoothly; shaded masonry remains readable. The static source
+sky stays bright at night while the host scenery darkens. Sky colour blocks, that atmosphere
+mismatch and the untranslated material features remain unresolved. The previous preview is
+preserved separately. The private comparison report includes both previews and the source views.
+
+The background menu observer twice stopped at a valid Continue screen because the animated
+highlight exceeded its saved tolerance. The local capture configuration now accepts the measured
+highlight variation while still rejecting the observed title screens. Camera, player-position and
+clock checks are unchanged. Failed attempts remain separate from completed capture records.
+
 ## Sources and licensing
 
 - Own installed source and host games: proprietary; read locally, no data included here.
 - [SoulsFormatsNEXT](https://github.com/soulsmods/SoulsFormatsNEXT): GPL-3.0. The existing spike
   dependency supplies parsed model nodes and their local-transform method. No library source or
   game-specific fixtures copied into this change; no production dependency decision.
+- [Souls Modding Wiki's graphics configuration research](https://www.soulsmodding.com/doku.php?id=tutorial:modifying-gparams):
+  CC BY-SA 4.0, as stated on the page. Consulted as a secondary check on the available control
+  families; the experiment outcomes above come from local readback and captures. No text or code
+  copied into the implementation.
+- [Soulstruct](https://github.com/Grimrukh/soulstruct): GPL-3.0-or-later according to the local
+  package metadata. Its external host depth-of-field quality definition was inspected during
+  research; no source copied and no new dependency introduced.
