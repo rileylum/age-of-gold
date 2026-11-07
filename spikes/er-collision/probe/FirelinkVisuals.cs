@@ -14,7 +14,7 @@ static class FirelinkVisuals
     public record Result(int models, int placements, int textures, int surfaces, bool geometry_checked,
         bool texture_payloads_checked, SortedDictionary<string, string> source_fingerprints,
         string[] material_limits, SortedDictionary<string, int> excluded_surfaces, int vertex_layouts_repaired,
-        [property: JsonIgnore] Placement[] Expected);
+        SortedDictionary<string, string> source_placements, [property: JsonIgnore] Placement[] Expected);
 
     /// <summary>Write source visual models and colour textures with basic opaque and cutout host materials.</summary>
     public static Result Build(string source, Func<string, byte[]> host, byte[] templateBytes,
@@ -136,6 +136,7 @@ static class FirelinkVisuals
         var partTemplate = layout.Parts.MapPieces.First(p => p.ModelName == "m000000");
         var modelTemplate = layout.Models.MapPieces.Single(p => p.Name == partTemplate.ModelName);
         var placements = new List<Placement>();
+        var sourcePlacements = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var model in models)
         {
             string id = "m" + model.Id;
@@ -174,6 +175,7 @@ static class FirelinkVisuals
                 Array.Fill(part.Unk1.CollisionMask, uint.MaxValue);
                 layout.Parts.MapPieces.Add(part);
                 placements.Add(new(part.Name, id, part.Position, part.Rotation, part.Scale));
+                sourcePlacements.Add(part.Name, sourcePart.Name);
             }
         }
         Console.WriteLine($"PASS: {models.Count} source visual models, {placements.Count} placements, {textureNames.Count} colour textures read back");
@@ -181,7 +183,7 @@ static class FirelinkVisuals
             fingerprints, ["Basic colour only; secondary layers, source vertex colours, normal/specular maps and baked lighting deferred",
                 "Cutouts use the host threshold; source foliage motion and special material effects deferred",
                 "Highest-detail source faces only; identical full mip chains in full and low-detail texture packages"],
-            exclusions, layoutRepairs, placements.ToArray());
+            exclusions, layoutRepairs, sourcePlacements, placements.ToArray());
     }
 
     /// <summary>Verify that every translated visual placement retains its source transform and enabled draw groups.</summary>

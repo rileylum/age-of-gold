@@ -86,6 +86,57 @@ the template's enabled setting. Material opacity, other loaded scenery, baked li
 the host's shadow mechanisms remain separate questions. No flags were changed during this
 inspection. Detailed records stay in `/tmp/aog-light-inspect/shadow-flags.json`.
 
+## Source hemisphere comparison
+
+Riley agreed to match the source's ambient lighting next. `FirelinkAmbient` now reads the main
+source light table with the parameter definition from the source install. It normalizes the
+stored RGB channels to unit values and converts the declared percentage strengths to
+multipliers. Zero intensity and values above full strength are preserved. Unclassified field
+types, negative values, out-of-range RGB, missing rows and mismatched schemas stop the build.
+
+This is an explicit first numeric mapping, not a claim of a visual match between renderers.
+It adds no fitted gain or gamma curve. The source's static ambient colours and strengths are
+held constant across the host's existing time keyframes. The play comparison must establish
+whether that mapping gives the expected shaded-surface response. Environment maps, baked-light
+textures, source vertex colours and source direct-light settings remain untranslated.
+
+The visual builder now records the source placement name for each generated host placement in
+its temporary report. The lighting stage reads each source placement's light-row choice and
+allocates a distinct unused host light-set ID for each used row. It adds complete light tracks
+cloned from the host's default set, replaces only the two hemisphere colours, and extends the
+graphics file's light-set index. Existing host sets remain intact. Only the generated scenery
+selects the new sets; the character and other host placements retain their current selections.
+The file's one-byte track-count capacity is checked before writing.
+
+Authored binary fixtures first failed for the missing source rows, then for unchanged host
+placement selections. Both pass after implementation. The fixtures independently anchor RGB
+normalization and percentage conversion, including zero and above-full strength; reject missing
+rows and invalid colour/strength values; and check distinct/shared per-placement selections,
+time tracks, direct-light preservation, the light-set index and byte-for-byte repeatability.
+Removing the added tracks and restoring placement selections reproduces both authored inputs.
+
+The complete source build workflow passes with the placement report added. All its files except
+the report match the previous checked generic-material build. The established complete native
+colour-only material and half-turn diagnostic were reapplied to that build. All 194 game files
+in the prepared input match the preceding playable direction-only candidate byte for byte.
+This keeps the ambient comparison on the same geometry, materials, textures and sun settings.
+
+The manual `spikes/firelink-demo/check_ambient.py` workflow reads both install locations from
+the existing environment variables, refuses CI and writes to a fresh system-temp directory.
+It invokes the authored checks and the `firelink-ambient` stage. Real-install readback verifies
+all 65 placements and five ambient settings. Each new track retains the host default's other
+fields and timing. Removing the new tracks restores every uncompressed graphics input byte;
+restoring only the light-set selections restores every uncompressed map input byte. All 196
+other input files remain byte-identical. The additional report records source/input/tool
+fingerprints, the mapping and remaining limits; inherited reports describe their input stages.
+
+All 199 output files match between `/tmp/aog-firelink-ambient` and its `-repeat` build.
+Publishing succeeded without warnings. The candidate profile is
+`/tmp/aog-firelink-ambient/age-of-gold-firelink.me3`, with the existing separate test save.
+Visual matching and improvement beneath the tree and walls still need Riley's play check.
+The previous game was observed to have exited. This profile was launched offline and me3
+confirmed attachment; log `~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_12-57-30.log`.
+
 ## Sources and licences
 
 No new dependency was introduced. The existing external
