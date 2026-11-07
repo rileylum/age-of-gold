@@ -103,3 +103,30 @@ in play, with specular response, colour-processing equivalence and distant mip i
 remaining explicit limits.
 The inspection tools, native templates, shader text and captures remain private under
 the existing local-tool authorization; this record contains only our own description.
+
+## Private tree-layer bake checkpoint
+
+The three-tree trial now runs with separate source mappings for both colour and normal
+layers. Only blended regions and regions with varying vertex colour use atlases; uniform
+single-layer regions retain their source textures. A perpendicular interpolated host
+frame permits the blended normal to be encoded without reversing its hemisphere. The
+writer retains the source triangles, checks packed UV and tangent readback, and verifies
+that restoring the previous meshes and materials reproduces the previous model bytes.
+
+The first in-game trial exposed corrupted compressed colour textures. The texture reader
+computes its pixel offset from the current header type; changing that type before extracting
+the pixels skipped part of the old payload. An authored legacy-header fixture failed on
+payload preservation, then passed after extracting the pixels before changing the header.
+The corrected build changes only the two affected textures and their low-detail packages.
+
+Three views captured twice show clean bark and ground transitions after that correction.
+A fresh GPU capture binds the intended colour atlas through an sRGB view and the normal
+atlas through a linear view. Its sampler transform reverses the deliberate expansion used
+to preserve precision in packed UVs. The blended draw contributes textured normal detail
+at the tree's base. Both capture sessions exit through the normal UI. Two independent
+builds match across all 455 files.
+
+This is a private, limited material checkpoint. The scene remains darker and differently
+coloured than the source. Source specular response, complete colour processing, other
+layered surfaces and distant atlas filtering remain unresolved. Neither the experimental
+bake nor its game-derived inputs have been added to the repository or the user preview.
