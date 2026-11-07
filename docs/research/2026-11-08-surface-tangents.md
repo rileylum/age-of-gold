@@ -447,3 +447,44 @@ nearby walls regain clearer directional detail. The matched source views also sh
 some blue city-wall colouring is intentional. The host remains brighter and hazier overall;
 final colour processing and the excluded lighting terms need further comparison. The
 ordinary play preview is still unchanged.
+
+## Final-colour controls — 8 November
+
+Captured inputs allow independent numerical reconstruction of each game's final-colour
+pass. The source adds bloom before exposure and its tone curve, then applies display
+encoding and a colour matrix. The host uses a different curve and a sampled colour table.
+Both reconstructions match every colour channel of all 3,686,400 output pixels within
+one 8-bit step. Mean errors are about 0.027 and 0.029 steps respectively. This establishes
+the calculations in these captures, not their equivalence across areas or display modes.
+
+The initial host calculation was wrong because it assigned the scene and glare resources
+to the wrong scaling terms. Inspecting the actual descriptor indices resolves that error;
+the corrected reconstruction uses the same tolerance. The export also now distinguishes
+multiple constant-buffer descriptors sharing one reflection index, preventing one export
+from overwriting another. Neither failed reconstruction counts as passing evidence.
+
+A private control replaces only the host's selected final-colour program with the observed
+source curve, exposure clamp and colour matrix. It omits bloom to isolate this calculation
+and does not use the host colour table. The exposure value is fixed to this source capture;
+adaptive exposure and other display modes are not translated. A fresh GPU capture confirms
+the intended program and input. Its output again agrees with the independently checked
+source calculation within one 8-bit step over the whole frame, with mean error about 0.029.
+
+This removes some excessive brightness from masonry and ground but makes the sky too dark.
+The earlier sky control still halves its measured radiance. A second control restores full
+strength, retaining exactly the same sky texture and other build files. The first control
+changes only the selected system program; both preserve unrelated shader entries. Both
+builds match independent repeats across 579 files. Each has three views captured twice,
+checked camera and environment state, and normal shutdown. The second run also records a
+GPU frame; its comparison images contain a small capture overlay at the upper left.
+
+The combined result brings sky colour and nearby masonry closer to the matched source
+views, without establishing full fidelity. Vegetation remains too dark, distant softness
+differs, and the earlier lighting exclusions remain. Removing bloom from the source's own
+captured calculation changes mean colour by about 5.68 byte steps, with larger differences
+around bright regions. That effect needs a separate translation, rather than compensation
+through sky brightness or general illumination. The ordinary play preview remains unchanged.
+
+All reconstructed programs, measured controls and images remain outside the repository
+under the existing private-tool authorization. Previously recorded tool licences apply;
+no production dependency or licence choice is made.
