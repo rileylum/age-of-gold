@@ -388,3 +388,62 @@ haze in that view, so the next comparison addresses lighting and material respon
 All reconstructed programs, source-derived controls and captures remain private under the
 existing authorization. The previously recorded tool licences and production-dependency
 qualifications still apply; no new library decision is made.
+
+## Diffuse environment controls — 8 November
+
+A source replay separates the light contributions on one visible surface. Its diffuse
+environment accounts for about 79.7% of the accumulated light before ambient occlusion,
+with hemisphere illumination about 19.8% and environment specular about 0.5%. Local light
+is zero on this sample and shadow transmission is one. These proportions describe this
+surface and view, not Firelink generally. Summing the measured terms reproduces the
+pre-occlusion output within the diagnostic format's precision. Ambient occlusion reduces
+the sampled light by about 2.4%.
+
+The diffuse environment is a cubemap. All six compressed faces from a source-install
+texture match the source GPU payload exactly. A survey of 53 draws using the layered
+source program finds the same environment texture and selected lighting coefficients.
+Using its diffuse environment and hemisphere terms, followed by the checked atmosphere
+calculation, approximates the selected source surface with median relative error about
+0.78% and a 95th percentile near 3.66%. This approximation excludes specular, ambient
+occlusion, local light and shadow attenuation; the latter is neutral on this sample.
+
+A private host control applies those terms to 80 classified layered surfaces. It keeps
+source colour filtering, vertex colour and pre-lighting conversion, and bypasses the old
+native diffuse calibration. The emission target carries accumulated light with zero glow
+strength. Native diffuse and reflectance are zero on the selected surfaces, avoiding a
+second lighting contribution. Materials using other source lighting rows retain their
+previous shading. Geometry and unrelated material bindings are checked unchanged.
+
+GPU inspection finds the new program in 43 visible draws, confirms all six source cube
+faces and enabled emission-target writes. A numerical replay checks 7,891 interior pixels
+against the bound inputs: mean absolute linear error is about 0.00000087, and the 99th
+percentile relative error is below 0.10%. The first diagnostic failed because its assembly
+step changed the program format version; retaining the captured version fixes it. The
+initial sample-size guard also expected more visible pixels than this draw contains; its
+replacement accepts at least 5,000 interior pixels without changing the arithmetic
+tolerance. Neither failed attempt counts as passing evidence.
+
+Two builds match across 541 files. Three distinct views captured twice pass anchor,
+camera and environment checks, followed by normal shutdown. The tree, ground and some
+masonry regain warmer colour and directional detail. Several simpler materials still
+show a blue cast. This is a useful lighting control, not visual fidelity, and the ordinary
+play preview remains unchanged. Coefficients are measured from the source runtime in this
+private experiment; deriving them from installed data for a released build remains work.
+
+The control extends to 51 classified single-layer surfaces, reusing the checked program
+with identical inputs for both layers. A separate source-program survey checks 29 visible
+draws against the same environment texture and lighting coefficients. It also confirms
+neutral additive colour and detail-normal contribution for those draws. The new build
+restores source vertex colour and interpolated frames on 136,470 vertices; geometry and
+unrelated model state remain unchanged. Its workflow check rejects the preceding build
+before the writer is added, then passes the written bindings and duplicate layer inputs.
+Shared native materials and distant parts with explicit atmosphere tags are left alone.
+
+The expanded build matches its independent repeat across 578 files. Three views twice
+pass camera and environment checks and normal shutdown. A fresh GPU capture confirms
+23 visible draws use the previously checked program, enabled light-carrier writes, raw
+colour views, and all source mip payloads for 17 colour textures. Chapel masonry and
+nearby walls regain clearer directional detail. The matched source views also show that
+some blue city-wall colouring is intentional. The host remains brighter and hazier overall;
+final colour processing and the excluded lighting terms need further comparison. The
+ordinary play preview is still unchanged.
