@@ -244,6 +244,40 @@ The previous game had exited. The candidate was launched offline at
 `~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_16-10-41.log`.
 Its effect on the dark chapel and walls still needs a play check.
 
+Riley confirms further improvement with doubled environment fill, but the chapel face in
+shadow remains almost black. The gain stays at this level while isolating the remaining
+suppression; raising general fill again is not the next comparison.
+
+## Inherited light-mask diagnostic
+
+The host's environment packages were found through the documented binder filename convention,
+then verified by archive membership in the local install. Twenty-one binders parsed across
+quality tiers and states. Their members include BC7 volume textures carrying GIIV channel
+identities and BC6H reflection cubes. The volumes retain the host map's precomputed data even
+when their effect regions move. This makes mismatched environment data a concrete concern,
+but the inventory alone does not identify the cause of a particular black surface. No volume
+pixels were decoded, edited or used to infer an undocumented coefficient mapping.
+
+The current graphics file contains a scalar `LightMask Influence` track under its light sets.
+All five new scenery sets inherited full influence. The next candidate sets only those five
+values to zero. Existing light sets and every other graphics field remain unchanged, including
+sun direction, colour and intensity, hemisphere values, exposure and shadow parameters. Map
+shadow flags, moved environment regions, doubled fill, materials and geometry are untouched.
+The exact runtime scope of this mask field remains a play question; the candidate does not
+claim to preserve every visible shadow or to implement the source's shadow configuration.
+
+The unchanged temporary writer failed first because the selected values retained influence.
+After the transformation was added, all five values pass serialization and disk readback.
+Restoring them reproduces every uncompressed input graphics byte. All 200 other input files
+remain identical; all 202 output files match the repeat build. Publishing succeeded before
+running each executable. The profile remains offline and uses the same separate save.
+
+The preceding game was observed to have exited. The comparison was launched at
+`/tmp/aog-firelink-light-mask/age-of-gold-firelink.me3`; me3 confirmed attachment in
+`~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_16-23-54.log`.
+The next observation is whether the black chapel face becomes readable at the retained fill
+level. Neither removal of the mask's effect nor faithful source shadows are proven yet.
+
 ## Sources and licences
 
 No new dependency was introduced. The existing external
@@ -269,3 +303,10 @@ and [region transforms](https://github.com/soulsmods/DSMapStudio/blob/master/src
 confirm that its box display extends upward from the region origin and uses the stored full
 dimensions. Its licence is MIT. Only the coordinate convention informed the independent
 coverage calculation; no implementation, bundled metadata or game values were incorporated.
+
+The [fromsoft-formats 0.17.0 environment documentation](https://docs.rs/fromsoft-formats/0.17.0/fromsoft_formats/envmap/index.html)
+and [path documentation](https://docs.rs/fromsoft-formats/0.17.0/fromsoft_formats/paths/fn.map_environment_bundle.html)
+provided environment-package naming and member-family descriptions. This version declares
+GPL-3.0-or-later; no library code, test fixtures, bundled metadata or dependency was incorporated.
+Our own filename candidates were checked against the player's install and existing
+SoulsFormatsNEXT readers parsed the resulting binders, texture packages and DDS headers.
