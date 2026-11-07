@@ -130,3 +130,35 @@ This is a private, limited material checkpoint. The scene remains darker and dif
 coloured than the source. Source specular response, complete colour processing, other
 layered surfaces and distant atlas filtering remain unresolved. Neither the experimental
 bake nor its game-derived inputs have been added to the repository or the user preview.
+
+
+## Stair bake and shared-mapping control
+
+The private bake now accepts an explicitly selected surface inside a larger model.
+It checks correspondence against the preceding packed geometry, retains the other
+surfaces, and verifies triangle coverage and serialized attributes. An authored packing
+check failed on the earlier narrow atlas layout, then passed with bounded widening.
+The stair build and its repeat match across 470 files. Matched close views in both games
+completed twice with normal exits. Stair texture detail is present, but adjacent ground
+still lacks its separate moss blend, and overall shading differs from the source.
+
+The stair's two source mappings and tangent frames are identical. A separate native
+blend control therefore tests whether that surface can avoid a large atlas. Its packed
+blend weight is checked within the analytically bounded half-step error of the stored
+field. The first runtime control renders almost black despite textured colour and normal
+render targets. GPU replay traces this to a nearly zero ambient contribution. Integer
+colour arguments selected a byte-valued library constructor, so a nominal white channel
+was stored near black. A normalized-colour readback check fails before correcting the
+constructor arguments to floating-point values. The corrected close view renders the treads properly in two checked captures and exits
+normally. It is visually close to the baked stair control without its large atlas pair;
+that comparison does not establish equivalence to source shading.
+
+A survey of 85 two-layer source surfaces identifies only four with identical mappings,
+identical tangent frames and uniform white vertex colour. The native control is restricted
+to that classified subset. Its linear-colour blend and normal combination still differ
+from the source operations, so it is not an exact general replacement. The nearby ground
+has distinct mappings and higher-resolution detail; the current bake rejects that input
+at its declared density limit. It has not been silently reduced to fit.
+
+All new adapters, install-derived inputs, native templates, bindings and captures remain
+private. Existing SoulsFormatsNEXT and RenderDoc licence qualifications above still apply.

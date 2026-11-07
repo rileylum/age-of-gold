@@ -385,3 +385,24 @@ overlay. A selected shaded masonry patch is now close to the source's displayed 
 noon; this local measurement is descriptive, not a whole-scene fidelity score. Source atmosphere
 matching remains visibly incomplete, especially the brighter host cliff and native nighttime
 appearance. The generic camera/start/pair checks pass with the updated external adapter.
+
+
+## Private fixed-daylight control — 8 November 2026
+
+Ordinary play can drift away from the fixed daytime used for matched captures. A private
+map-event control now sets that comparison time on load and freezes normal clock passage.
+Its readback checks both instructions and their argument shapes; removing them reproduces
+the previous uncompressed event script. Only the event file changes in the runtime build.
+Two independent builds match across 471 files including their reports.
+
+A background game session observed the clock for thirty seconds with the external camera
+tool's time hold disabled. All sixteen samples retained the chosen time, and a subsequent
+fresh launch also reported it before the capture hold was enabled. Both sessions exited
+normally. This establishes load and idle behavior, not rest, travel, death or explicit
+pass-time actions. The source atmosphere is fixed, but the chosen host daytime is still
+a comparison control rather than a complete source-lighting translation.
+
+The event metadata was inspected through the already external Soulstruct checkout
+(GPL-3.0-or-later). No metadata, game instruction values, script data or third-party code
+is incorporated here; the adapter and generated event stay private. The ordinary user
+play profile and save are unchanged.
