@@ -278,6 +278,16 @@ The preceding game was observed to have exited. The comparison was launched at
 The next observation is whether the black chapel face becomes readable at the retained fill
 level. Neither removal of the mask's effect nor faithful source shadows are proven yet.
 
+Riley reports that the chapel is still almost black and may look worse. This diagnostic has
+not demonstrated an improvement. Keep the doubled-fill build as the earlier partially improved
+comparison; do not promote the mask change as a fix. The game was subsequently observed to
+have exited; it was not terminated by the agent.
+
+Riley asked to pause lighting changes and investigate automated views in both games: launch,
+enter the world, set camera position and orientation, and capture screenshots. Further lighting
+work is parked while that comparison method is designed. See
+`2026-11-07-visual-comparison-tooling.md`. No additional lighting candidate was made.
+
 ## Sources and licences
 
 No new dependency was introduced. The existing external
