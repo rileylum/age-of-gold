@@ -44,7 +44,9 @@ The diagnostic report records input and tool fingerprints and distinguishes inhe
 
 All 198 files match across `/tmp/aog-firelink-light-direction` and its `-repeat` build. The
 profile is `/tmp/aog-firelink-light-direction/age-of-gold-firelink.me3`, using the existing
-`AgeOfGoldSpike.sl2` save. It is ready for a play check after the preceding game exits. The
+`AgeOfGoldSpike.sl2` save. Riley confirmed quitting the preceding game and process inspection
+confirmed its exit. The profile was launched offline; me3 confirmed attachment in
+`~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_12-38-12.log`. The
 expected observation is light falling on the opposite side of the chapel, with shadows cast
 the other way. That outcome is not yet proven in play. Brightness remains unchanged.
 
