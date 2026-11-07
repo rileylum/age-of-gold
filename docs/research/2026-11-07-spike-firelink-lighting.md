@@ -137,6 +137,38 @@ Visual matching and improvement beneath the tree and walls still need Riley's pl
 The previous game was observed to have exited. This profile was launched offline and me3
 confirmed attachment; log `~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_12-57-30.log`.
 
+## Checking runtime light selection and hemisphere response
+
+Riley reports that the ambient candidate appears to make no difference. The supplied images
+still show almost-black shaded scenery. This does not establish runtime use of the new light
+sets or an adequate hemisphere contribution. The loader log confirms that the candidate's
+graphics file and map layout were opened; file redirection alone cannot prove their rendering
+effect. No screenshots enter the repository.
+
+The next comparison uses authored diagnostic colours. Main-light diffuse RGB is magenta for
+the newly allocated light sets and cyan for the pre-existing sets, preserving each keyframe's
+strength. Both hemisphere colours are green with an authored diagnostic strength across all
+sets. Direction, specular and secondary lights, exposure, materials, geometry, collision and
+placement selections remain unchanged. These colours test the route through the lighting
+system; they are not a proposed appearance for the mod.
+
+Magenta direct light on scenery would support selection of the new sets; cyan would instead
+support use of an existing set. Green fill on shaded scenery would demonstrate a hemisphere
+response. A green character with persistently dark scenery would point toward a difference
+between character and scenery shading. Mixed colours and secondary lights must be considered
+when interpreting play; no outcome is established yet.
+
+The temporary inspector's `ambientprobecheck` failed on the preceding build for absent control
+colours. `ambientprobe` writes the three controls and verifies every entry after serialization
+and disk readback. Restoring those three value arrays restores every uncompressed input byte.
+All 198 other input files remain identical. All 200 output files match between
+`/tmp/aog-firelink-ambient-probe` and its `-repeat` build. Publishing succeeded without warnings.
+The profile retains the same offline separate save; the source-valued candidate remains intact.
+The preceding game was observed to have exited, and the colour diagnostic was launched offline.
+Riley accidentally closed that launch; process inspection confirmed exit before relaunching.
+me3 confirmed attachment on the relaunch; log
+`~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_13-23-06.log`. Play evidence is pending.
+
 ## Sources and licences
 
 No new dependency was introduced. The existing external
