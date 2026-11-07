@@ -284,3 +284,72 @@ other shader passes, and the overall fog/lighting match are unfinished. The ordi
 preview is unchanged. Controls, code that rewrites installed shaders, third-party tooling
 and game-derived outputs are preserved outside the repository; the earlier licence and
 production-dependency qualifications continue to apply.
+
+## Atmosphere composition controls — 8 November
+
+The source's opaque surface program converts its accumulated lighting before applying
+distance fog and directional scattering, then converts the result back. The earlier
+albedo-only colour control therefore remains an approximation; saying that the source
+converts only after lighting and fog omits the conversion before atmosphere composition.
+The source also converts its tinted material colour before lighting; these are separate
+operations. Adding atmosphere composition does not justify removing the material conversion.
+
+A private replay control removes atmosphere from one visible source surface. Reapplying
+the measured calculation to that control reduces mean absolute linear colour error from
+about 0.00956 to 0.000147 over 47,883 interior pixels. Median relative error is about 0.56%,
+with a 95th percentile near 1.98%. The exported inputs and output use a quantized HDR
+format, so this is evidence for the calculation, not exact shader equivalence. An earlier
+attempt selected a ground draw outside the camera view and is not usable evidence.
+
+The host's volumetric atmosphere pass emits scattering and transmission; it does not read
+the complete lit scene. The earlier lighting-composition pass does have the inputs needed
+for the source colour order, with depth and camera data already bound. A replacement that
+retains the native calculation gives a median final-image difference of zero against the
+fog-disabled control; live animation and particles account for some remaining difference.
+The first atmosphere replacement also passes a numerical check against its bound inputs
+and output. These checks establish execution, not a source lighting match.
+
+Applying one source atmosphere row to every opaque surface is incorrect. A pixel history
+traces a bright horizon strip to the lower surface of the source sky model. A survey finds
+separate source atmosphere combinations for it and the distant scenery. The initial
+selection experiment duplicates lighting tracks unchanged and assigns those parts distinct
+map IDs. Readback and a 533-file deterministic rebuild pass, as do three camera views twice
+and normal shutdown. However, a targeted GPU check rejects the assumed correspondence
+between map IDs and rendering indices. That experiment must not be promoted on the basis
+of its apparent visual improvement.
+
+The next private control carries an explicit atmosphere tag in the emission-strength
+channel of selected distant materials. Every selected opaque shader path first checks that
+its emission colour is identically zero. The intended invariant is unchanged lighting and
+glow while carrying selection metadata to composition. The first runtime capture shows
+that the selected program loads and writes the tag, but its render pipeline disables writes
+to the emission target. The resulting selection remains zero, so that control is rejected.
+A native material emission feature alone does not enable the writes either. Five native
+plain/emissive shader pairs identify a shared single-bit difference in shader metadata.
+Changing that bit, while preserving the rest of each selected metadata file, enables the
+emission target in a fresh GPU capture. This establishes the feature's effect for these
+families; it does not classify every bit in the field.
+
+The successful control selects the intended sky tag at the traced pixel and preserves zero
+emission colour and glow on tagged surfaces. Its numerical composition check covers about
+2.68 million pixels, with median relative error near 0.65% and a 99th percentile near 2.46%
+against its bound inputs. The cyan horizon band disappears. Two builds match across 533
+files, and three distinct views captured twice pass pose/environment checks and normal
+shutdown. The first material-flag capture started before its build finished and loaded host
+scenery; it is rejected. The fresh capture used for that control is recorded separately.
+
+A second source calculation check covers the distant lower sky surface. Reconstructing its
+atmosphere reduces mean absolute linear colour error from about 0.0961 to 0.000770 over
+47,846 interior pixels. A matched-view comparison also checks the host's reconstructed
+distance, scattering angle and fog amount against source shader diagnostics for both the
+near surface and distant sky surface. Their errors remain within the quantized diagnostic
+precision and small geometry-boundary differences. This rules out a reversed viewing ray
+in these views; it is not a complete camera proof.
+
+The mechanism is now demonstrated, but the build still has too much blue haze and a flat
+lower horizon. The source cloud surface is absent from the build; its source draw occurs
+after opaque composition and uses transparency. The earlier fixed-origin sky bake also
+remains provisional. Unexamined atmosphere rows, source lighting and specular response are
+unresolved, and the ordinary play preview has not been replaced. All installed programs,
+their reconstructions and comparison captures stay outside the repository under the
+existing private-research authorization.
