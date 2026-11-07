@@ -19,7 +19,7 @@
 
 **Constraints**
 
-1. Nothing from either game is committed or released: no assets, extracted or converted files, executable code, decompiled code, text, or screenshots of either. No game-derived data that a third-party tool ships (archive keys, file-name dictionaries, paramdefs, vanilla dumps) is depended on; the tool reads or derives what it needs from the player's installs. Test fixtures are either written by us from scratch or produced from the developer's own installs at test time and never committed. `.gitignore` keeps builds and extracted files out.
+1. Nothing from either game is committed or released: no assets, extracted or converted files, executable code, decompiled code, text, or screenshots of either. Local development may use game data and third-party tools, including their game-specific metadata, provided neither is committed or shipped. This permits external camera controllers and local comparison captures. The released tool must still read or derive what it needs from the player's installs, without shipping third-party game-derived data. Test fixtures are either written by us from scratch or produced from the developer's own installs at test time and never committed. `.gitignore` keeps builds and extracted files out.
 2. Both games must be installed. The tool refuses to build without a readable install of each and names what it could not find.
 3. Neither install is written to. The tool opens game files read-only and writes only into the build directory and its own cache.
 4. Offline only. The build is only loaded with Elden Ring's anti-cheat off and the game offline, as the mod loader runs it. Nothing we ship connects a modded game to FromSoftware's servers, and the README says so.

@@ -83,20 +83,18 @@ The local [me3](https://github.com/garyttierney/me3) configuration reference doc
 native DLL paths; its game enumeration excludes the source game. me3 is already used by the
 spike, rather than a new dependency selected here. Its workspace declares MIT OR Apache-2.0.
 
-## Decision needed before adopting camera controllers
+## Local development decision
 
-The candidates use game-specific memory layouts or executable signatures. Constraint 1 in
-`docs/core.md` forbids reliance on game-derived data supplied by third-party tools, while
-`AGENTS.md` requires asking Riley about unclassified cases. Keeping such a tool outside the
-repository does not by itself settle whether depending on its hooks is allowed.
+Riley approved using game data and third-party tools for local development, provided they are
+not committed or shipped. This includes the camera controllers' runtime signatures and memory
+layouts. Constraint 1 now records that boundary. It does not authorize changing either install
+or using normal saves for destructive tests. No history rewrite is needed or performed for this
+decision; external material stays outside the repository from the outset.
 
-Recommendation for Riley's decision: permit external camera controllers solely as local
-development instruments, with their game-specific hooks kept outside Age of Gold and never
-used by the shipped tool or build pipeline. This would not permit copied game code or data in
-the repository. It still requires reviewing the selected controller and dependencies before
-use. No such exception is assumed or recorded as accepted here. If it is not permitted, the
-camera adapters need a separate investigation into deriving their runtime bindings from the
-player's installs.
+The first local host adapter may reuse FreecamMod's MIT-licensed camera knowledge and MinHook's
+BSD-licensed hooking library outside the repository. The source adapter may use DSR Gadget's
+GPL-3.0 interfaces locally. Preserve their licence notices. Neither is selected as a production
+dependency or a change to Age of Gold's own licence.
 
 ## Acceptance evidence for the first spike
 
