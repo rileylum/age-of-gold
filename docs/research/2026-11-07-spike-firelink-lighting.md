@@ -47,8 +47,44 @@ profile is `/tmp/aog-firelink-light-direction/age-of-gold-firelink.me3`, using t
 `AgeOfGoldSpike.sl2` save. Riley confirmed quitting the preceding game and process inspection
 confirmed its exit. The profile was launched offline; me3 confirmed attachment in
 `~/.local/share/me3/logs/age-of-gold-firelink/2026-11-07_12-38-12.log`. The
-expected observation is light falling on the opposite side of the chapel, with shadows cast
-the other way. That outcome is not yet proven in play. Brightness remains unchanged.
+expected observation was light falling on the opposite side of the chapel, with shadows cast
+the other way. Riley confirmed the direction change works, but it gives little improvement:
+the overhead tree and city walls leave little direct light reaching the area. Changing direction
+alone does not resolve the darkness. Brightness settings remain unchanged.
+
+## Ambient and environment lighting
+
+Riley asked whether the source uses global or ambient illumination. Inspection of the source's
+own parameter definitions identifies separate upper- and lower-hemisphere ambient colours,
+each with an intensity multiplier expressed as a percentage. Both are nonzero in all five
+lighting rows referenced by Firelink's map pieces. The main light table also contains diffuse
+and specular environment-light settings, and the drawing binder includes an environment-texture
+table. These are concrete source lighting inputs the current visual writer does not translate.
+They establish ambient and environment-light configuration, not a complete account of the
+source renderer or evidence of real-time light bouncing between surfaces.
+
+The host's current graphics file also has populated upper- and lower-hemisphere colour tracks.
+The diagnostic therefore has host ambient settings, rather than no ambient light at all. Its
+source placements inherit the host template's default light-set selection; their source
+lighting-row choices are not carried across. Raw intensity values from the two engines are
+not enough to establish a faithful conversion: colour space, units and shader response still
+need checking. The earlier direction diagnostic leaves all these fields untouched.
+
+The existing visual inspection also contains three explicit baked-light texture bindings.
+The current colour-only material omits those bindings, along with environment lighting and
+source vertex colours. Their exact runtime contribution remains unmeasured. This makes the
+missing source lighting a stronger next lead than another sun-direction change. The next
+implementation should preserve each source placement's lighting selection and establish the
+hemisphere mapping through an authored fixture and an isolated play comparison. It should
+leave direct-light intensity and exposure alone while this contribution is checked.
+
+The temporary `shadowinspect` mode checked the two map layouts. All 67 source map pieces have
+the basic shadow-casting flag clear, as do all 87 map pieces in the written host layout. This
+does not identify excessive casting caused by that flag, or prove equivalent shadow behaviour
+between engines. Source shadow-receiving flags vary; the host placements uniformly inherit
+the template's enabled setting. Material opacity, other loaded scenery, baked lighting and
+the host's shadow mechanisms remain separate questions. No flags were changed during this
+inspection. Detailed records stay in `/tmp/aog-light-inspect/shadow-flags.json`.
 
 ## Sources and licences
 
