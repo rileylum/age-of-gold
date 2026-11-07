@@ -232,3 +232,55 @@ per-pixel source normals or colour: the host remains warmer and more contrasty i
 close comparison. Colour-processing order, specular response, remaining shader passes
 and wider surface applicability are unresolved. All experiment inputs, code that rewrites
 installed programs, generated bundles and captures remain outside the repository.
+
+## Colour order and the wider opaque family
+
+The captured source ground filters raw colour values, blends the layers and applies
+vertex colour before its final colour-space conversion. A paired private control uses
+raw colour views and moves that conversion after the material blend in the host program.
+Texture payloads and mip chains remain unchanged. GPU replay confirms the raw views and
+the changed pixel program. This is an approximation: the source converts its final lit
+and fogged result, whereas this control converts albedo before host lighting.
+
+In the matched close view, mean absolute colour difference over the selected ground
+region decreases from about 20.0 to 18.5 on an eight-bit scale. This is a modest improvement,
+not a general fidelity score; lighting, fog, filtering and animation remain in the final
+images. The host still has a visibly different overall colour and contrast.
+
+A separate replay control exports the source's computed surface normals for comparison
+with the host normal target. The first export lost negative components in an unsigned
+target and is rejected. Encoding the signed range before export fixes that diagnostic.
+Across the intersection of the ground draw masks, with boundaries eroded, the median
+angular difference is about 4.3 degrees and the mean about 5.2 degrees. This establishes
+substantial agreement, not exact normal equivalence. The captures use different anisotropic
+filter limits, and rasterization and packed frame attributes also differ. Tightening the
+coordinate readback tolerance passes the existing wider build, so no coordinate-format
+change was made on the basis of that hypothesis.
+
+The normal-export experiment also uses the installed SPIRV-Tools assembler and disassembler.
+Local package metadata identifies version 1.4.363.0 and the Apache-2.0 licence. They are
+private diagnostic tools only; no utility code or shader-derived text enters the repository.
+
+All 85 selected opaque two-layer surfaces share the checked source material definition,
+unit tiling and supported colour/normal formats. A batch adapter now extends the ground
+path to that family. The readback check first rejects the preceding build for missing
+independent frame fields, then passes all converted surfaces. It checks source correspondence,
+both mappings, vertex colour and frames; topology and positions remain unchanged, and
+unrelated model content is restored exactly. Reused textures are deduplicated without
+atlas reduction. The result contains 125,703 serialized vertices and 110,330 triangles
+across the selected surfaces.
+
+Two complete builds match across all 530 files. Three distinct views captured twice pass
+camera, anchor and environment checks and exit normally. The inspected views show layered
+detail without renewed holes or black surfaces. A separate wide GPU capture verifies the
+same private pixel program and source texture payloads on 43 sampled draw calls, covering
+30 distinct textures. Six additional matching draw calls report no sampled descriptors;
+they are not counted as texture-binding proof. This view does not cover every converted
+surface. The GPU session's normal-exit helper completed and the game process disappeared,
+although its outer wrapper returned a termination status before its final progress message.
+
+This remains private experimental work. Source specular response, other material families,
+other shader passes, and the overall fog/lighting match are unfinished. The ordinary play
+preview is unchanged. Controls, code that rewrites installed shaders, third-party tooling
+and game-derived outputs are preserved outside the repository; the earlier licence and
+production-dependency qualifications continue to apply.
