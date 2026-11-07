@@ -100,3 +100,29 @@ wind and particles remain live; captures are not expected to match byte for byte
 supports inspection, not an automatic fidelity score. Host time and weather are not frozen.
 The four-second capture settling delay is a temporary bound, not a renderer-completion guarantee. Compositor captures require visual
 inspection for notifications or other overlays.
+
+### Reports from ordinary play
+
+`report.py` records the current player position, map identity, camera frame and FOV through an
+external **read-only** observer. It works with the normal player camera: no camera controller,
+focus change, game input, teleport, freeze, relaunch or save access is required. The observer is
+local development tooling and is not distributed in this repository.
+
+```sh
+python spikes/visual-compare/report.py \
+  --observer /tmp/local-observer \
+  --profile /tmp/local-playtest.me3 \
+  --output /tmp/firelink-bug.json
+```
+
+The observer accepts a fresh request identifier as its sole argument and returns one JSON
+observation. It identifies the process and executable, distinguishes player and fixed cameras,
+and reports player positions in both physics and map coordinates. The report derives the
+camera's map-relative position from that simultaneous measurement; coordinates are not claimed
+to be global across maps. It fingerprints the supplied offline profile and build, explicitly
+labelling them as declared configuration rather than proof of runtime loading. Reports contain
+game-derived metadata and must stay outside the repository. Output is restricted to temporary
+storage and existing reports are never overwritten. A loading screen or stale response fails
+without producing a misleading report.
+
+Run the authored command-line checks with `python spikes/visual-compare/check_report.py`.
