@@ -8,6 +8,18 @@ var game = args.Length > 0 ? args[0] : Environment.GetEnvironmentVariable("AOG_E
     ?? throw new ArgumentException("pass the Elden Ring Game directory or set AOG_ELDEN_RING");
 var paths = args.Skip(1).ToArray();
 
+if (paths.Length > 0 && paths[0] == "firelink-worldcheck")
+{
+    FirelinkWorldIsolation.Check();
+    return;
+}
+
+if (paths.Length > 0 && paths[0] == "firelink-uvcheck")
+{
+    FirelinkUvPacking.Check();
+    return;
+}
+
 if (paths.Length > 0 && paths[0] == "firelink-scenerycheck")
 {
     FirelinkSceneryCheck.Run();
