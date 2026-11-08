@@ -606,3 +606,42 @@ postprocessing and excluded specular/occlusion contributions need attribution. T
 preview is unchanged. All reconstructed programs, game-derived measurements and images
 remain private under the existing permissions and tool licences; no new production
 dependency or licence choice is made.
+
+## Sharpening and temporal-filter controls — 8 November
+
+The host applies a log-domain sharpening pass after temporal antialiasing. Replaying that
+pass with its centre sample as output changes about 44% of final pixels by more than one
+byte step and reduces harsh outlines. A private bypass build preserves the native sampler;
+the first candidate's different sampler is retained as a rejected contract even though its
+captured centre samples happened to match. The corrected candidate and independent repeat
+match across 629 files. Three views twice pass pose/environment checks and normal exit.
+Its GPU output is byte-identical to its HDR input over the entire captured frame. The
+ordinary preview remains unchanged.
+
+The source's remaining softness is partly temporal filtering. In a stationary capture, two
+later postprocess stages leave their colour input unchanged. The temporal stage differs from
+its current input by about 1.83 final-colour byte steps on average, but from its history by
+only about 0.058. These comparisons hold captured bloom fixed, isolating those stage outputs;
+they do not reproduce a changing temporal sequence or prove a depth-of-field effect.
+
+The source temporal colour calculation compresses brightness, bounds history using the
+current neighbourhood, and blends according to motion and colour range. The host uses a
+different colour transform and logarithmic interpolation. An authored float ramp establishes
+that the captured source packed colour target rounds downward: all 3,686,400 pixels match
+that rule, while nearest rounding fails. This differs from the earlier half-target check.
+
+A private diagnostic exports intermediate float bit patterns through exactly representable
+integer fields. An independent model of the source colour-history core, using those measured
+texture samples, motion gain and history flag, matches every interior output within one
+representable packed-colour step and rejects a current-frame-only control. It excludes
+sampling, reprojection and the one-pixel border. Earlier checks remain failed: approximating
+the sampled inputs produces larger outliers, and a tighter float-relative error bound is
+not met. Even the instrumented floating result can quantize one step away from the captured
+unmodified output. This is a format-tolerance result, not bit-exact temporal reproduction.
+
+Native history categories in this capture distinguish the moving character from the static
+world. Their other categories and the source's moving foliage history remain unclassified.
+Any trial using the host motion/history inputs must retain that scope and check camera
+movement and changing visibility before promotion. All programs, captures and measurements
+remain private under the existing permissions and tool licences; no production dependency
+or licence decision follows from these controls.
