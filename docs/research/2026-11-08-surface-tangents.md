@@ -545,3 +545,64 @@ specular, occlusion, local lights and bloom remain incomplete. The ordinary prev
 unchanged. No production dependency or licence decision is made; all game-derived programs,
 measurements and images remain outside the repository under the recorded private-tool
 permission and tool licences.
+
+The next control adds thirteen nearby standard grass surfaces, for 58 in total. Their ten
+captured source draws use the same pixel program and diffuse/atmosphere constants as the
+foliage control. Across 38 source draws, the additional vertex-colour multiplier is identity,
+texture scrolling is zero and the pixel colour offset is zero. This checks the input
+modifiers that could otherwise invalidate reuse of the lighting calculation.
+
+The expanded workflow first rejects the prior build for missing grass bindings. The new
+build and repeat match across 628 files; three camera views twice pass pose/environment
+checks and normal exit. Fresh GPU capture contains the same two checked pixel programs,
+27 selected draws and 23 visible texture accesses. Their twelve colour textures retain the
+source mip payloads, including both newly covered grass textures. The arithmetic proof from
+the unchanged program still applies within its stated scope. Other lighting selections,
+wood cutouts and distant canopy remain outside this extension.
+
+A separate bloom experiment moves depth weighting before the last two filters to avoid
+carrying a fourth channel. It fails the existing final-colour tolerance: mean error is about
+0.65 byte steps and the 99th percentile is 17. The experiment starts with a captured earlier
+buffer to isolate ordering, and changes no live shader. It rules out that particular shortcut;
+a faithful mapping still needs the separate depth weight or an independently checked equivalent.
+
+## Private bloom translation — 8 November
+
+The source depth reduction selects a point sample at a pixel boundary. Every captured output
+matches one of the four neighbouring full-resolution depths; it is not an average. Successive
+reductions make the exact boundary convention matter. A full-chain numerical control using
+the lower-side convention meets the existing final-colour tolerance in this frame; two other
+conventions fail. This is a measured approximation at depth edges, not exact source sampling.
+
+Moving the depth weight after the final filters but before upsampling also meets that
+frame's tolerance, but the selected implementation retains the separate channel instead.
+It stores each half-precision value's bits as exactly representable integers in a native RGB
+target, with the four channels occupying neighbouring pixels. All 65,536 bit patterns survive
+the storage model. Filtering happens only after decoding. A GPU survey finds the selected
+downsample and blur programs used only by bloom in the captured frame; the existing passes
+can perform the source filters without adding a renderer hook.
+
+The first live build reveals a precision difference: the host's legacy conversion rounds
+these values downward. Modelling that behaviour reproduces all four stages within one half
+step, but it is not the source render-target rounding. An explicit nearest-even conversion
+passes an independent check of every positive finite half midpoint and adjacent floats,
+range boundaries, and one million seeded positive finite float values.
+
+The corrected build and its independent repeat match across 629 files. Seven selected
+programs read back correctly; unrelated programs and build files remain unchanged. Three
+camera views twice pass pose/environment checks and normal exit. Actual GPU storage remains
+integral and the spatial repetitions are exact. All four translated stages match independent
+calculations from their captured inputs within one half step; their 99th-percentile error
+is zero. Compositing preserves the encoded bloom exactly. Final colour matches all
+3,686,400 pixels within one byte per channel, with mean error about 0.028 byte steps.
+The captured projection coefficients match the earlier control. Short capture intervals
+retain the background harness's 30-fps rate; this is not an uncapped performance benchmark.
+
+This establishes the private bloom mechanism, not full visual fidelity. The control still
+uses captured coefficients and exposure, a fixed observed host depth projection and an
+explicit depth-boundary convention. Other camera modes and resolutions remain unproven.
+The source image is still softer and some surface responses differ; the remaining
+postprocessing and excluded specular/occlusion contributions need attribution. The ordinary
+preview is unchanged. All reconstructed programs, game-derived measurements and images
+remain private under the existing permissions and tool licences; no new production
+dependency or licence choice is made.
