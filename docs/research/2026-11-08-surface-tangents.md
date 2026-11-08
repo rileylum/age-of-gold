@@ -782,3 +782,44 @@ not an established explanation of the remaining foliage differences. Source foli
 motion remains untranslated and is the next isolated control. No build or ordinary
 play profile changed for this attribution. Captures and diagnostics remain private
 under the previously recorded tool permissions and licences.
+
+## Source foliage motion — 8 November
+
+Source captures distinguish foliage driven by a shared direction from ivy driven by
+its vertex tangents. An independent calculation of the source motion and rigid
+transforms matches over 103,000 vertices in one capture and over 20,000 in another.
+The second capture exercises all three observed program variants at a different
+clock value. Two partial draws are explicitly excluded from the first comparison.
+
+A private writer carries the source motion weights, phase and transformed directions
+into 62 selected surfaces. It rejects ambiguous attribute seams and subdivisions
+that would require interpolating nonlinear motion. Static grass retains its previous
+material. Twenty rigid vertex variants cover colour, depth, forward and velocity
+programs. The first candidate fails a new displacement-envelope check: its static
+culling bounds do not contain the motion. The corrected candidate expands mesh,
+model and root-node bounds. Two corrected builds match across 645 files, with changes
+confined to the selected model binders and their material and shader bundles.
+
+Two live host frames verify 54 draws, comprising about 264,000 vertex evaluations.
+Captured motion attributes agree with the source survey; independently calculated
+clip positions differ by less than 0.000011. Colour and shadow geometry agree after
+their different projections are undone. Nearly 60,000 checked colour vertices move
+between frames. A static control fails the same position tolerance for every draw.
+These captures exercise cutout foliage and ivy, not the opaque foliage family.
+
+The host clock and timestep are active, but no foliage velocity draw is observed.
+Compiling previous-time variants therefore does not establish temporal motion-vector
+coverage. An independent [EldenRingDLSS investigation](https://github.com/masonpetrosky/EldenRingDLSS/blob/main/docs/recon.md)
+also reports absent native foliage velocity draws. Its [licence is MIT](https://github.com/masonpetrosky/EldenRingDLSS/blob/main/LICENSE);
+it is consulted as research only, with no code copied or new dependency selected.
+The source's shared wind direction remains a captured control, not a general
+parameter translation. All programs, motion data and captures stay private.
+
+Eight views captured twice in each game pass camera, anchor and held-host-environment
+checks. Both games exit normally and the private profile is restored. Two short
+fixed-camera recordings agree with independent screenshots within 0.4 mean byte steps.
+Inspection of the paired views and sampled video frames finds no gross missing foliage
+or displaced scenery. Some host foliage remains paler than the source, and distant
+softness and atmosphere detail still differ. This is not a phase-synchronised comparison
+or proof of temporal equivalence. The next attribution should isolate the pale foliage
+response; another general lighting adjustment is not supported by these comparisons.
