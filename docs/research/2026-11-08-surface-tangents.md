@@ -1056,3 +1056,39 @@ This optimization adds no shader capability or dependency. It retains the previo
 limits on settings, hardware coverage, parameter translation and ordinary play. All
 programs, inputs, binaries and captures remain private under the existing permissions
 and licences. The ordinary preview and save are unchanged.
+
+## Source local lighting attribution — 8 November
+
+The source adds local diffuse and specular lighting after environment occlusion and
+before atmosphere. Captured light records supply positions, colour and falloff; a
+spatial lookup selects candidates for each pixel. A private arithmetic reconstruction
+uses those records with captured material, normal, position and view inputs. Across
+about 70,000 visible foliage pixels, its largest absolute channel error is below
+six billionths. More than 40,000 pixels have a measurable local contribution. A
+neutral prediction fails before the reconstruction passes.
+
+The first diagnostic packed whole bytes into a floating-point colour target that
+cannot represent every byte value exactly. Smaller packed digits preserve the input
+bits and recover unit-length normal and view vectors. The invalid first export is
+retained separately. This was a diagnostic error, not a source lighting defect.
+
+A second captured direction supplies a useful negative control: about 49,000 visible
+pixels receive no local light, and the calculation remains exactly zero. Evaluating
+all active lights instead of using the captured per-pixel candidate lists gives the
+same results in both controls. A separate CPU reconstruction of the spatial lookup
+still differs at one depth-bin boundary in the first view; that failed check remains
+open and is not evidence of general lookup equivalence.
+
+One nearby light's colour and falloff match a lighting row read from the source
+install. Its world position remains near the player after a large relocation, which
+supports identifying it as a player light. Another light retains its world position
+while its intensity and buffer index change. The active list depends on the camera;
+indices must not be treated as permanent light identities. Bone attachment, effect
+animation and general intensity conversion still need translation.
+
+This establishes source-side response and useful controls, not host local lighting.
+The host still needs the corresponding material inputs and live light placement;
+adding a fixed brightness gain would not reproduce this behavior. No game was launched
+for this attribution: it uses the preserved captures and read-only install survey.
+All programs, inputs, survey output and captures stay private under the existing tool
+permissions and licences. No production dependency or licence decision is made.
