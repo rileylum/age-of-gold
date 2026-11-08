@@ -1198,3 +1198,70 @@ The renderer's shader-hash identification was checked against
 [LGPL-2.1-or-later](https://github.com/HansKristian-Work/vkd3d-proton/blob/master/COPYING).
 Its source was consulted privately; none is copied into this repository. Existing
 compiler, capture, hook and format-library permissions and licences still apply.
+
+## Opaque scenery local-light inputs — 9 November
+
+The opaque scenery survey classifies 131 active surfaces: 80 with two source layers
+and 51 with one. Their source definitions share the material controls needed by the
+previous local-light calculation. They reference 24 packed material textures. Material
+names alone do not describe those inputs: both source families have packed specular
+and roughness information, and the layered family blends both packed textures using
+the same vertex weight as its colour layers.
+
+An independent material calculation matches 313,230 source tree pixels and 47,883
+pixels in a second source draw, at the existing strict tolerance. Ignoring the second
+layer fails. Neither draw receives local lighting in these captures, so neither is a
+positive lighting test. A scan finds a third draw with an active contribution. Its
+63,445 tested pixels include 55,287 with measurable local light; the independent
+calculation matches at the unchanged tolerance. Omitting the light fails. The source
+buffers and geometry inputs are measured directly from the captured frame.
+
+The private host writer adds the two packed texture slots to the classified scenery
+family. A single-layer material binds its source texture to both slots. All source
+mip payloads survive unchanged. Readback checks all 131 bindings and preserves the
+geometry, existing environment output, other materials and unrelated shader stages.
+Two builds match across 703 reachable files. The old build fails the new binding
+check. An initial preparation attempted an alternate shader variant, which has a
+different native layout; its structural guard rejected it. The working preparation
+changes only the classified static material pass and preserves alternate stages.
+
+A fresh background session checks the player-relative light while moving the player
+with the camera fixed. Its 2,305 local-light passes have no runtime invariant errors,
+use distinct descriptor slices and restore native bindings. It exits normally and
+restores the private camera profile. Captured inputs contain the exact source packed
+mip payloads in linear views, including visible draws with distinct textures in the
+two slots and a draw using the same texture in both. The existing local-light
+calculation matches 2,067,371 classified host pixels, with 105,656 nonzero responses,
+at the prior tolerance. This validates arithmetic on native inputs, not cross-game
+sampling equivalence or full visual fidelity.
+
+The packed-input check covers another 1,434,285 draw pixels, including a surface whose
+blend weight spans the full range. The first conversion model fails at two rounding
+boundaries. Keeping the multiply-add result unrounded until the half conversion
+reproduces every stored packed byte across all three draws. This is an observed
+conversion model for the captured pipeline, not an attribution to particular GPU
+instructions. The failed models and exact sampled values are retained. Ignoring
+the second layer fails on the varying-layer draw. Disabling only the new family's
+local-light tag changes 1,304 composed pixels, all within that family's visible
+coverage; unrelated families remain unchanged.
+
+A second fresh session checks eight calibrated directions twice and records 6,433
+local-light passes without invariant errors or descriptor reuse. All sixteen capture
+checks pass, and all eight first captures were visually reviewed for gross geometry
+or binding regressions. Normal exit and profile restoration pass. The second session
+also exercises the corrected, separately allocated diagnostic log path.
+
+One evidence-preservation error occurred: the copied test adapter retained its
+escaped Windows log path and overwrote the preceding checkpoint's runtime trace.
+There is no matching backup. A full audit of that checkpoint's 4,958 reachable files
+finds exactly that one changed file; its captures, builds and GPU proofs remain
+intact. The earlier runtime report is historical evidence whose original raw trace
+can no longer be rechecked. This session's trace is preserved separately, the next
+adapter has a distinct checked log path, and future preserved files are made
+read-only. No install or ordinary save was affected.
+
+These remain private development controls. The descriptor allocator still has a
+bounded capture lifetime, the light uses a measured player-relative offset, other
+local lights and source attachment animation remain open, and the ordinary preview
+has not been promoted. No new third-party dependency or production licence decision
+was made; the existing private-tool permissions and licences apply.
