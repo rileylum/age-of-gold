@@ -967,3 +967,64 @@ All reconstructions, programs, parameters and captures remain private under the
 existing permissions and tool licences. Nothing here establishes live host occlusion,
 ordinary-play behaviour or general parameter translation. No new production dependency
 or licence decision is made. The ordinary preview and save remain unchanged.
+
+## Host ambient occlusion implementation — 8 November
+
+The host's existing occlusion stages do not receive the depth samples selected by the
+source. Its shared reduction keeps the nearest depth in each block; the source selects
+one position. Testing the native upscale switch and the highest occlusion setting does
+not supply the missing full-resolution input. Substituting the source selection in the
+shared reduction changes unrelated scenery edges even with occlusion held neutral, so
+that shortcut was rejected.
+
+A private runtime adapter observes the full-depth descriptor table already used by the
+host's reduction. Within the same command-list reset, it temporarily supplies that table
+to the first two translated occlusion passes and restores the previous binding after each
+draw. It checks the pipeline, descriptor heap, root signature, viewport and draw shape.
+It does not change the shared reduction or allocate another depth target. The initial
+observer missed cached pipelines; observing the pipeline-library load path established
+the binding before the first mutating trial.
+
+The translation uses three existing host targets. The first stores the two source
+visibility scales in separate channels. The second filters and combines them; the third
+filters and enlarges the result. Scenery marked as already source-lit receives this
+visibility before fog. It remains excluded from the host's extra lighting and glow.
+
+The first native build failed numerical comparison despite plausible screenshots. A
+compiler precision annotation had expanded explicit fused arithmetic. Retaining those
+operations reduced the mismatch but still failed: the annotation also changed upstream
+depth reconstruction. Restricting it to the edge test makes the replay outputs match the
+verified reference byte for byte. Failed attempts and the narrower intermediate proofs
+remain recorded privately; their bounds were not relaxed.
+
+Two distinct native captures now match the verified reference byte for byte in all
+three outputs. Independent stage calculations, using captured GPU depth and reciprocal
+intermediates, remain within one 8-bit step across both full images. The shared depth
+reduction still matches its previous selection rule exactly. The composition check
+covers roughly six million marked pixels across the two views, with no glow introduced.
+This is staged arithmetic evidence, not CPU-only full-chain equivalence on all hardware.
+
+Eight calibrated views were captured twice and inspected against the source and the
+previous host build. The effect adds contact shading while retaining scene readability.
+The game closed through its normal UI and the private capture profile was restored.
+Repeated builds match across all files. The bounded runtime trace records a thousand
+restored bindings without invariant failures; it does not establish every frame or view.
+A repeated capture notification initially pointed the second analysis at the first frame.
+The distinct second file was then identified and its GPU camera matrix checked against
+the recorded second pose before repeating the numerical checks.
+
+One local GPU replay measures about 7.5 milliseconds for the translated occlusion,
+compared with about 1.2 milliseconds for the previous host effect. This excludes adapter
+CPU overhead and does not measure ordinary-play frame pacing. The present implementation
+is a correctness reference; its repeated filtering work needs optimization.
+
+These are private fixed-view controls, not general parameter translation or a production
+runtime architecture. Resolution, field of view, graphics settings, hardware coverage,
+ordinary-play behaviour and performance acceptance remain separate checks. Specular, local
+lighting and general shadow response remain unfinished. The ordinary preview and save are unchanged.
+
+The observer and adapter use the existing private MinHook dependency, whose source
+licence is BSD-2-Clause. Existing compiler, capture and format-library permissions still
+apply. All reconstructed programs, extracted inputs, native binaries, captures and
+third-party code remain outside the repository. No production dependency or project
+licence decision is made.
