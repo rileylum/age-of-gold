@@ -39,6 +39,13 @@ two matching frames before each key, checks focus, and stops on an unknown scree
 leaves the game running. It never terminates a process; checkpoint restoration belongs to the
 external launch wrappers.
 
+For an ordinary host session without camera control, a target may specify `observer`: the
+temporary path of a read-only executable accepting a fresh request ID. Startup retries
+responses with `protocol: 1`, that ID, `read_only: true` and `ready: false`. A ready response
+must satisfy the complete observation contract below. Other failures stop the session.
+Normal exit then invokes the configured shutdown command without sending a camera release.
+This mode is for startup verification; fixed-view comparisons still need camera adapters.
+
 Launch wrappers must enforce offline operation and select isolated saves. The generic
 controller cannot establish those properties from an arbitrary command. The source uses a
 cloned Proton prefix; the host uses an offline me3 profile with its own save. Both wrappers
@@ -90,6 +97,7 @@ other render paths. A recorded follow camera must settle after loading before it
 python spikes/visual-compare/check_camera.py
 python spikes/visual-compare/check_pair.py
 python spikes/visual-compare/check_start.py
+python spikes/visual-compare/check_start_observer.py
 ```
 
 These checks use authored frames and fake adapter/window responses, never either install.

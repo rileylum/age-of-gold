@@ -1,23 +1,33 @@
 # Firelink consolidation — 9 November 2026
 
 Riley asked to stop accumulating experiments and consolidate a usable playtest, reusable
-tools and findings for subsequent areas. The broad fidelity investigation is paused during
-this work. This document records local development practice; it does not settle the
+tools and findings for subsequent areas. This consolidation goal replaced the broad fidelity
+goal; further fidelity work is deferred. This document records local development practice; it does not settle the
 production language, libraries or licence decisions in [core.md](core.md).
 
 ## Deliverables and current state
 
 | Deliverable | Current state | Remaining work |
 | --- | --- | --- |
-| Persistent ordinary playtest | The existing scenery preview has been materialized outside temporary storage. All build files match the preceding preview; the offline profile keeps the same resumable save. | Promote the accumulated, verified improvements after an ordinary-play smoke test. |
-| Reusable comparison tools | Camera readback, scripted startup/normal exit, paired captures, ordinary-play position reports and capacity preflight are in `spikes/visual-compare`. | Consolidate the external background launcher and game adapters with a restoration check and a small private dependency manifest. |
-| Reusable findings | The index below identifies the format and rendering conclusions separately from their private captures. | Turn accepted private stages into a reproducible build recipe; preserve their provenance and licence boundaries. |
-| Bounded reference set | Identical files in frozen repeated builds and published tools have been consolidated without removing paths. Interrupted work has a verified private archive. | Flatten dependencies of retained builds, then retire redundant experiments and exports. |
+| Persistent ordinary playtest | Latest live-verified improvements promoted with the illumination runtime; preceding scenery build retained as rollback. Both have regular files without external file links. | Riley's traversal check. |
+| Reusable comparison tools | Generic controllers remain in `spikes/visual-compare`. The private kit restores the background session, both adapters, isolated saves, observer and menu templates. Both games passed two views twice and normal exit after restoration. | Recalibrate bookmarks and bindings when changing area or install. |
+| Reusable build tools and findings | Private runtime rebuild matches the promoted binary. Both private format tools rebuild; the inspector passes texture checks and reads a promoted model. The kit indexes stage recipes and provenance; findings are below. | Integrate private stages into the production install-to-build pipeline in a later goal. |
+| Bounded reference set | One current build, one rollback, one recovery/tool kit, one restored workspace and selected evidence. Earlier deduplication recovered 53.78 GiB; verified motion-capture deltas recovered another 6.56 GiB, followed by removal of reconstruction scratch. | Restore compacted historical captures before replay; retain each delta's parent. |
 
-The ordinary playtest is the existing accepted preview, not the latest research build.
-The later two-appearance flame candidate passed live checks. The subsequent four-flame,
-three-glow candidate passed build/readback checks but still lacks live verification.
-Those states must remain distinct when choosing a build to promote.
+The playtest includes the live-verified two-appearance flame candidate. The subsequent
+four-flame, three-glow experiment remains excluded: it lacks live verification.
+
+Launch with `python ~/.local/share/age-of-gold/playtests/firelink/launch.py`, then Continue.
+Add `--rollback` to select the preceding scenery build. Both use the existing resumable
+playtest save. Use this launcher: it also supplies the runtime's diagnostic destination.
+The ordinary profile contains no camera adapter. Logs reset on launch and are bounded;
+a separate small error record retains failures after the main trace reaches its limit.
+
+The private kit is `~/.local/share/age-of-gold/development/firelink-kit-v1`; its `README.md`
+documents restoration, background comparison, runtime/format-tool rebuilding and recovery.
+`index.json` links verification and historical evidence. All game-specific contents remain
+outside Git. Its build recovery reconstructs frozen snapshots, not a fresh conversion from
+the installs. The earlier stage inputs remain necessary for historical research.
 
 ## Retention workflow
 
@@ -51,19 +61,27 @@ temporary-memory filesystem. Use the capacity command before each batch, with es
 for capture, export, save staging and preservation. These are local operating limits;
 they are not production requirements or a guarantee against other programs using space.
 
-## Next promotion
+## Verification and handoff
 
-1. Assemble a self-contained candidate from the latest live-verified scenery and lighting
-   work. Preserve the accepted preview as rollback. Record exactly which runtime components
-   it needs; diagnostic tracing must not create unbounded logs during ordinary play.
-2. Verify the candidate against both installs and read back its complete build. Exercise
-   cold startup, Continue with an isolated save, the dark chapel and open courtyard views,
-   ordinary movement, and normal exit in the private background session.
-3. Promote only after that check. Keep the user's resumable save, supply the same ordinary
-   launcher, and request a brief traversal check. Aqueduct repairs remain outside this pass.
-4. Consolidate the private tools and dependency manifest. Prove restoration in a fresh
-   directory before pruning the experimental chain. Broader fidelity work follows this
-   checkpoint rather than expanding the archive first.
+The candidate passed cold startup, Continue, three checked views, ordinary movement and
+normal exit using an isolated save. A separate session verified loading and rendering with
+the runtime present and no camera DLL. The actual launcher was checked for offline arguments,
+profile selection and the trace environment; normal saves retained their hashes.
+
+The private kit restored into a fresh directory. Host and source each produced two checked
+chapel views and two cliff views, then exited normally. The host's capture-only clock hold
+and anchor correction are distinct from ordinary play. An initial capture rejected the
+slightly displaced saved anchor; the existing correction then passed. The old third-view
+label `stairs` was inaccurate; the kit calls that view `west-wall`.
+
+Both complete build snapshots restored and matched every file hash. Eight historical motion
+captures were independently reconstructed to disk and hashed before their redundant raw
+files were removed. Four original parent captures remain. The private compaction manifest
+and restoration command preserve the dependency information. Reconstruction scratch was
+removed after its checks; historical build stages and capture parents were not blanket-deleted.
+
+Riley's next step is a brief traversal using the launcher above. Aqueduct repairs, remaining
+effect fidelity and production pipeline integration remain outside this completed pass.
 
 ## Findings to carry to another area
 

@@ -10,6 +10,7 @@ import uuid
 from PIL import Image, ImageChops, ImageStat
 
 import camera
+import report
 
 
 def leave(target, output):
@@ -18,7 +19,8 @@ def leave(target, output):
     if not isinstance(command, list) or not command or any(not isinstance(v, str) for v in command):
         raise ValueError('Shutdown must be an argument list')
     camera.temporary_path(Path(command[0]))
-    camera.request(camera.temporary_path(Path(target['endpoint'])), 'release')
+    if not target.get('observer'):
+        camera.request(camera.temporary_path(Path(target['endpoint'])), 'release')
     with (camera.temporary_path(output) / 'shutdown.log').open('wb') as log:
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=log,
                                    stderr=subprocess.STDOUT, start_new_session=True)
@@ -52,6 +54,7 @@ def enter(target, output, attach=False):
     output = camera.temporary_path(output)
     output.mkdir(parents=True, exist_ok=False)
     endpoint = camera.temporary_path(Path(target['endpoint']))
+    observer = camera.temporary_path(Path(target['observer'])) if target.get('observer') else None
     steps = target['startup']
     for step in steps:
         camera.temporary_path(Path(step['template']))
@@ -76,7 +79,8 @@ def enter(target, output, attach=False):
             raise ValueError('Launch must be an argument list')
         camera.temporary_path(Path(command[0]))
         # A previous fixed view must not be applied while the new world is streaming.
-        (endpoint / 'request.txt').write_text(f'{uuid.uuid4().hex} status\n')
+        if observer is None:
+            (endpoint / 'request.txt').write_text(f'{uuid.uuid4().hex} status\n')
         with (output / 'launch.log').open('wb') as log:
             process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=log,
                                        stderr=subprocess.STDOUT, start_new_session=True)
@@ -119,10 +123,23 @@ def enter(target, output, attach=False):
         time.sleep(.5)
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
-        result = camera.request(endpoint, 'status')
+        if observer is not None:
+            request_id = uuid.uuid4().hex
+            observed = subprocess.run([str(observer), request_id], check=True,
+                                      capture_output=True, text=True, timeout=30)
+            result = json.loads(observed.stdout)
+            if result.get('read_only') is not True:
+                raise ValueError('A read-only startup observer is required')
+            if result.get('protocol') != 1 or result.get('id') != request_id:
+                raise ValueError('Startup observer response does not match this request')
+            if result.get('ready') is not False:
+                result = report.observation(result, request_id)
+        else:
+            result = camera.request(endpoint, 'status')
         if result['ready']:
-            time.sleep(3)
-            result = camera.ready(endpoint)
+            if observer is None:
+                time.sleep(3)
+                result = camera.ready(endpoint)
             (output / 'loaded.json').write_text(json.dumps(result, indent=2) + '\n')
             return result
         time.sleep(.5)
