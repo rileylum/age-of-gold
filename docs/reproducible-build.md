@@ -112,11 +112,21 @@ writers against the installed regulation. It uses a source bonfire placement, re
 reads the encrypted result back, verifies the remaining tables and checks unchanged installs.
 The authored `gameplay-tables` mode covers field preservation and rejected layouts/references.
 
-`tests/NativeHooks` is a CMake project for a Windows compiler. With `AOG_DEPENDENCIES` set,
-configure it in a fresh temporary directory, build, then run `aog-native-hooks.exe` directly
-or under Wine. It uses only an authored function and launches no game. The check stages the
-complete MinHook notice beside its executable. The maintained native compiler selection is
-still pending; the existing private compiler was used for this proof.
+Native checks use external LLVM-MinGW release 20261104, pinned in `eng/native-toolchain.json`.
+Verify the downloaded archive against the checksum for your platform before unpacking it.
+With `AOG_DEPENDENCIES` set, run:
+
+```sh
+export AOG_LLVM_MINGW='/path/to/llvm-mingw-20261104-ucrt'
+TMPDIR=/var/tmp python tests/check_native.py /var/tmp/aog-native-check
+```
+
+The check configures `tests/NativeHooks` with `eng/llvm-mingw.cmake`, builds twice and runs the
+authored executable directly on Windows or under Wine on Linux. It checks deterministic bytes,
+hook removal and staged licence notices. On Linux it also checks refusal of an unsupported
+compiler. CMake needs a generator that honours the selected compiler, such as Ninja or Unix
+Makefiles. These checks have been exercised on Linux/Wine; native Windows remains unverified.
+No game is launched. The compiler distribution is neither committed nor bundled.
 
 ## Evidence and remaining stages
 

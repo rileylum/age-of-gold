@@ -15,6 +15,8 @@ Microsoft DirectX Shader Compiler is separately installed and is not bundled.
 The native lighting runtime uses externally built MinHook (BSD-2-Clause).
 Its full upstream licence, including the HDE notices, must accompany compiled
 distributions. The native check build stages that notice under LICENSES/.
+LLVM-MinGW is an external build tool. Its LLVM and mingw-w64 runtime notices
+are also staged under LICENSES/ for binaries built with its runtime libraries.
 
 Trademarks
 ----------

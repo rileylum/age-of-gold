@@ -52,6 +52,12 @@ runtime on 9 November 2026. Its source stays in the external dependency checkout
 licence notices must accompany compiled distributions. This does not permit retaining captured
 game shader programs or executable signatures in the runtime's source.
 
+**Native compiler.** Riley selected external LLVM-MinGW release 20261104 for building the
+native lighting DLL on 9 November 2026. The maintained configuration pins its Clang version
+and revision; `eng/native-toolchain.json` records the upstream Linux and Windows archive
+checksums. The compiler stays outside Git and releases. Compiled runtime distributions retain
+the applicable upstream notices.
+
 **Open decisions**
 
 Each is settled one at a time with Riley, and then moves into the section it belongs to.

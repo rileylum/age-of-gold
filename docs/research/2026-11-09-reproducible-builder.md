@@ -89,6 +89,18 @@ terms in the [pinned upstream licence](https://raw.githubusercontent.com/TsudaKa
 The private runtime still contains captured shader/root data and executable binding details;
 adopting the hook library does not make that runtime suitable for the maintained source tree.
 
+Riley selected the existing external LLVM-MinGW 20261104 toolchain for maintained native
+builds. Its Clang version and source revision are checked at configuration, and the upstream
+Linux/Windows package checksums are recorded. The retained Linux archive matches the upstream
+digest. An authored unsupported compiler is rejected; two fresh accepted builds and their
+licence staging pass. The distributed LLVM licence is Apache-2.0 with LLVM exceptions;
+mingw-w64 carries ZPL-2.1 and component-specific terms recorded in its bundled notices. Those
+notices are retained beside generated binaries; the compiler itself is not redistributed.
+The [pinned release](https://github.com/mstorsjo/llvm-mingw/releases/tag/20261104) and
+[upstream build documentation](https://github.com/mstorsjo/llvm-mingw/blob/20261104/README.md)
+describe the Linux cross compiler and Windows-native packages. Native Windows execution has
+not been verified in this session.
+
 Primary DXC sources: [release](https://github.com/microsoft/DirectXShaderCompiler/releases/tag/v1.9.2609),
 [licences](https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/LICENSE.TXT),
 [public interfaces](https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/include/dxc/dxcapi.h).

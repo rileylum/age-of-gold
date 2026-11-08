@@ -1,0 +1,15 @@
+{
+  "release": "20261104",
+  "clangVersion": "23.1.5",
+  "llvmRevision": "392dfff97d29b59d77e5cac6d4b6ef2585fe7117",
+  "archives": {
+    "linux-x64": {
+      "name": "llvm-mingw-20261104-ucrt-ubuntu-22.04-x86_64.tar.xz",
+      "sha256": "919380403de87dca3c581c2053230cd298af5e891286628ba0613b7fed370926"
+    },
+    "windows-x64": {
+      "name": "llvm-mingw-20261104-ucrt-x86_64.zip",
+      "sha256": "552191b5754c49a5a20723276a6fc56541ea1922c4c50b7b669022333fc1b40f"
+    }
+  }
+}
