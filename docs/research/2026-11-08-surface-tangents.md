@@ -1092,3 +1092,42 @@ adding a fixed brightness gain would not reproduce this behavior. No game was la
 for this attribution: it uses the preserved captures and read-only install survey.
 All programs, inputs, survey output and captures stay private under the existing tool
 permissions and licences. No production dependency or licence decision is made.
+
+## Packed material inputs for local lighting — 8 November
+
+The selected opaque foliage family lacked its source packed material texture in the
+host. A private source calculation now reconstructs diffuse colour, specular colour
+and roughness from sampled texture values and the classified material definition.
+It matches about 70,000 captured source pixels within the recorded numerical bounds;
+the previous neutral specular prediction fails first. This proves that definition's
+response, not a general material translator.
+
+The host control imports the packed texture and adds a fourth material binding for
+seventeen surfaces. All ten mip payloads remain byte-identical to the source. The
+existing shader metadata is extended while preserving its other bytes, and geometry,
+wind, depth and velocity programs are retained. Two builds match across all 653 files.
+The initial importer incorrectly assumed the colour texture's compression format also
+applied here; the actual packed texture uses a different supported block format.
+The failed attempt remains private alongside the correction.
+
+A fresh background capture confirms the actual texture payload, linear view format
+and fourth binding on three visible draws. The capture API's usage list is empty for
+these resources; explicit material-table addresses and the reflected array elements
+agree. Earlier usage-list and source-style resource-name checks are retained as failed
+diagnostics. They were not evidence that the texture was unbound.
+
+The sampled channels are carried in existing material buffers for later lighting.
+Across more than 151,000 native pixels, the stored bytes exactly match conversion
+through half precision rounded toward zero, followed by normalized-byte rounding.
+A direct half-byte error bound against the full-precision sample fails and remains
+recorded; the largest observed error is about 0.623 byte levels. This is an observed
+conversion model on this renderer, not a general hardware guarantee. A same-frame
+replay restoring the previous buffer values leaves composed lighting byte-identical.
+The game exits through its normal menus and the private camera profile is restored.
+
+This checkpoint transports specular and roughness inputs; it does not yet add local
+lighting. Diffuse input transport, moving light placement and the separate contribution
+after environment occlusion remain necessary. The source calculation and host transport
+checks are separate proofs, not cross-game texture-sampling equivalence. The ordinary
+preview and save are unchanged. Existing private format-library and capture-tool
+permissions and licences apply; no production dependency or licence decision is made.
