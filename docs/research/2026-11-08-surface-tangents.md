@@ -896,3 +896,39 @@ camera, anchor and held-environment checks. Inspection of all eight views finds 
 tree and stone closer to the source without gross missing geometry or new seams.
 Fine detail, atmosphere and some foliage still differ. The game exits normally,
 the private camera profile is restored, and the ordinary preview and save are unchanged.
+
+## Opaque foliage composition — 8 November
+
+The remaining opaque foliage family also receives extra native lighting after its
+translated environment response. A same-frame check of the previously identified
+foliage mesh explains the host composition within the established quantization
+bound. The first source prediction misses a warm local-light term. A separate probe
+of the source's complete pre-fog sum and its own fog geometry resolves that mismatch.
+Its signed angular input must be encoded before writing to an unsigned diagnostic
+target; an additional check catches the first probe's clipped negative values.
+The corrected source prediction has a 99th-percentile relative error of 1.50%.
+
+A replay applies the existing source-lit composition path to the opaque foliage.
+About 238,000 marked pixels follow the independent atmosphere calculation, with
+zero added glow. Supplied lighting values and composition outside those pixels
+remain identical. Across about 64,000 shared interior pixels, mean channel errors
+fall from roughly 19–28% to about 3–4%. This control still excludes source ambient
+occlusion, specular and local lighting; the improved average does not settle those
+translations or filtering differences.
+
+The current build binds 17 surfaces to this family. Both of its pixel programs
+match the earlier checked opaque foliage control. The candidate changes their
+lighting marker and preserves the other shader stages. A payload checker first
+rejects the prior build. A separate live-buffer check also rejects the old captured
+foliage specifically for its missing marker. Programs, bindings and captures remain
+private under the existing permissions and licences.
+
+Two private builds match across 648 files, with changes confined to one shader
+bundle and the build record. A fresh host capture identifies the selected opaque
+foliage draw by all of its static vertex positions and checks more than 69,000
+visible interior pixels for the marker. Across 2.38 million marked pixels, the
+independent atmosphere calculation has a 99th-percentile relative error of 2.47%,
+with zero added glow. Sixteen screenshots pass the fixed-view checks. Inspection
+of all eight views finds less pale grass and no gross missing geometry or new seams.
+The game exits normally, the private camera profile is restored, and the ordinary
+preview and save remain unchanged.
