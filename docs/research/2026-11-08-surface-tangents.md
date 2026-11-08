@@ -1265,3 +1265,67 @@ bounded capture lifetime, the light uses a measured player-relative offset, othe
 local lights and source attachment animation remain open, and the ordinary preview
 has not been promoted. No new third-party dependency or production licence decision
 was made; the existing private-tool permissions and licences apply.
+
+## Local-light resource lifetime — 9 November
+
+The preceding adapter allocates a new descriptor slice for every local-light draw.
+Its finite process-wide allowance makes it unsuitable for longer play. A private
+replacement tracks each command-list recording and its queue submissions. Reset or
+destruction retires the recording, but descriptors remain occupied until every
+associated queue fence has completed. A completed recording that could still be
+submitted again retains its descriptors. Referenced textures are released after
+reclamation, outside the tracking lock. Fence failures prevent reclamation and are
+reported as errors.
+
+An authored policy check first fails against monotonic allocation and then passes
+with reclamation. It exercises delayed completion, repeated submission, two queues,
+discarded recordings and one hundred thousand allocation cycles. Deliberately
+ignoring completion, recording ownership, resubmission or the second queue causes
+the respective checks to fail. These are policy tests, not evidence that the host
+uses all those cases. The private adapter retains a concurrent-allocation ceiling;
+reaching it fails explicitly and would require heap growth. It has no cumulative
+draw allowance. New trace files are created exclusively, refusing an existing path.
+
+The first host session completes 31,399 local-light draws, including a sustained
+run beyond three times the previous allowance and sixteen captures across eight
+directions. It uses three descriptor slices in total. The complete trace audit
+checks retirement and all submitted fence values before every reuse, and balanced
+texture-reference release for each reclaimed slice. A fresh session completes
+3,175 draws and confirms player-following light position with a fixed camera. Both
+games exit normally and restore the private profile. The observed host uses one
+queue; multiple-queue behavior remains an authored policy test.
+
+The first capture harness has a preserved failure after its successful eight-view
+sequence: its movement check expects the initial orientation after ending at another
+angle. The separate fresh session tests that movement correctly. This does not turn
+the first complete harness into a passing test. Reviewing all eight views against
+the preceding control finds no gross scenery or binding regression; it does not
+establish pixel fidelity. Ordinary-play promotion, longer varied traversal and
+resource changes across world reloads remain outside this checkpoint.
+
+The GPU frame captured after the sustained run retains the preceding composite
+program byte for byte. Independent local-light arithmetic agrees across 2,068,893
+classified pixels, including 105,493 nonzero responses, at the unchanged tolerance;
+maximum absolute error is below two billionths. Exact sampled colour is measured
+as before. Removing the local contribution changes 29,668 composed pixels and none
+outside the classified surfaces. The adjacent draws establish native descriptor-heap
+and declared root-layout restoration. These checks establish the retained lighting
+behavior after descriptor reuse, not cross-game sample equivalence.
+
+Microsoft's [fence lifetime guidance](https://learn.microsoft.com/en-us/windows/win32/direct3d12/fence-based-resource-management),
+[command-list reset contract](https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12graphicscommandlist-reset)
+and [submission contract](https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12commandqueue-executecommandlists)
+inform this control. Their documentation licences are CC BY 4.0 in
+[Win32](https://github.com/MicrosoftDocs/win32/blob/docs/LICENSE) and
+[SDK API](https://github.com/MicrosoftDocs/sdk-api/blob/docs/LICENSE). No example code
+was copied. Existing private compiler and hook permissions still apply.
+
+Separate source arithmetic attribution identifies a missing contribution: the
+positive opaque-scenery sample from the preceding checkpoint receives its measured
+local response entirely from the bonfire-associated light. The player-associated
+light is outside its range. The host control currently adds only the player light.
+A CPU prediction adding the captured second light on prior host inputs reduces
+the discrepancy at the shared sample locations. This is a diagnostic target for
+the next rendering control, not an implemented bonfire light or proof of matching
+surface sampling. The same-pixel comparison retains geometry and occlusion
+outliers; it is not a visual-fidelity score.
