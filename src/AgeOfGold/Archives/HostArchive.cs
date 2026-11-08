@@ -67,7 +67,8 @@ internal sealed class HostArchive
             foreach (var (start, length) in entry.Ranges)
                 aes.DecryptEcb(bytes.AsSpan(start, length), bytes.AsSpan(start, length), PaddingMode.None);
         }
-        return bytes[..entry.ContentSize];
+        // Some host entries omit the unpadded length; their stored extent still contains the file.
+        return entry.ContentSize == 0 ? bytes : bytes[..entry.ContentSize];
     }
 
     private void Index(byte[] bytes, string data)

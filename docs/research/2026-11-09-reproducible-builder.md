@@ -56,6 +56,19 @@ fixtures cover missing keys, excluded code sections, duplicate locations and amb
 validation. Real-install checks prove independent deterministic encryption and readback with
 all table contents retained. This resolves key recovery, not the separate host-schema question.
 
+Review of the prepared outputs exposed an archive-reader error: an omitted unpadded length was
+treated as an empty file. The stored extent is still valid in that case. An authored fixture
+now covers it, and a separate install check parses the prepared host map, all material
+definitions and model geometry. Repeatability and unchanged-input hashes alone had missed the
+error; the earlier reports are insufficient evidence for extraction.
+
+Comparison with the accepted playtest found two changed gameplay tables: bonfire destinations
+and interaction prompts. A private experiment can preserve both tables using opaque row data
+and reproduce the accepted edits. It obtains byte differences from the accepted output, so it
+proves container preservation only, not install-derived semantic translation. The proposed
+maintained approach is to author descriptions of only the fields that need editing, preserve
+all other row bytes, and reject unsupported layouts. Riley's schema decision remains open.
+
 Primary DXC sources: [release](https://github.com/microsoft/DirectXShaderCompiler/releases/tag/v1.9.2609),
 [licences](https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/LICENSE.TXT),
 [public interfaces](https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/include/dxc/dxcapi.h).

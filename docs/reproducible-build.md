@@ -83,7 +83,13 @@ DLL from the host install:
 dotnet publish tests/AgeOfGold.Checks -c Release -r win-x64 --self-contained -o /var/tmp/aog-collision-check
 # Under Wine, set the install environment variables to their Wine paths first.
 wine /var/tmp/aog-collision-check/AgeOfGold.Checks.exe collision-installs
+wine /var/tmp/aog-collision-check/AgeOfGold.Checks.exe prepared-host-installs 'Z:\var\tmp\aog-input-check\first'
 ```
+
+The second check reads the prepared host map, every material definition and the model geometry
+through their format parsers. Run it alongside the repeatability check: identical output alone
+cannot establish that extraction recovered usable files. The preparation check also rejects
+host templates without their expected compressed-container header.
 
 The `source-collision-installs` check additionally takes `AOG_COLLISION_REFERENCE`, pointing to
 a private export from the preceding reader. It verifies the reference's input fingerprints
@@ -100,6 +106,9 @@ The authored checks exercise the CLI and format readers using files created from
 They cover rejected writes and malformed requests as well as geometry, materials, texture
 extraction and shader binding preservation. The install check prepares twice, compares every
 output and independently re-reads every recorded install input. Both checks pass locally.
+Host entries with an omitted unpadded length retain their stored extent. An earlier preparation
+mistakenly emitted empty host templates; the authored regression and real format readback now
+cover that case. Earlier repeatability reports alone do not prove host-template extraction.
 The private comparison also finds exact agreement with the retained independent-layer
 geometry and texture exports. Those exports are test references, never construction inputs.
 

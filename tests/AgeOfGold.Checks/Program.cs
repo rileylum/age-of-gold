@@ -43,6 +43,11 @@ try
         RegulationInstallCheck.Run(root);
         return;
     }
+    if (args.Length == 2 && args[0] == "prepared-host-installs")
+    {
+        PreparedHostCheck.Run(args[1]);
+        return;
+    }
     var source = Path.Combine(root, "source");
     var host = Path.Combine(root, "host");
     Directory.CreateDirectory(source);
@@ -62,6 +67,13 @@ try
     Run(source, host, request, Path.Combine(root, "repeat"), true);
     Require(File.ReadAllBytes(Path.Combine(output, "manifest.json")).SequenceEqual(
         File.ReadAllBytes(Path.Combine(root, "repeat/manifest.json"))), "repeat manifest differs");
+    WriteHost(host, expected, hasContentSize: false);
+    var paddedOutput = Path.Combine(root, "padded");
+    Run(source, host, request, paddedOutput, true);
+    var padded = new byte[96];
+    expected.CopyTo(padded, 0);
+    Require(File.ReadAllBytes(Path.Combine(paddedOutput, "host/scene/example.bin")).SequenceEqual(padded),
+        "absent unpadded length discarded the stored archive data");
     Run(source, host, request, output, false);
     Require(File.ReadAllBytes(Path.Combine(output, "host/scene/example.bin")).SequenceEqual(expected), "rejected rebuild changed output");
     var protectedHash = SHA256.HashData(File.ReadAllBytes(Path.Combine(source, "scene.bin")));
@@ -128,7 +140,7 @@ static void Require(bool value, string message)
 }
 
 // This complete tiny archive is authored here, including freshly generated test keys.
-static void WriteHost(string host, byte[] contents)
+static void WriteHost(string host, byte[] contents, bool hasContentSize = true)
 {
     using var rsa = RSA.Create(1024);
     File.WriteAllText(Path.Combine(host, "eldenring.exe"), "authored executable\n" + rsa.ExportRSAPublicKeyPem());
@@ -149,7 +161,7 @@ static void WriteHost(string host, byte[] contents)
         w.Write(0); w.Write(0);
         w.Write(1); w.Write(40);
         // Precalculated polynomial hash for /scene/example.bin, independent of the reader.
-        w.Write(0x0a5154a0784fe6c3UL); w.Write(data.Length); w.Write(contents.Length);
+        w.Write(0x0a5154a0784fe6c3UL); w.Write(data.Length); w.Write(hasContentSize ? contents.Length : 0);
         w.Write(0L); w.Write(0L); w.Write(80L);
         w.Write(key); w.Write(1); w.Write(0L); w.Write(32L);
         w.Write(new byte[127 - plain.Length]);

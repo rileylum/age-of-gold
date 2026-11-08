@@ -55,6 +55,9 @@ def main():
             assert digest(path) == entry["sha256"]
         for relative in [] if args.firelink else request["source"]:
             assert digest(source / relative) == digest(output / "source" / relative)
+        for relative in request["host"]:
+            with (output / "host" / relative).open("rb") as stream:
+                assert stream.read(4) == b"DCX\0", f"Prepared host input lacks its compressed container: {relative}"
         # Re-read every recorded install input independently, including encrypted archive ranges.
         for game, install in (("source", source), ("host", host)):
             for key, expected in report["inputs"][game].items():
