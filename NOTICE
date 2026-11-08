@@ -2,8 +2,9 @@ Age of Gold — NOTICE
 
 Copyright (c) 2026 Riley Lum.
 
-An open-source licence has deliberately not yet been chosen for Age of Gold;
-it is all-rights-reserved for now. See docs/core.md.
+Age of Gold is free software under the GNU General Public License, version 3
+(GPL-3.0-only). See LICENSE for the full terms. It is provided without warranty.
+Third-party libraries retain their own licences and notices.
 
 Trademarks
 ----------

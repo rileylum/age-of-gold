@@ -24,7 +24,8 @@ if it exists. It says where the last session stopped and lists Riley's standing 
 - **Research:** `docs/research/` holds dated snapshots of what was learnt about formats, tools and
   prior art; they are inputs, not specs. Record each source's licence. Never copy code from a
   community tool without a logged decision that its licence allows it.
-- **Checks:** none yet; the first code decision sets them.
+- **Checks:** retain the authored spike checks while the maintained C#/.NET builder is introduced.
+  Install-dependent checks remain local-only; run the checks appropriate to each changed seam.
 - **The plan** named by the global principles is `docs/core.md`. The format families' readers and
   writers are the named extension points. Constraints 1–4 (nothing from either game, both
   installs required, installs read-only, offline only) and deterministic builds are the
