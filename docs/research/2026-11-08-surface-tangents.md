@@ -716,3 +716,48 @@ is below 0.1% for illumination and 0.2% for albedo, using half-precision diagnos
 Source wind, ambient occlusion, local lights and general shadow response remain outside this
 trial. The ordinary preview is unchanged. Programs, game-derived measurements and captures
 stay private; no new production dependency or licence decision is made.
+
+## Final display brightness attribution
+
+A matched city-wall capture separates material illumination from the later display stages.
+Before ambient occlusion, the source and host mean diffuse response differs by less than
+0.4% over approximately 1.67 million shared interior pixels. The host's atmosphere and
+tone-mapped outputs are slightly brighter than the source's at this view, despite its final
+displayed wall appearing darker. Both measured source exposures lie below the same clamp,
+so changing exposure does not explain this comparison.
+
+The missing step is the source's final brightness lookup. Applying the captured lookup to
+its captured colour input reproduces all 3,686,400 output pixels exactly. The lookup also
+matches the earlier chapel capture. The host instead combines scene and interface and then
+applies its own display exponent; an independent calculation reproduces that full frame
+within one byte step. Earlier candidate draws were interface rendering, not this final pass.
+
+Holding the old host scene input fixed, substituting the measured source lookup reduces
+mean absolute colour difference against the source wall from about 12.47 to 2.56 byte steps.
+This is an attribution prediction on the shared wall mask, not a full-scene fidelity score.
+It establishes why increasing ambient illumination would compensate at the wrong stage.
+
+A private candidate applies the captured source lookup to the scene. Before the native
+interface blend it reverses the host display exponent, so that exponent is not applied
+twice to the scene. The native interface contribution retains its display response. The
+workflow first rejects the native output against the source lookup, then checks installed
+program readback and unrelated-file preservation. Two builds match across 644 files.
+
+Eight views captured twice pass pose, player-anchor, dimensions and held host environment
+checks, followed by normal exit and profile restoration. All eight first repetitions are
+inspected: darker stone and bark are substantially closer to the source. Sharper foliage,
+haze differences and a dark patch on one tree remain. A live GPU capture verifies the active
+replacement and reproduces every displayed scene pixel exactly from independently read
+inputs. That frame contains no interface contribution, so a separate menu capture exercises
+the blend. Its full-frame calculation passes within one byte step, including 65,215 opaque
+interface pixels and more than two million pixels with another interface contribution.
+The opaque interface also matches the native display result within one byte step. The first
+menu attempt stops before GPU capture because the old recognition template includes a
+different scene background; the inspected menu becomes the next attempt's template, without
+loosening its tolerance. Both attempts exit normally and restore the private profile.
+
+The lookup is a private captured-setting control. General brightness settings, other display
+modes, source exposure outside the observed clamp, and complete visual fidelity remain open.
+The ordinary preview is unchanged. All programs, lookup contents, captures and measurements
+stay private under the existing permissions and tool licences; no production dependency or
+licence is selected.
