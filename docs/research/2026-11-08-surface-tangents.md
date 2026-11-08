@@ -1131,3 +1131,70 @@ after environment occlusion remain necessary. The source calculation and host tr
 checks are separate proofs, not cross-game texture-sampling equivalence. The ordinary
 preview and save are unchanged. Existing private format-library and capture-tool
 permissions and licences apply; no production dependency or licence decision is made.
+
+## Native local-light control — 8 November
+
+A private host control now adds the attributed player light to the selected opaque
+foliage family, after environment occlusion and before atmosphere. Its material pass
+also carries source colour and a classification tag through existing buffers. The
+light follows the live player position using the previously measured attachment
+offset. The offset is a bounded control, not a reconstruction of source bone motion.
+Repeated builds match across all 654 files; only two shader bundles change relative
+to the packed-input build, and readback preserves their unrelated entries.
+
+The first binding attempts borrowed descriptors from a preceding lighting pass.
+That assumption fails even when both passes belong to the same scene: the host
+records command lists concurrently, and CPU observation order is not GPU execution
+order. Same-list, same-thread and pass-sequence controls all fail and remain retained.
+They must not be promoted as working runtime implementations.
+
+The replacement observes descriptor creation, copying and render-target groups. It
+identifies the current material buffers by resource identity, follows the host's
+depth-copy relationship, and creates immutable descriptor slices for the added pass.
+It restores the native heap and root bindings afterward. A fresh background session
+records 2,297 local-light passes without invariant failures, retains the existing
+occlusion bindings, and confirms that light position follows a checked player move
+while the camera stays fixed. The captured GPU draw independently identifies the
+owned heap and the following native heap. The game exits normally and the private
+camera profile is restored.
+
+Two diagnostic corrections matter. The colour resource has an sRGB view despite its
+underlying byte format being reported as linear. Hardware decoding differs slightly
+from an ideal CPU conversion, enough to fail the strict lighting check. Exact sampled
+values, exported through representable small integer digits, resolve that difference:
+the independent source-light calculation matches all 171,385 tested host pixels,
+with maximum absolute error below two billionths. The original tolerance is retained.
+The earlier checks using the wrong view, ideal decoding or rounded output remain
+failed controls; they are not evidence of equivalent sampling across the games.
+
+The replay state also retains the largest push-constant snapshot after a smaller
+native layout resumes. Snapshot length therefore gives a false restoration failure.
+The following shaders' declared ranges and descriptor heap establish restoration.
+A same-frame replay with local lighting disabled changes 28,658 output pixels, all
+within the selected family. This supplies a visible-output negative control without
+using the small contribution's relative error after colour-target rounding.
+
+A second fresh session checks eight camera directions twice. All sixteen captures
+retain the calibrated poses and held environment; its 6,410 local-light passes have
+no binding failures or reused descriptor slices. A contact-sheet review of all eight
+first captures finds no gross geometry loss or binding corruption. This is a visual
+smoke check, not a source/host pixel comparison. Normal exit and profile restoration
+pass again.
+
+This is one material family and one calibrated player light. It does not establish
+all local lights, source attachment animation, cross-game sample equivalence, or
+ordinary-play stability. The immutable descriptor allocation has an explicit private
+capture limit; longer sessions need reclamation after GPU completion. The ordinary
+preview remains unchanged. New inspector helpers, shaders, runtime binaries, game
+data and captures remain private. No production dependency or licence is selected.
+
+Public references consulted: Microsoft's [root-signature usage](https://learn.microsoft.com/en-us/windows/win32/direct3d12/using-a-root-signature),
+[descriptor copying](https://learn.microsoft.com/en-us/windows/win32/direct3d12/copying-descriptors),
+[resource-binding lifetime](https://learn.microsoft.com/en-us/windows/win32/direct3d12/resource-binding-flow-of-control)
+and [colour-space conversion](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/converting-data-color-space)
+documentation. The Win32 documentation is [CC BY 4.0](https://github.com/MicrosoftDocs/win32/blob/docs/LICENSE).
+The renderer's shader-hash identification was checked against
+[vkd3d-proton](https://github.com/HansKristian-Work/vkd3d-proton/blob/master/libs/vkd3d-shader/vkd3d_shader_main.c),
+[LGPL-2.1-or-later](https://github.com/HansKristian-Work/vkd3d-proton/blob/master/COPYING).
+Its source was consulted privately; none is copied into this repository. Existing
+compiler, capture, hook and format-library permissions and licences still apply.
