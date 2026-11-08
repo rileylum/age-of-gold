@@ -761,3 +761,24 @@ modes, source exposure outside the observed clamp, and complete visual fidelity 
 The ordinary preview is unchanged. All programs, lookup contents, captures and measurements
 stay private under the existing permissions and tool licences; no production dependency or
 licence is selected.
+
+## Tree darkness attribution — 8 November
+
+A new calibrated source/host pair checks the tree patch that looked darker in the
+display-curve comparison. The earlier visual impression was misleading: all three
+sampled patches are brighter in the host. The tree's captured vertex positions and
+unoriented triangle connectivity match exactly, as do the first subresources of its
+two colour textures, two normal textures and diffuse environment texture.
+
+Across about 311,000 shared interior pixels, mean diffuse response before source
+ambient occlusion differs by about 0.9–1.3%. The independent host lighting calculation
+matches within 0.13% at the 99th percentile. Source ambient occlusion lowers the mean
+by about 2.5–2.8%; the sampled shadow multiplier is one. These measurements do not
+justify adding light to this tree. They do not establish general shadow equivalence.
+
+Both games bind complete material mip chains with zero sampler bias. Their captured
+anisotropic filtering limits differ. That is a possible contributor to local detail,
+not an established explanation of the remaining foliage differences. Source foliage
+motion remains untranslated and is the next isolated control. No build or ordinary
+play profile changed for this attribution. Captures and diagnostics remain private
+under the previously recorded tool permissions and licences.
