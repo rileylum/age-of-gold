@@ -129,3 +129,31 @@ storage and existing reports are never overwritten. A loading screen or stale re
 without producing a misleading report.
 
 Run the authored command-line checks with `python spikes/visual-compare/check_report.py`.
+
+### Capacity before a session
+
+`space.py` checks every declared destination filesystem before starting a command. Each
+`--space PATH EXPECTED_GIB RESERVE_GIB` names an existing directory, the expected additional
+space and the free space to leave untouched, in whole GiB. Claims on the same filesystem
+are added; its largest requested reserve applies once. Include save staging, captures,
+exports and preservation output, even when they live on different filesystems.
+
+```sh
+python spikes/visual-compare/space.py \
+  --space /var/tmp 6 20 \
+  --space /tmp 2 2 \
+  -- python /tmp/local-background/run.py python /tmp/new-session.py
+```
+
+Add a claim for the local save and archive filesystem when it differs from these paths.
+Omit the command to inspect the capacity report without launching anything. Missing paths,
+invalid budgets or insufficient capacity stop before the command runs. The command receives
+its arguments directly, without shell interpretation, and its exit status is preserved.
+
+This is a preflight, not a quota or reservation: another process or an underestimated export
+can consume more space after it passes. Long sessions must budget each batch, and games
+still exit through their normal UI. Run `python spikes/visual-compare/check_space.py` to
+check the command boundary with authored inputs and no games.
+
+See [the consolidation checkpoint](../../docs/firelink-consolidation.md) for retained
+deliverables, reference selection and the next playtest promotion.
