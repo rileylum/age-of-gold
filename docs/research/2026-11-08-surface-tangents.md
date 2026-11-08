@@ -932,3 +932,38 @@ with zero added glow. Sixteen screenshots pass the fixed-view checks. Inspection
 of all eight views finds less pale grass and no gross missing geometry or new seams.
 The game exits normally, the private camera profile is restored, and the ordinary
 preview and save remain unchanged.
+
+## Source ambient occlusion attribution — 8 November
+
+The source builds a screen-space visibility texture before drawing lit scenery.
+A depth preparation pass selects and rearranges samples at two resolutions. Two
+visibility passes examine opposite depth samples at several radii. Edge-sensitive
+filtering combines the scales and enlarges the result. The material multiplies its
+accumulated environment lighting by that visibility before adding emission and
+local lights. It does not darken the completed fogged image uniformly.
+
+A replay isolates this application on about 79,000 opaque foliage pixels. Ignoring
+occlusion fails the captured-lighting check; sampling the visibility texture and
+applying it to the pre-occlusion light satisfies the diagnostic format bounds.
+Disabling the generator produces a neutral visibility texture and visibly removes
+contact shading. This identifies the missing effect without changing global light.
+
+A private calculation reproduces depth preparation and sample rearrangement, both
+visibility scales and the two filtering stages from captured inputs. The first
+whole-frame attempt mishandles samples beyond the screen boundary. Reading the
+actual sampler establishes a zero border; preserving single-precision edge decisions
+also resolves a small set of filtering errors. In the first view, the complete
+calculation is within roughly one to two 8-bit steps across the full image.
+
+A second view uses the same programs with different depth and parameters. Its
+CPU-only full-chain check still fails the original maximum-error bound. A bit-preserving
+probe isolates one edge decision affected by a one-unit-last-place difference in
+depth reciprocal calculation. Using that captured intermediate reproduces the
+filtered values within single-precision rounding and the final texture within half
+an 8-bit step. The failed CPU-only check remains recorded; this is staged attribution,
+not a claim of identical arithmetic on all hardware.
+
+All reconstructions, programs, parameters and captures remain private under the
+existing permissions and tool licences. Nothing here establishes live host occlusion,
+ordinary-play behaviour or general parameter translation. No new production dependency
+or licence decision is made. The ordinary preview and save remain unchanged.
