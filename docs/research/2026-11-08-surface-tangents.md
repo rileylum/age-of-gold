@@ -679,3 +679,40 @@ Native point-sampled object categories approximate the source's interpolated his
 metadata. Wind history and other native categories remain outside the trial. The ordinary
 preview is unchanged pending broader play checks. All programs, measurements, captures and
 videos remain private; existing tool licences apply and no production dependency is chosen.
+
+## Opaque foliage omitted by the cutout pass
+
+A foreground pixel trace identifies a plant still using the host's basic material. Its
+source and host draw positions and topology match the corresponding installed and written
+mesh. The source material is foliage with opaque blending, so the earlier cutout-only survey
+never selected it. Seventeen surfaces share this family. The six unconverted cutout surfaces
+considered first were not identified as the traced plant; they were left unchanged.
+
+Four visible source draws share the measured diffuse and atmosphere coefficients used by the
+nearby foliage control. The traced draw has alpha rejection disabled. Independent component
+checks cover 78,797 interior pixels within the captured colour format's rounding intervals.
+Specular is zero and the shadow multiplier is one there; ambient occlusion does reduce the
+result. This supports a diffuse-environment control, not omission of those terms everywhere.
+
+The new private workflow first rejects the existing build for missing bindings. It then
+restores source vertex colour and normal frames on the seventeen opaque surfaces, reuses the
+checked textures, and preserves native opaque depth and velocity stages. A pre-launch review
+catches an unintended metadata edit in the first writer adaptation; the corrected writer
+checks all metadata bytes against the intended single-flag change. Its build and repeat match
+across 642 files. Changes are confined to the selected models and the two binding archives;
+the previous haze, light rays and cutout surfaces are retained.
+
+Eight views captured twice pass cross-game pose, player-anchor, image-size and fixed host
+environment checks. The game closes normally and the private profile is restored. All eight
+first repetitions are inspected: the foreground plants regain visible green shading closer
+to the source, with no missing scenery noticed. The host remains sharper, with broader tone
+and shadow differences; this is not full visual fidelity.
+
+The live capture identifies five draws using the new opaque program. Colour, normal and
+first-face diffuse-environment payloads and view formats match the source capture; the traced
+plant also retains its positions and topology. An independent calculation from captured
+source constants checks 78,832 interior host pixels. The 99th-percentile relative difference
+is below 0.1% for illumination and 0.2% for albedo, using half-precision diagnostic outputs.
+Source wind, ambient occlusion, local lights and general shadow response remain outside this
+trial. The ordinary preview is unchanged. Programs, game-derived measurements and captures
+stay private; no new production dependency or licence decision is made.
