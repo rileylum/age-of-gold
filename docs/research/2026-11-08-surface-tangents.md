@@ -488,3 +488,60 @@ through sky brightness or general illumination. The ordinary play preview remain
 All reconstructed programs, measured controls and images remain outside the repository
 under the existing private-tool authorization. Previously recorded tool licences apply;
 no production dependency or licence choice is made.
+
+## Bloom and foliage attribution — 8 November
+
+Seven captured source bloom stages are independently checked against their captured inputs.
+They downsample the scene, apply a depth-dependent threshold, filter at two resolutions,
+and finish with two directional filters. The last two passes write colour only: their
+retained alpha comes from earlier target contents and carries the separate depth weight.
+Treating those passes as ordinary four-channel filters fails the check. With the captured
+write masks respected, every checked component is within one half-precision step. The
+threshold pass includes four adjacent depth choices at exact point-sampling boundaries;
+this bounds that raster sampling ambiguity rather than proving a unique tie direction.
+These are individual-stage checks, not yet an end-to-end bloom translation.
+
+The host uses colour-only bloom targets and two contributing filter chains. Its final
+colour stage also has access to scene depth through a global resource table. A faithful
+mapping still needs to account for the source's separate depth weight and target history.
+Descriptor offsets must be obtained from the captured access record: an array index alone
+does not identify the same descriptor. No bloom replacement is installed by this research.
+
+The cutout survey finds 70 source surfaces across six material families. Nearby foliage
+and ivy account for 45 of them, share one source lighting selection, and still use a generic
+host cutout material. Twenty-eight captured source draws share the measured diffuse and
+atmosphere constants. The distant canopy has a separate treatment and is excluded from
+this nearby-foliage control.
+
+A visible ivy draw supplies 33,292 interior pixels for component checking. About two thirds
+of its measured diffuse illumination comes from the hemisphere term; the measured specular
+contribution is zero and shadow transmission is one on this sample. This is evidence for
+that surface and view, not a general claim about foliage. The first selected draw was
+occluded and supplied no pixels, so it cannot prove anything. A visibility survey identifies
+the later sample. Fixed relative-error and nearest-rounding assumptions fail on its reduced-
+precision diagnostic output. Conservative intervals of one step in each stored component
+cover the albedo conversion, hemisphere term and diffuse sum without any outlying component.
+The interval check records that precision limit explicitly.
+
+The private foliage control now supplies source colour, vertex colour, mapped normals and
+interpolated tangent frames on those 45 surfaces. An initial vertex-colour layout placed
+source colour in the host control channel; a new semantic-order check rejected it and the
+writer was corrected. The next build passed file checks but made selected foliage disappear.
+The compiled vertex and pixel programs assigned different physical interpolator slots to the
+same semantic. A contract check rejects that pair; matching the slots restores the ivy and
+wall-top grass in the host. This demonstrates why compiler validation and file readback alone
+do not establish rendering. The corrected generator emits the tested stage payloads exactly.
+
+Fresh host capture identifies 21 draws using the program; 19 have visible texture accesses.
+All mip payloads of their ten colour textures match the source, with raw colour sampling,
+and all six environment-cube faces match. A visible sample supplies 31,477 interior pixels:
+the lighting sum has a 99th-percentile relative error below one tenth of a percent, and colour
+conversion below a quarter of a percent, against the independently captured source constants.
+Three camera views captured twice confirm restored coverage; camera and environment checks
+pass, and the game closes normally. The final build and its repeat match across 624 files.
+
+This remains a private diffuse-lighting control. Other vegetation families, source wind,
+specular, occlusion, local lights and bloom remain incomplete. The ordinary preview is
+unchanged. No production dependency or licence decision is made; all game-derived programs,
+measurements and images remain outside the repository under the recorded private-tool
+permission and tool licences.
