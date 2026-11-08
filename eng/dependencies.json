@@ -8,5 +8,10 @@
     "url": "https://github.com/The12thAvenger/HKLib.git",
     "revision": "ac40bc9915d8caff0df154c2b9a79656dfca1d77",
     "licence": "MIT"
+  },
+  "MinHook": {
+    "url": "https://github.com/TsudaKageyu/minhook.git",
+    "revision": "05c06c5bbca226b72ffb40fc0caaef33bcaf6f74",
+    "licence": "BSD-2-Clause"
   }
 }

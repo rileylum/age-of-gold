@@ -12,6 +12,9 @@ revisions and source licences are recorded in eng/dependencies.json and
 docs/research/2026-11-09-reproducible-builder.md. Their upstream notices must
 accompany any future distribution containing their compiled libraries.
 Microsoft DirectX Shader Compiler is separately installed and is not bundled.
+The native lighting runtime uses externally built MinHook (BSD-2-Clause).
+Its full upstream licence, including the HDE notices, must accompany compiled
+distributions. The native check build stages that notice under LICENSES/.
 
 Trademarks
 ----------

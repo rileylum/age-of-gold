@@ -47,6 +47,11 @@ it edits. Values come from the installs or our translated placements and reserve
 all other row bytes are retained. The adapter rejects unsupported revisions, row lengths and
 encodings. Community paramdef files are not build inputs or bundled data.
 
+**Native hooks.** Riley selected pinned MinHook (BSD-2-Clause) for the maintained lighting
+runtime on 9 November 2026. Its source stays in the external dependency checkout and its
+licence notices must accompany compiled distributions. This does not permit retaining captured
+game shader programs or executable signatures in the runtime's source.
+
 **Open decisions**
 
 Each is settled one at a time with Riley, and then moves into the section it belongs to.

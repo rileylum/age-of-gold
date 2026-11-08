@@ -32,6 +32,9 @@ playable mod.
 - The DXC adapter compiles authored shader source and reassembles intermediate programs.
   A small authored C++ helper accesses DXC's assembly and validation APIs while preserving
   the template root signature. DXC itself remains separately installed.
+- MinHook is pinned for the native lighting runtime. An authored native check proves hook,
+  original-call, disable and removal behaviour, with deterministic builds and licence staging.
+  The private lighting runtime's captured inputs and game-specific bindings still need replacing.
 
 ## Developer checks
 
@@ -50,6 +53,7 @@ TMPDIR=/var/tmp python tests/check_installs.py /var/tmp/aog-input-check --fireli
 
 The bootstrap's optional `--mirror PATH` uses a local Git repository at the pinned commit.
 Use `--hk-mirror PATH` for an existing HKLib repository.
+Use `--minhook-mirror PATH` for an existing MinHook repository.
 It creates a fresh checkout and ignores that repository's working-tree modifications.
 The external manifest records every checked-out file after the explicit adapter adjustment.
 
@@ -107,6 +111,12 @@ install inputs. It writes only to a temporary directory and needs no schema expo
 writers against the installed regulation. It uses a source bonfire placement, rebuilds twice,
 reads the encrypted result back, verifies the remaining tables and checks unchanged installs.
 The authored `gameplay-tables` mode covers field preservation and rejected layouts/references.
+
+`tests/NativeHooks` is a CMake project for a Windows compiler. With `AOG_DEPENDENCIES` set,
+configure it in a fresh temporary directory, build, then run `aog-native-hooks.exe` directly
+or under Wine. It uses only an authored function and launches no game. The check stages the
+complete MinHook notice beside its executable. The maintained native compiler selection is
+still pending; the existing private compiler was used for this proof.
 
 ## Evidence and remaining stages
 

@@ -79,6 +79,16 @@ those descriptions nor Soulstruct is a maintained build dependency. The format l
 clone shares array cell values; the adapter explicitly duplicates the opaque row payload before
 editing so the template cannot be changed accidentally.
 
+Riley also approved MinHook for the maintained native lighting runtime. The pinned revision
+is the one used by the accepted private playtest; it reports version 1.3.3. A clean source
+bootstrap and authored native probe demonstrate hook installation, calling the target's prior
+implementation, disabling and removal. Two fresh builds match byte for byte under the existing
+private Windows cross compiler. No game was launched. The generated check directory includes
+the complete upstream notices. MinHook and its included HDE components use the two-clause BSD
+terms in the [pinned upstream licence](https://raw.githubusercontent.com/TsudaKageyu/minhook/05c06c5bbca226b72ffb40fc0caaef33bcaf6f74/LICENSE.txt).
+The private runtime still contains captured shader/root data and executable binding details;
+adopting the hook library does not make that runtime suitable for the maintained source tree.
+
 Primary DXC sources: [release](https://github.com/microsoft/DirectXShaderCompiler/releases/tag/v1.9.2609),
 [licences](https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/LICENSE.TXT),
 [public interfaces](https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/include/dxc/dxcapi.h).
