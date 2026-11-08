@@ -10,6 +10,9 @@ playable mod.
 - A C# command reads requested files from both installs, derives host archive keys from the
   host executable, decrypts requested entries and records the bytes it read. Conflicting
   archive entries fail; identical duplicates are checked rather than selected by accident.
+- Regulation-key discovery searches the host executable's read-only data and validates the
+  complete archive. Keys stay in memory. Missing or ambiguous discovery fails. Re-encryption
+  is deterministic; reading a table archive does not yet provide the schemas for editing rows.
 - Firelink preparation reads placed source models and material definitions, including patch
   precedence, rigid transforms, triangle winding, vertex colours, tangent frames and all UV
   channels. It extracts the explicitly referenced DDS textures without altering their bytes.
@@ -87,6 +90,10 @@ a private export from the preceding reader. It verifies the reference's input fi
 before comparing all geometry and transform values. That export is comparison evidence only;
 the maintained preparation command does not read it.
 
+With both install environment variables set, `dotnet run --project tests/AgeOfGold.Checks --
+regulation-installs` checks key discovery, two independent rebuilds, readback and unchanged
+install inputs. It writes only to a temporary directory and needs no schema export.
+
 ## Evidence and remaining stages
 
 The authored checks exercise the CLI and format readers using files created from scratch.
@@ -107,7 +114,7 @@ Work remains before a reproducible playtest can replace the accepted build:
 2. Material, lighting, atmosphere and effect stages must replace historical exported inputs
    and captured constants with install-derived inputs. Shader assembly alone does not prove
    those translations or recover their source parameters.
-3. Gameplay table edits need the unresolved regulation-key and schema work in `core.md`.
+3. Gameplay table edits need the unresolved host schema work in `core.md`.
    The illumination runtime also needs an install-derived binding recipe.
 4. A fresh full build must match the accepted build's behaviour, pass readback and background
    play checks, and be built again independently before promotion and historical cleanup.

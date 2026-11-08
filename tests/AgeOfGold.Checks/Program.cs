@@ -33,6 +33,16 @@ try
         SourceCollisionCheck.Run();
         return;
     }
+    if (args.SequenceEqual(new[] { "regulation" }))
+    {
+        RegulationCheck.Run();
+        return;
+    }
+    if (args.SequenceEqual(new[] { "regulation-installs" }))
+    {
+        RegulationInstallCheck.Run(root);
+        return;
+    }
     var source = Path.Combine(root, "source");
     var host = Path.Combine(root, "host");
     Directory.CreateDirectory(source);
@@ -95,6 +105,7 @@ try
     TextureCheck.Run(root);
     CollisionMetadataCheck.Run();
     SourceTagfileCheck.Run();
+    RegulationCheck.Run();
 }
 finally { Directory.Delete(root, true); }
 

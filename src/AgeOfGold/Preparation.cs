@@ -40,6 +40,8 @@ internal static class Preparation
             foreach (var path in hostFiles) Write("host/" + path, archive.Read(path));
             if (requestPath is null)
             {
+                var regulation = Regulation.Read(host.Read("eldenring.exe"), host.Read("regulation.bin"));
+                Write("host/regulation.bnd", regulation.Tables.Write(new SoulsFormats.DCX.NoCompressionInfo()));
                 Write("collision.json", SourceCollisionReader.ReadFirelink(source));
                 var bytes = SceneReader.Read(source);
                 Write("scene.json", bytes);

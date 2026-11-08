@@ -35,6 +35,12 @@ separately installed build dependency on 9 November 2026. Compiler binaries and 
 outside the repository and our releases. Build-time shader inputs must still come from the
 player's installs; captured shader state remains private comparison evidence.
 
+**Regulation key discovery.** Riley selected install-derived discovery on 9 November 2026.
+The tool searches read-only data in the player's host executable and validates candidates by
+opening the complete installed regulation archive. No key is embedded or written out. Missing
+or ambiguous discovery stops the build. Rewritten regulation files retain the input's
+initialization vector so the same inputs produce the same bytes.
+
 **Open decisions**
 
 Each is settled one at a time with Riley, and then moves into the section it belongs to.
@@ -42,7 +48,7 @@ Each is settled one at a time with Riley, and then moves into the section it bel
 Research behind these: `docs/research/` (landscape, archives spike, collision spike).
 
 1. Navmesh: how the tool writes Elden Ring's navmesh, which no open tool converts from Remastered's. Not needed for the walking skeleton, which has only the player.
-2. Elden Ring's archive keys, file-name hashes and paramdefs: how the tool gets them without depending on data that community tools copied from the game. Recommendation: read the archive keys from the player's executable, where they are plain PEM text, and hash the paths our own code names; both are proven by the archives spike. `regulation.bin`'s key and Elden Ring's paramdefs are still open.
+2. Elden Ring's paramdefs: how the tool obtains the row layouts it needs without shipping data that community tools copied from the game. Archive and regulation keys now come from the player's executable; path hashes are calculated by our code. Host param schemas remain open.
 3. Which of the source's rules, if any, are kept over the host's (principle 2), one at a time as each stage meets them.
 
 **Language**

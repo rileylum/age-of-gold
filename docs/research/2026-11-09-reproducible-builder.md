@@ -47,6 +47,15 @@ container and validation interfaces. Its fixture establishes deterministic compi
 reassembly, retaining root-signature, input/output-signature and pipeline-validation parts.
 Debug resource labels need not survive reassembly; the checked GPU binding contract does.
 
+Riley subsequently approved executable-derived regulation-key discovery. A private scan proved
+that read-only PE data contains a candidate that opens the entire installed archive. The
+maintained adapter validates the first decrypted block, then the complete binder, and requires
+one distinct valid key. Its current ceiling is a 16-byte-aligned 256-bit key blob; another
+executable layout must fail and be investigated. No key or address is embedded. Authored
+fixtures cover missing keys, excluded code sections, duplicate locations and ambiguous
+validation. Real-install checks prove independent deterministic encryption and readback with
+all table contents retained. This resolves key recovery, not the separate host-schema question.
+
 Primary DXC sources: [release](https://github.com/microsoft/DirectXShaderCompiler/releases/tag/v1.9.2609),
 [licences](https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/LICENSE.TXT),
 [public interfaces](https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/include/dxc/dxcapi.h).
