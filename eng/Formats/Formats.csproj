@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>AgeOfGold.Formats</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <Deterministic>true</Deterministic>
+    <LibraryRoot>$(AOG_DEPENDENCIES)/SoulsFormatsNEXT/SoulsFormats</LibraryRoot>
+    <PathMap>$(PathMap),$(AOG_DEPENDENCIES)=/_dependencies</PathMap>
+  </PropertyGroup>
+  <Target Name="RequireDependencies" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(LibraryRoot)/SoulsFormats.csproj')" Text="Run eng/bootstrap.py outside the repository and set AOG_DEPENDENCIES to its destination." />
+  </Target>
+  <!-- Only the format families used by the maintained reader; no bundled keys or resources. -->
+  <ItemGroup>
+    <Compile Include="$(LibraryRoot)/Formats/Binder/**/*.cs" />
+    <Compile Include="$(LibraryRoot)/Formats/FLVER/**/*.cs" />
+    <Compile Include="$(LibraryRoot)/Formats/MSB/*.cs;$(LibraryRoot)/Formats/MSB/MSB1/*.cs;$(LibraryRoot)/Formats/MSB/MSBE/*.cs" />
+    <Compile Include="$(LibraryRoot)/Formats/DCX.cs;$(LibraryRoot)/Formats/MTD.cs;$(LibraryRoot)/Formats/TPF/DDS.cs" />
+    <Compile Include="$(LibraryRoot)/Utilities/*.cs;$(LibraryRoot)/Utilities/Attributes/*.cs;$(LibraryRoot)/Utilities/Collections/*.cs;$(LibraryRoot)/Utilities/Compression/**/*.cs;$(LibraryRoot)/Utilities/Exceptions/*.cs;$(LibraryRoot)/Utilities/Formats/*.cs;$(LibraryRoot)/Utilities/IO/*.cs;$(LibraryRoot)/Utilities/Text/*.cs;$(LibraryRoot)/Utilities/Cryptography/HashHelper.cs" />
+    <PackageReference Include="ZstdNet" Version="1.4.5" />
+  </ItemGroup>
+</Project>

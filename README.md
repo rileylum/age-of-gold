@@ -19,7 +19,8 @@ directory it wrote.
 
 The maintained builder uses C#/.NET, SoulsFormatsNEXT and HKLib. The existing `spikes/`
 checks and private tools are being consolidated; they are not yet a clean install-to-build
-workflow. See [the consolidation checkpoint](docs/firelink-consolidation.md).
+workflow. See [the reproducible build checkpoint and checks](docs/reproducible-build.md)
+and [the accepted playtest checkpoint](docs/firelink-consolidation.md).
 
 ## Licence
 

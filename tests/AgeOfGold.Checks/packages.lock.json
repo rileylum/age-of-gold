@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "ZstdNet": {
+        "type": "Transitive",
+        "resolved": "1.4.5",
+        "contentHash": "fi9aP1QY3ZenIMUW1pxdSjku6lYAUjScrwfXSXT1qyKtTdLxOIzeBMe+w/hQm0vMsvQnjcFInByMrIT7AlXUHA=="
+      },
+      "ageofgold": {
+        "type": "Project",
+        "dependencies": {
+          "AgeOfGold.Formats": "[1.0.0, )",
+          "HKLib.Serialization": "[1.0.0, )"
+        }
+      },
+      "AgeOfGold.Formats": {
+        "type": "Project",
+        "dependencies": {
+          "ZstdNet": "[1.4.5, )"
+        }
+      },
+      "HKLib": {
+        "type": "Project"
+      },
+      "HKLib.Reflection": {
+        "type": "Project",
+        "dependencies": {
+          "HKLib": "[1.0.0, )"
+        }
+      },
+      "HKLib.Serialization": {
+        "type": "Project",
+        "dependencies": {
+          "HKLib.Reflection": "[1.0.0, )"
+        }
+      }
+    },
+    "net10.0/linux-x64": {},
+    "net10.0/win-x64": {}
+  }
+}

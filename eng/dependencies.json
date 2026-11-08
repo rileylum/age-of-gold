@@ -1,0 +1,12 @@
+{
+  "SoulsFormatsNEXT": {
+    "url": "https://github.com/soulsmods/SoulsFormatsNEXT.git",
+    "revision": "e25d1a5c3cda83b801fdefe00f4d2903892cc526",
+    "licence": "GPL-3.0"
+  },
+  "HKLib": {
+    "url": "https://github.com/The12thAvenger/HKLib.git",
+    "revision": "ac40bc9915d8caff0df154c2b9a79656dfca1d77",
+    "licence": "MIT"
+  }
+}

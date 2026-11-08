@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/AgeOfGold/AgeOfGold.csproj" />
+    <Compile Include="../../spikes/er-collision/probe/Build.cs;../../spikes/er-collision/probe/GeometryCheck.cs" Link="Collision/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

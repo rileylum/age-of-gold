@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>HKLib.Reflection</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>annotations</Nullable>
+    <Deterministic>true</Deterministic>
+    <LibraryRoot>$(AOG_DEPENDENCIES)/HKLib</LibraryRoot>
+    <PathMap>$(PathMap),$(AOG_DEPENDENCIES)=/_dependencies</PathMap>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Havok.csproj" />
+    <Compile Include="$(LibraryRoot)/HKLib.Reflection/**/*.cs" Exclude="$(LibraryRoot)/HKLib.Reflection/obj/**;$(LibraryRoot)/HKLib.Reflection/bin/**" />
+  </ItemGroup>
+</Project>

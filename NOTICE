@@ -6,6 +6,13 @@ Age of Gold is free software under the GNU General Public License, version 3
 (GPL-3.0-only). See LICENSE for the full terms. It is provided without warranty.
 Third-party libraries retain their own licences and notices.
 
+The maintained build compiles external SoulsFormatsNEXT source (GPL-3.0) and
+HKLib source (MIT), with explicit adapter changes under eng/. Dependencies,
+revisions and source licences are recorded in eng/dependencies.json and
+docs/research/2026-11-09-reproducible-builder.md. Their upstream notices must
+accompany any future distribution containing their compiled libraries.
+Microsoft DirectX Shader Compiler is separately installed and is not bundled.
+
 Trademarks
 ----------
 Dark Souls and Elden Ring are trademarks of their respective owners, including

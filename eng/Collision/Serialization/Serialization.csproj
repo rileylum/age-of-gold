@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>HKLib.Serialization</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Deterministic>true</Deterministic>
+    <LibraryRoot>$(AOG_DEPENDENCIES)/HKLib</LibraryRoot>
+    <PathMap>$(PathMap),$(AOG_DEPENDENCIES)=/_dependencies</PathMap>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Reflection/Reflection.csproj" />
+    <Compile Include="$(LibraryRoot)/HKLib.Serialization/HavokCompendium.cs;$(LibraryRoot)/HKLib.Serialization/Util/*.cs;$(LibraryRoot)/HKLib.Serialization/hk2018/*.cs;$(LibraryRoot)/HKLib.Serialization/hk2018/Binary/**/*.cs" />
+  </ItemGroup>
+</Project>

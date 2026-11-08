@@ -32,7 +32,7 @@ static class FirelinkSource
     }
 
     // These are source roles; their numbers must not be treated as equivalent host hit filters.
-    static string Role(byte filter) => filter switch
+    internal static string Role(byte filter) => filter switch
     {
         8 => "solid", 9 => "water", 11 => "npc-only", 13 => "death-camera", 14 => "lethal-fall",
         15 => "kill-plane", 17 => "group-switch", 20 or 23 => "map-exit",

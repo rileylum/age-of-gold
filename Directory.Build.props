@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'AgeOfGold' Or '$(MSBuildProjectName)' == 'AgeOfGold.Checks' Or '$(MSBuildProjectName)' == 'Formats' Or '$(MSBuildProjectName)' == 'Havok' Or '$(MSBuildProjectName)' == 'Reflection' Or '$(MSBuildProjectName)' == 'Serialization'">
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RuntimeIdentifiers>linux-x64;win-x64</RuntimeIdentifiers>
+    <RestoreLockedMode Condition="Exists('$(MSBuildProjectDirectory)/packages.lock.json')">true</RestoreLockedMode>
+    <PathMap>$(MSBuildThisFileDirectory)=/_source/</PathMap>
+  </PropertyGroup>
+</Project>

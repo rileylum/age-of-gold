@@ -6,21 +6,22 @@ using HKLib.Serialization.hk2018.Binary;
 static class GeometryCheck
 {
     /// <summary>Check synthetic geometry through serialized host-format readback.</summary>
-    public static void Run(Func<IHavokObject> template, string output)
+    public static void Run(Func<IHavokObject> template, string output, Func<HavokBinarySerializer>? writerFactory = null)
     {
         output = Path.GetFullPath(output);
         if (!output.StartsWith(Path.GetFullPath(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("geometry check output must be under the system temp directory");
         Directory.CreateDirectory(output);
-        Check(template, output, 1);
-        Check(template, output, 17);
-        Check(template, output, 86, reuseLast: true);
-        Check(template, output, 86);
-        Check(template, output, 128, true);
-        Check(template, output, 21840);
+        writerFactory ??= () => new HavokBinarySerializer();
+        Check(template, writerFactory, output, 1);
+        Check(template, writerFactory, output, 17);
+        Check(template, writerFactory, output, 86, reuseLast: true);
+        Check(template, writerFactory, output, 86);
+        Check(template, writerFactory, output, 128, true);
+        Check(template, writerFactory, output, 21840);
     }
 
-    static void Check(Func<IHavokObject> template, string output, int count, bool reuseVertices = false, bool reuseLast = false)
+    static void Check(Func<IHavokObject> template, Func<HavokBinarySerializer> writerFactory, string output, int count, bool reuseVertices = false, bool reuseLast = false)
     {
         var vertices = new List<Vector3>();
         var triangles = new List<(int A, int B, int C)>();
@@ -40,7 +41,7 @@ static class GeometryCheck
         if (reuseLast) triangles[^1] = (0, 1, vertices.Count - 1);
         var root = template();
         Build.ReplaceGeometry(root, vertices, triangles, "synthetic-mesh");
-        var writer = new HavokBinarySerializer();
+        var writer = writerFactory();
         using var bytes = new MemoryStream();
         writer.Write(root, bytes);
         var path = Path.Combine(output, $"mesh-{count}{(reuseLast ? "-256-slots" : "")}.hkx");
@@ -51,7 +52,7 @@ static class GeometryCheck
         var repeated = template();
         Build.ReplaceGeometry(repeated, vertices, triangles, "synthetic-mesh");
         using var second = new MemoryStream();
-        new HavokBinarySerializer().Write(repeated, second);
+        writerFactory().Write(repeated, second);
         Require(bytes.ToArray().AsSpan().SequenceEqual(second.ToArray()), "repeated geometry build changed bytes");
         Console.WriteLine($"PASS: {count} triangles read back, {sections} sections; {path}");
     }
