@@ -67,7 +67,17 @@ and interaction prompts. A private experiment can preserve both tables using opa
 and reproduce the accepted edits. It obtains byte differences from the accepted output, so it
 proves container preservation only, not install-derived semantic translation. The proposed
 maintained approach is to author descriptions of only the fields that need editing, preserve
-all other row bytes, and reject unsupported layouts. Riley's schema decision remains open.
+all other row bytes, and reject unsupported layouts. Riley approved that approach for these
+two tables. The implemented adapter has authored preservation, revision, ambiguity and identity
+checks. Real-install checks edit both tables independently twice, retain a source bonfire's
+translated position through encrypted readback, and preserve the other tables and install inputs.
+
+A separate private comparison uses external field descriptions from the existing Soulstruct
+research checkout (package licence GPL-3.0-or-later) as an oracle. Both edits match its output
+byte for byte. It reads both installs directly and does not use the accepted build. Neither
+those descriptions nor Soulstruct is a maintained build dependency. The format library's row
+clone shares array cell values; the adapter explicitly duplicates the opaque row payload before
+editing so the template cannot be changed accidentally.
 
 Primary DXC sources: [release](https://github.com/microsoft/DirectXShaderCompiler/releases/tag/v1.9.2609),
 [licences](https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/LICENSE.TXT),

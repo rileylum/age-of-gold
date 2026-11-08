@@ -38,6 +38,16 @@ try
         RegulationCheck.Run();
         return;
     }
+    if (args.SequenceEqual(new[] { "gameplay-tables" }))
+    {
+        GameplayTablesCheck.Run();
+        return;
+    }
+    if (args.SequenceEqual(new[] { "gameplay-installs" }))
+    {
+        GameplayInstallCheck.Run(root);
+        return;
+    }
     if (args.SequenceEqual(new[] { "regulation-installs" }))
     {
         RegulationInstallCheck.Run(root);
@@ -118,6 +128,7 @@ try
     CollisionMetadataCheck.Run();
     SourceTagfileCheck.Run();
     RegulationCheck.Run();
+    GameplayTablesCheck.Run();
 }
 finally { Directory.Delete(root, true); }
 

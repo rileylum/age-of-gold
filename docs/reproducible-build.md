@@ -12,7 +12,10 @@ playable mod.
   archive entries fail; identical duplicates are checked rather than selected by accident.
 - Regulation-key discovery searches the host executable's read-only data and validates the
   complete archive. Keys stay in memory. Missing or ambiguous discovery fails. Re-encryption
-  is deterministic; reading a table archive does not yet provide the schemas for editing rows.
+  is deterministic.
+- Minimal authored layouts edit bonfire destinations and interaction prompts. Other bytes
+  survive unchanged, and unsupported encodings or conflicting identities fail. This writer
+  is checked separately; the complete map, event, text and table bindings still need integration.
 - Firelink preparation reads placed source models and material definitions, including patch
   precedence, rigid transforms, triangle winding, vertex colours, tangent frames and all UV
   channels. It extracts the explicitly referenced DDS textures without altering their bytes.
@@ -100,6 +103,11 @@ With both install environment variables set, `dotnet run --project tests/AgeOfGo
 regulation-installs` checks key discovery, two independent rebuilds, readback and unchanged
 install inputs. It writes only to a temporary directory and needs no schema export.
 
+`dotnet run --project tests/AgeOfGold.Checks -- gameplay-installs` exercises the two table
+writers against the installed regulation. It uses a source bonfire placement, rebuilds twice,
+reads the encrypted result back, verifies the remaining tables and checks unchanged installs.
+The authored `gameplay-tables` mode covers field preservation and rejected layouts/references.
+
 ## Evidence and remaining stages
 
 The authored checks exercise the CLI and format readers using files created from scratch.
@@ -123,8 +131,8 @@ Work remains before a reproducible playtest can replace the accepted build:
 2. Material, lighting, atmosphere and effect stages must replace historical exported inputs
    and captured constants with install-derived inputs. Shader assembly alone does not prove
    those translations or recover their source parameters.
-3. Gameplay table edits need the unresolved host schema work in `core.md`.
-   The illumination runtime also needs an install-derived binding recipe.
+3. Gameplay tables now have checked writers; they must be connected to the map, event and
+   text bindings. The illumination runtime also needs an install-derived binding recipe.
 4. A fresh full build must match the accepted build's behaviour, pass readback and background
    play checks, and be built again independently before promotion and historical cleanup.
 

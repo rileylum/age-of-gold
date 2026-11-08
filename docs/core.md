@@ -41,6 +41,12 @@ opening the complete installed regulation archive. No key is embedded or written
 or ambiguous discovery stops the build. Rewritten regulation files retain the input's
 initialization vector so the same inputs produce the same bytes.
 
+**Host table layouts.** Riley selected minimal authored layouts for bonfire destinations and
+interaction prompts on 9 November 2026. Our code describes only the field positions and types
+it edits. Values come from the installs or our translated placements and reserved identities;
+all other row bytes are retained. The adapter rejects unsupported revisions, row lengths and
+encodings. Community paramdef files are not build inputs or bundled data.
+
 **Open decisions**
 
 Each is settled one at a time with Riley, and then moves into the section it belongs to.
@@ -48,7 +54,7 @@ Each is settled one at a time with Riley, and then moves into the section it bel
 Research behind these: `docs/research/` (landscape, archives spike, collision spike).
 
 1. Navmesh: how the tool writes Elden Ring's navmesh, which no open tool converts from Remastered's. Not needed for the walking skeleton, which has only the player.
-2. Elden Ring's paramdefs: how the tool obtains the row layouts it needs without shipping data that community tools copied from the game. Archive and regulation keys now come from the player's executable; path hashes are calculated by our code. Host param schemas remain open.
+2. Additional host param layouts: classify each further table when a capability needs it. The Firelink bonfire and interaction layouts are settled above. Archive and regulation keys come from the player's executable; path hashes are calculated by our code.
 3. Which of the source's rules, if any, are kept over the host's (principle 2), one at a time as each stage meets them.
 
 **Language**
