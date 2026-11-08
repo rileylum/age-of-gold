@@ -823,3 +823,36 @@ or displaced scenery. Some host foliage remains paler than the source, and dista
 softness and atmosphere detail still differ. This is not a phase-synchronised comparison
 or proof of temporal equivalence. The next attribution should isolate the pale foliage
 response; another general lighting adjustment is not supported by these comparisons.
+
+## Foliage composition attribution — 8 November
+
+Matching source and host captures isolate three cutout foliage surfaces. Captured
+rigid transforms, triangle connectivity and the first colour, normal and diffuse
+environment subresources agree. Their mean diffuse response differs by about one
+percent before source ambient occlusion. Source specular and local-light terms are
+zero in these sampled pixels; this does not establish their general absence.
+
+The larger colour mismatch occurs afterward. The host adds native lighting to the
+already lit foliage result before applying the reconstructed source fog. Its blue
+contribution accounts for much of the pale leaf appearance. Changing the native
+specular field reduces that contribution without reliably removing it. A replay-only
+explicit source-lighting marker instead makes composition use the supplied lighting
+and suppress extra glow. More than half a million marked pixels follow that path,
+while unmarked composition pixels remain exactly unchanged. The independent source
+fog calculation agrees within its existing quantization tolerance. Sampled mean
+colour errors fall from roughly 15–40% to about 1–4%.
+
+The private candidate carries that marker in two cutout foliage shader families.
+It preserves their depth, motion, textures and geometry. Other source-lit materials,
+including opaque foliage, remain outside this change. Ambient occlusion, general
+source specular and complete temporal equivalence remain open. Captured programs,
+reconstructions and screenshots stay private under the previously recorded tool
+permissions and licences; no production dependency or licence decision is made.
+
+Two private builds match across 646 files. Only the two intended shader bundles and
+the build record change. A fresh host capture checks more than 542,000 marked pixels
+against the independent atmosphere calculation; the 99th-percentile relative error
+is 2.34%, with no added glow. Sixteen screenshots cover eight fixed views and pass
+pose, anchor and environment checks. Inspection finds the foliage closer to the
+source without gross missing geometry or new seams. The game exits normally and
+the private profile is restored. The ordinary preview and save remain unchanged.
