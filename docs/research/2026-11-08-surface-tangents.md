@@ -770,11 +770,13 @@ sampled patches are brighter in the host. The tree's captured vertex positions a
 unoriented triangle connectivity match exactly, as do the first subresources of its
 two colour textures, two normal textures and diffuse environment texture.
 
-Across about 311,000 shared interior pixels, mean diffuse response before source
+Across about 311,000 shared interior pixels, mean accumulated response before source
 ambient occlusion differs by about 0.9–1.3%. The independent host lighting calculation
 matches within 0.13% at the 99th percentile. Source ambient occlusion lowers the mean
 by about 2.5–2.8%; the sampled shadow multiplier is one. These measurements do not
 justify adding light to this tree. They do not establish general shadow equivalence.
+The source diagnostic includes its small specular contribution; the host control
+contains diffuse lighting alone.
 
 Both games bind complete material mip chains with zero sampler bias. Their captured
 anisotropic filtering limits differ. That is a possible contributor to local detail,
@@ -856,3 +858,41 @@ is 2.34%, with no added glow. Sixteen screenshots cover eight fixed views and pa
 pose, anchor and environment checks. Inspection finds the foliage closer to the
 source without gross missing geometry or new seams. The game exits normally and
 the private profile is restored. The ordinary preview and save remain unchanged.
+
+## Source-lit scenery composition — 8 November
+
+A fresh component export from the foliage-corrected host capture checks the tree in
+that same frame. About 310,000 shared source/host interior pixels establish that the
+host still adds native lighting after the translated environment response. The
+source atmosphere rows agree with the selected host atmosphere control. Applying
+that atmosphere independently explains both the source result and the host result
+with its extra lighting within the existing quantization tolerance.
+
+The first source prediction incorrectly added specular a second time: the captured
+post-occlusion term already contains it. Correcting that accounting resolves the
+failed prediction without changing the game. The earlier tree attribution above now
+names the measured source term as accumulated lighting rather than diffuse alone.
+
+A replay tags the opaque source-environment shader for the existing composition
+path. More than three million newly marked pixels exclude native lighting. Supplied
+lighting values remain identical, glow is zero, and composition pixels outside the
+new marker remain exactly unchanged. The sampled tree's mean colour changes from
+roughly 11–12% above the source to within 0.2% in each channel. This agreement in an
+average does not establish texture-filtering or complete shading equivalence.
+
+The build survey identifies 131 active scenery surfaces using this shader, including
+the checked tree. Its pixel program matches the earlier private environment
+control. The candidate changes only its final lighting marker; existing foliage
+markers and the composition program remain unchanged. The checker first rejects the
+previous build for the missing opaque marker. All programs, material bindings and
+captures stay private under the existing permissions and licences. Source occlusion,
+specular and local-light translation remain incomplete; no production decision is made.
+
+Two builds match across 647 files, with differences from the prior build confined to
+one shader bundle and the new build record. A fresh host capture checks 3.69 million
+marked pixels against the independent atmosphere calculation; the 99th-percentile
+relative error is 2.48%, with zero added glow. Sixteen screenshots pass the fixed
+camera, anchor and held-environment checks. Inspection of all eight views finds the
+tree and stone closer to the source without gross missing geometry or new seams.
+Fine detail, atmosphere and some foliage still differ. The game exits normally,
+the private camera profile is restored, and the ordinary preview and save are unchanged.
