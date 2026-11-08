@@ -1028,3 +1028,31 @@ licence is BSD-2-Clause. Existing compiler, capture and format-library permissio
 apply. All reconstructed programs, extracted inputs, native binaries, captures and
 third-party code remain outside the repository. No production dependency or project
 licence decision is made.
+
+## Occlusion filter reuse — 8 November
+
+The verified filter repeats overlapping depth and visibility reads for the four
+low-resolution samples contributing to each output pixel. A private implementation
+loads their shared neighborhood once and reuses the horizontal and vertical edge
+decisions. It preserves arithmetic order, zero-border behavior and the compiler
+precision scope established by the correctness reference. The raw visibility pass
+and lighting composition are unchanged.
+
+The reference replay first confirms byte-identical outputs on both earlier captured
+frames. Two fresh native captures then pass the same stage and composition checks.
+Alternating the previous and optimized native filters on each new frame also produces
+byte-identical output textures. Across three paired GPU measurements per view, median
+occlusion time falls from about 5.23 to 1.63 milliseconds and from 5.34 to 1.64
+milliseconds, a reduction of about 69%. These are same-frame GPU replay measurements;
+they exclude adapter CPU cost and ordinary-play frame pacing.
+
+Repeated builds match across all files. The bounded runtime trace records a thousand
+restored bindings without invariant failures. Both captured GPU camera matrices match
+their distinct recorded poses. Eight views captured twice pass the existing camera
+checks; visual inspection finds no gross geometry loss or new shading seams. The game
+exits normally and the private camera profile is restored.
+
+This optimization adds no shader capability or dependency. It retains the previous
+limits on settings, hardware coverage, parameter translation and ordinary play. All
+programs, inputs, binaries and captures remain private under the existing permissions
+and licences. The ordinary preview and save are unchanged.
