@@ -645,3 +645,37 @@ Any trial using the host motion/history inputs must retain that scope and check 
 movement and changing visibility before promotion. All programs, captures and measurements
 remain private under the existing permissions and tool licences; no production dependency
 or licence decision follows from these controls.
+
+## Host temporal translation and motion controls — 8 November
+
+A private trial now places the source colour-history calculation in the host's active
+temporal variant, retaining native motion, exposure compensation and object-history inputs.
+The first attempt changed an unused variant. The second selected the active variant but
+combined two texture-coordinate semantics incorrectly; the temporal draw disappeared and
+the frame became grey. A verifier that accepted an empty selection also failed its purpose.
+The corrected verifier requires exactly one active draw and checks the actual program and
+inputs. Retaining the native semantic names, indices and masks restores the draw.
+
+An independent calculation from captured host inputs initially matches every interior pixel
+within one packed-colour step. Extending that check to the border rejects the candidate:
+out-of-range integer loads introduce black instead of the source's clamped edge samples.
+The corrected build and repeat match across 629 files. Three views twice pass pose and
+environment checks, GPU activation is verified, and the game exits normally. The full-frame
+calculation now matches all 3,686,400 pixels within one packed-colour step and rejects a
+current-frame-only control. This check retains the observed full-resolution mapping and
+eight-bit approximation to hardware filtering; it is not an exact floating-point proof.
+
+Lossless video targeted at the private game window is checked against independent Gamescope
+stills. The preceding candidate, the native temporal filter and the source game each complete
+the same acknowledged camera sweep and four cuts, then exit normally. The candidate settles
+more slowly than the native filter, resembling the source recording. On the half-turn cut,
+mean proxy-image change one frame later is about 2.9 byte steps for the candidate, 3.5 for
+the source and 0.9 for the native filter; twenty frames later these are about 0.38, 0.47 and
+0.07. These differences include live animation and exposure. Inspected frames show no
+persistent previous-scene image, but do not establish all disocclusion or movement cases.
+The host still applies its own motion blur on the first frame after an abrupt cut.
+
+Native point-sampled object categories approximate the source's interpolated history
+metadata. Wind history and other native categories remain outside the trial. The ordinary
+preview is unchanged pending broader play checks. All programs, measurements, captures and
+videos remain private; existing tool licences apply and no production dependency is chosen.
