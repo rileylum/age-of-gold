@@ -162,3 +162,19 @@ their mip payloads remain unchanged. The complete external SoulsFormats reader/w
 the GPL terms recorded above) independently reads and exactly rewrites all 348 sampling
 variants. No reference build is used to construct them. Reports and representative packages
 are retained privately; redundant test packages can be removed after comparison.
+
+A private runtime-binding experiment now follows the installed executable's type metadata to
+virtual tables, their references and enclosing functions, then follows a constructor caller's
+returned pointer to its global storage. It finds one world-manager slot, matching the preceding
+private runtime's independent signature-based lookup. The prior signature is used only after
+discovery as a comparison oracle. Authored control-flow examples reject conditional paths,
+cycles, overwritten return values and jumps outside the enclosing function. This establishes
+one address-discovery route, not complete runtime compatibility or member-field discovery.
+The experiment uses the existing LLVM-MinGW toolchain's disassembler; its output, executable
+addresses and the preceding signature remain outside the repository.
+
+The proposed maintained runtime would combine that install-derived address with a minimal,
+version-checked description of only the player and physics fields it reads. Unsupported host
+versions would fail. This is a separate runtime design decision from the already approved
+bonfire/interaction table layouts, and awaits Riley's decision. No memory-layout constants or
+game instructions from this experiment have been added to maintained code.
