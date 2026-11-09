@@ -8,6 +8,16 @@ var root = Path.Combine(Path.GetTempPath(), "aog-authored-" + Guid.NewGuid().ToS
 Directory.CreateDirectory(root);
 try
 {
+    if (args.Length == 3 && args[0] == "source-parameter-fixtures")
+    {
+        SourceShaderParametersCheck.Fixtures(args[1], args[2]);
+        return;
+    }
+    if (args.SequenceEqual(new[] { "source-parameters" }))
+    {
+        SourceShaderParametersCheck.Run();
+        return;
+    }
     if (args.Length == 2 && args[0] == "layer-material-installs")
     {
         LayerMaterialInstallCheck.Run(args[1]);
@@ -300,6 +310,7 @@ try
     MaterialWriterCheck.Run();
     LayerMaterialCheck.Run();
     SourceShaderCheck.Run();
+    SourceShaderParametersCheck.Run();
     SourceLightingCheck.Run(root);
 }
 finally { Directory.Delete(root, true); }

@@ -107,7 +107,7 @@ internal static class SourceShaderConstantsCheck
         return result;
     }
 
-    private static (byte[], Dictionary<string, int>) Fixture()
+    internal static (byte[], Dictionary<string, int>) Fixture()
     {
         using var reflection = new MemoryStream();
         using var w = new BinaryWriter(reflection);

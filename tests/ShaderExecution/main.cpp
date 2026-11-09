@@ -43,7 +43,7 @@ int main(int argc, char **argv) try {
   bool frames = argc == 6 && !strcmp(argv[5], "--frames");
   bool tangents = frames || (argc == 6 && !strcmp(argv[5], "--tangents"));
   bool resources = argc == 6 && !strcmp(argv[5], "--resources");
-  bool constants = argc == 6 && !strcmp(argv[5], "--constants");
+  bool constants = (argc == 6 || argc == 8) && !strcmp(argv[5], "--constants");
   if (argc != 5 && !tangents && !resources && !constants)
     throw std::runtime_error("pixel output mode vertex [--tangents|--frames|--resources|--constants] required");
   std::ifstream f(argv[1], std::ios::binary);
@@ -196,7 +196,16 @@ int main(int argc, char **argv) try {
       D3D12_RANGE empty{0, 0};
       ok(constantBuffers[i]->Map(0, &empty, &mapped));
       memset(mapped, 0, bytes);
-      memcpy(mapped, i == 0 ? globals : settings, i == 0 ? sizeof globals : sizeof settings);
+      if (argc == 8) {
+        std::ifstream input(argv[6 + i], std::ios::binary);
+        if (!input) throw std::runtime_error("Authored constant buffer missing");
+        std::vector<char> data((std::istreambuf_iterator<char>(input)), {});
+        if (data.empty() || data.size() > bytes || data.size() % 16 != 0)
+          throw std::runtime_error("Invalid authored constant buffer extent");
+        memcpy(mapped, data.data(), data.size());
+      } else {
+        memcpy(mapped, i == 0 ? globals : settings, i == 0 ? sizeof globals : sizeof settings);
+      }
       constantBuffers[i]->Unmap(0, nullptr);
       list->SetGraphicsRootConstantBufferView(i, constantBuffers[i]->GetGPUVirtualAddress());
     }

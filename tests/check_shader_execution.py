@@ -37,7 +37,7 @@ def main():
     for name, profile in (("pixel", "ps_5_0"), ("vertex", "vs_5_0"), ("compute", "cs_5_0"),
                           ("writable", "ps_5_0"), ("resources", "ps_5_0"), ("constants", "ps_5_0"),
                           ("packed", "ps_5_0"), ("matrices", "ps_5_0"), ("constants-sm4", "ps_4_0"),
-                          ("selector", "ps_5_0")):
+                          ("selector", "ps_5_0"), ("matrices-column", "ps_5_0"), ("values", "ps_5_0")):
         source_name = "constants" if name == "constants-sm4" else name
         run(["--compile", profile, path(repo / "tests/ShaderExecution" / (source_name + ".hlsl")), path(inputs / (name + ".dxbc"))])
     converted = root / "converted"
@@ -86,6 +86,24 @@ def main():
         assert conversion_error < .000002, f"{fixture} bindings changed: {conversion_error}"
         comparisons.append({"fixture": fixture, "values": 256,
                             "cpuMaximumError": cpu_error, "conversionMaximumError": conversion_error})
+    matrices = (2.5, 0, 0, .625, -1.25, 3, 0, -.375) * 32
+    for fixture, expected in (("constants", constants), ("packed", constants), ("constants-sm4", constants),
+                              ("matrices", matrices), ("matrices-column", matrices), ("selector", (3, 4, 5, 6) * 64),
+                              ("values", (2, -7, 5, 4, 6, -7, 5, 8) * 32), ("values-off", (0, -7, 5, 4, 0, -7, 5, 8) * 32)):
+        parameters = converted / "parameters" / fixture
+        program = "values" if fixture == "values-off" else fixture
+        values = []
+        for name, source, suffix in (("source", inputs, ".dxbc"), ("translated", converted, ".dxil")):
+            output = root / f"{name}-bound-{fixture}.bin"
+            run([path(source / (program + suffix)), path(output), "0", path(source / ("vertex" + suffix)),
+                 "--constants", path(parameters / "b0.bin"), path(parameters / "b2.bin")])
+            row = struct.unpack("<256f", output.read_bytes())
+            assert all(math.isfinite(v) for v in row), "Non-finite named-parameter result"
+            assert max(abs(a-b) for a, b in zip(row, expected, strict=True)) < .000002, f"{fixture} named values differ"
+            values.append(row)
+        difference = max(abs(a-b) for a, b in zip(*values, strict=True))
+        assert difference < .000002, f"{fixture} named-parameter conversion differs"
+        comparisons.append({"fixture": fixture, "namedParameters": True, "values": 256, "conversionMaximumError": difference})
     report = {"passed": True, "comparisons": comparisons,
               "converterFingerprint": (converted / "tool-sha256.txt").read_text().strip()}
     (root / "check.json").write_text(json.dumps(report, indent=2) + "\n")

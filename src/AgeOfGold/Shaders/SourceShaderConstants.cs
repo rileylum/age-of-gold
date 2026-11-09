@@ -7,6 +7,8 @@ namespace AgeOfGold.Shaders;
 internal static class SourceShaderConstants
 {
     internal sealed record Buffer(string Name, uint Slot, int Bytes);
+    internal sealed record Parameter(string Buffer, uint Slot, string Name, int Offset, int Bytes,
+        int Scalar, int Category, int Rows, int Columns, int Elements, bool Used);
 
     // Keep the instruction-addressed registers; variable names must not change byte or component placement.
     internal static byte[] Normalize(byte[] program)
@@ -40,6 +42,13 @@ internal static class SourceShaderConstants
 
     internal static Buffer[] Read(byte[] program) => new Reflection(program).Buffers();
 
+    internal static (Buffer[] Buffers, Parameter[] Parameters) Layout(byte[] program)
+    {
+        var reflection = new Reflection(program);
+        var buffers = reflection.Buffers();
+        return (buffers, reflection.Parameters.ToArray());
+    }
+
     internal static string PreserveIntegerSelectors(string source) => Regex.Replace(source,
         @"(?m)^(?<prefix>[ \t]*switch \()(?<value>aog_registers_[^\r\n]+)(?<suffix>\) \{\r?)$", match =>
         {
@@ -54,6 +63,7 @@ internal static class SourceShaderConstants
     {
         internal byte[] Data { get; }
         internal int Major { get; }
+        internal List<Parameter> Parameters { get; } = [];
         private readonly byte[] program;
         private readonly int part;
         private readonly Dictionary<string, int> records = new(StringComparer.Ordinal);
@@ -140,6 +150,8 @@ internal static class SourceShaderConstants
                 if (ranges.Any(r => offset < r.Offset + r.Bytes && r.Offset < offset + length && !UnusedPrefix(r, field)))
                     throw new InvalidDataException("Overlapping source constant fields");
                 ranges.Add(field);
+                Parameters.Add(new(pair.Key, bindings.Single(b => b.Name == pair.Key).Slot, name,
+                    (int)offset, (int)length, scalar, category, rows, columns, elements, field.Used));
             }
             return new Buffer(pair.Key, bindings.Single(b => b.Name == pair.Key).Slot, (int)size);
         }).ToArray();

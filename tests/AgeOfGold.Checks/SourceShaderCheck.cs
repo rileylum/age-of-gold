@@ -11,7 +11,7 @@ internal static class SourceShaderCheck
         var converter = new SourceShaderConverter(Required("AOG_SHADER_CONVERTER"), compiler);
         CheckTool(compiler);
         var results = new Dictionary<string, byte[]>();
-        foreach (string stage in new[] { "pixel", "vertex", "resources", "constants", "packed", "matrices", "constants-sm4", "selector" })
+        foreach (string stage in new[] { "pixel", "vertex", "resources", "constants", "packed", "matrices", "constants-sm4", "selector", "matrices-column", "values" })
         {
             var source = File.ReadAllBytes(Path.Combine(input, stage + ".dxbc"));
             if (stage == "matrices") source = SourceShaderConstantsCheck.WithUnusedPrefix(source);
@@ -30,6 +30,7 @@ internal static class SourceShaderCheck
         Directory.CreateDirectory(output);
         foreach (var pair in results) File.WriteAllBytes(Path.Combine(output, pair.Key + ".dxil"), pair.Value);
         File.WriteAllText(Path.Combine(output, "tool-sha256.txt"), converter.Fingerprint + "\n");
+        SourceShaderParametersCheck.Fixtures(input, Path.Combine(output, "parameters"));
         Console.WriteLine("PASS: authored vertex/pixel conversion repeats exactly; compute and writable graphics are rejected");
     }
 

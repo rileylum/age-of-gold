@@ -162,6 +162,14 @@ bindings: the development graphics backend failed its independent reference with
 Resource arrays and unsupported reflection or
 declaration shapes stop conversion rather than inheriting the compiler's guessed placement.
 
+`source-parameters` checks binding values by reflected buffer and field names. Every active
+field must be supplied with its declared scalar type and logical shape; unused aliases cannot
+be assigned. Padding starts at zero, and matrix values arrive in logical row order regardless
+of their stored order. The GPU check also reads these generated buffers through the authored
+source and translated programs, covering packed vectors, vector arrays, both matrix orders,
+boolean flags, signed values and unsigned bit operations. This establishes parameter transport;
+selecting every material, camera and lighting value for the playable build remains work.
+
 `dotnet run --project tests/AgeOfGold.Checks -- vertex-shader` checks semantic second-tangent
 rewriting and rejected contracts. `TMPDIR=/var/tmp python tests/check_vertex_execution.py
 /var/tmp/aog-vertex-gpu-check` compares authored GPU and CPU results on both conditional paths

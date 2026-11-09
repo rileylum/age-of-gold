@@ -65,6 +65,16 @@ selected programs repeat exactly, and all 16 compute programs are rejected. A se
 run includes the integer-selector correction and passes with the same inventory. Targeted
 Windows checks also pass; native Windows shader compilation remains a separate check.
 
+A named parameter writer now uses the same validated reflection to place typed values in
+constant buffers. It requires exactly the active fields, zeros padding, and converts logical
+matrix rows into the declared storage order. An authored check rejects the initial empty
+writer; a second rejects its initial scalar-only implementation. Eight GPU comparisons then
+check generated buffers through both source-format and converted authored shaders. Packed
+vectors, vector arrays, both matrix orders, booleans, signed values and unsigned bit operations
+match the independent expectations exactly. The full numerical suite now checks 4,608 values
+across eighteen comparisons. This does not yet establish the source material and lighting
+values to supply to a playable build.
+
 Sources and licences: read-only installed shader reflection and generated private comparisons
 (proprietary game data, never redistributed); the already approved HlslDecompiler source
 (MIT) and DXC compiler (University of Illinois/NCSA and Microsoft MIT notices). No source from
