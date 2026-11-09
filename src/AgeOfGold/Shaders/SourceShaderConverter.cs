@@ -38,7 +38,7 @@ internal sealed class SourceShaderConverter
         this.compiler = compiler;
     }
 
-    internal byte[] Convert(byte[] program)
+    internal byte[] Convert(byte[] program, IReadOnlyDictionary<(string Buffer, string Field), Array>? parameters = null)
     {
         string profile = Inspect(program);
         var root = Directory.CreateTempSubdirectory("aog-convert-shader-").FullName;
@@ -54,8 +54,9 @@ internal sealed class SourceShaderConverter
             var error = process.StandardError.ReadToEndAsync();
             process.WaitForExit();
             if (process.ExitCode != 0) throw new InvalidDataException("Source shader conversion failed: " + error.Result);
-            var declarations = SourceShaderBindings.Preserve(program, source.Result);
-            return compiler.CompileSourceInstructions(SourceShaderConstants.PreserveIntegerSelectors(declarations), profile);
+            var instructions = SourceShaderConstants.PreserveIntegerSelectors(SourceShaderBindings.Preserve(program, source.Result));
+            if (parameters is not null) instructions = SourceShaderParameters.Specialize(program, instructions, parameters);
+            return compiler.CompileSourceInstructions(instructions, profile);
         }
         finally { Directory.Delete(root, true); }
     }

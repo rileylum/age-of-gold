@@ -1,9 +1,44 @@
 using System.Buffers.Binary;
+using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace AgeOfGold.Shaders;
 
 internal static class SourceShaderParameters
 {
+    internal static string Specialize(byte[] program, string source,
+        IReadOnlyDictionary<(string Buffer, string Field), Array> values)
+    {
+        var bound = Bind(program, values);
+        foreach (var buffer in SourceShaderConstants.Read(program))
+        {
+            string name = "aog_registers_" + buffer.Slot;
+            int count = buffer.Bytes / 16;
+            string shape = count == 1 ? "" : $@"\[{count}\]";
+            string declaration = $@"[ \t]*float4 {name}{shape};\r?";
+            string pattern = buffer.Name == "$Globals" ? "^" + declaration + "$"
+                : $@"^cbuffer {Regex.Escape(buffer.Name)} : register\(b{buffer.Slot}\)\r?\n\{{\r?\n{declaration}\n\}};\r?$";
+            var matches = Regex.Matches(source, pattern, RegexOptions.Multiline);
+            if (matches.Count != 1)
+                throw new InvalidDataException("Missing or ambiguous normalized parameter declaration: " + buffer.Name);
+            var vectors = new string[count];
+            for (int vector = 0; vector < count; vector++)
+            {
+                var components = new string[4];
+                for (int component = 0; component < 4; component++)
+                    components[component] = BinaryPrimitives.ReadUInt32LittleEndian(
+                        bound[buffer.Slot].AsSpan(vector * 16 + component * 4)).ToString(CultureInfo.InvariantCulture) + "u";
+                // Decimal floats would lose integer register bits, signed zero and some flag encodings.
+                vectors[vector] = "asfloat(uint4(" + string.Join(", ", components) + "))";
+            }
+            string replacement = count == 1 ? $"static const float4 {name} = {vectors[0]};"
+                : $"static const float4 {name}[{count}] = {{ {string.Join(", ", vectors)} }};";
+            var match = matches[0];
+            source = source[..match.Index] + replacement + source[(match.Index + match.Length)..];
+        }
+        return source;
+    }
+
     internal static SortedDictionary<uint, byte[]> Bind(byte[] program,
         IReadOnlyDictionary<(string Buffer, string Field), Array> values)
     {

@@ -4,7 +4,7 @@ using AgeOfGold.Shaders;
 
 internal static class SourceShaderParametersCheck
 {
-    internal static void Fixtures(string input, string output)
+    internal static void Fixtures(string input, string output, SourceShaderConverter? converter = null)
     {
         if (Directory.Exists(output) || !Install.Within(Install.Canonical(output), Install.Canonical(Path.GetTempPath())))
             throw new ArgumentException("Use fresh parameter output under system temp");
@@ -36,7 +36,17 @@ internal static class SourceShaderParametersCheck
             var directory = Path.Combine(output, name);
             Directory.CreateDirectory(directory);
             foreach (uint slot in new uint[] { 0, 2 })
+            {
                 File.WriteAllBytes(Path.Combine(directory, "b" + slot + ".bin"), bound.GetValueOrDefault(slot, new byte[16]));
+                File.WriteAllBytes(Path.Combine(directory, "zero" + slot + ".bin"), new byte[bound.GetValueOrDefault(slot, new byte[16]).Length]);
+            }
+            if (converter is not null)
+            {
+                var specialized = converter.Convert(program, values);
+                if (!specialized.SequenceEqual(converter.Convert(program, values.Reverse().ToDictionary(p => p.Key, p => p.Value))))
+                    throw new Exception("Specialized shader differs across runs or parameter order");
+                File.WriteAllBytes(Path.Combine(directory, "specialized.dxil"), specialized);
+            }
         }
         Console.WriteLine("PASS: source parameter fixtures bind scalars, packed vectors, matrix arrays and integer selectors");
     }
@@ -56,6 +66,18 @@ internal static class SourceShaderParametersCheck
         var reversed = values.Reverse().ToDictionary(p => p.Key, p => p.Value);
         if (!SourceShaderParameters.Bind(program, reversed)[3].SequenceEqual(bytes))
             throw new Exception("Source parameter bytes depend on dictionary order");
+        string declaration = "cbuffer Authored : register(b3)\n{\n\tfloat4 aog_registers_3[4];\n};\n";
+        string specialized = SourceShaderParameters.Specialize(program, declaration, values);
+        if (specialized.Contains("cbuffer") || specialized != SourceShaderParameters.Specialize(program, declaration, reversed))
+            throw new Exception("Specialization retains a buffer or depends on parameter order");
+        foreach (string bad in new[] { "", declaration + declaration, declaration.Replace("[4]", "[3]"),
+            declaration.Replace("b3", "b2"), declaration.Replace("float4", "float3"),
+            declaration.Replace("\n};", "\nfloat4 unexpected;\n};") })
+        {
+            try { SourceShaderParameters.Specialize(program, bad, values); }
+            catch (InvalidDataException e) when (e.Message.Contains("normalized parameter declaration")) { continue; }
+            throw new Exception("Malformed or ambiguous converted parameter declaration was accepted");
+        }
         Reject(new Dictionary<(string, string), Array>(), "every active");
         foreach (Array bad in new Array[] { new[] { 1 }, new[] { 1f, 2f }, new[] { float.NaN }, new[] { float.PositiveInfinity } })
             Reject(new Dictionary<(string, string), Array>(values) { [("Authored", "first")] = bad }, "type or shape");

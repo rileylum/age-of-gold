@@ -30,7 +30,15 @@ internal static class SourceShaderCheck
         Directory.CreateDirectory(output);
         foreach (var pair in results) File.WriteAllBytes(Path.Combine(output, pair.Key + ".dxil"), pair.Value);
         File.WriteAllText(Path.Combine(output, "tool-sha256.txt"), converter.Fingerprint + "\n");
-        SourceShaderParametersCheck.Fixtures(input, Path.Combine(output, "parameters"));
+        SourceShaderParametersCheck.Fixtures(input, Path.Combine(output, "parameters"), converter);
+        foreach (string directory in Directory.GetDirectories(Path.Combine(output, "parameters")))
+        {
+            var specialized = File.ReadAllBytes(Path.Combine(directory, "specialized.dxil"));
+            ShaderArchive.ValidateProgram(specialized);
+            string instructions = compiler.Disassemble(specialized);
+            if (instructions.Contains("cbufferLoad") || instructions.Contains("cbuffer "))
+                throw new Exception("Specialized shader retained constant-buffer dependencies");
+        }
         Console.WriteLine("PASS: authored vertex/pixel conversion repeats exactly; compute and writable graphics are rejected");
     }
 

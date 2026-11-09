@@ -104,6 +104,14 @@ def main():
         difference = max(abs(a-b) for a, b in zip(*values, strict=True))
         assert difference < .000002, f"{fixture} named-parameter conversion differs"
         comparisons.append({"fixture": fixture, "namedParameters": True, "values": 256, "conversionMaximumError": difference})
+        output = root / f"specialized-{fixture}.bin"
+        run([path(parameters / "specialized.dxil"), path(output), "0", path(converted / "vertex.dxil"),
+             "--constants", path(parameters / "zero0.bin"), path(parameters / "zero2.bin")])
+        specialized = struct.unpack("<256f", output.read_bytes())
+        assert all(math.isfinite(v) for v in specialized), "Non-finite specialized result"
+        difference = max(abs(a-b) for a, b in zip(values[0], specialized, strict=True))
+        assert difference < .000002, f"{fixture} specialized shader still depends on supplied buffers: {difference}"
+        comparisons.append({"fixture": fixture, "specializedParameters": True, "values": 256, "conversionMaximumError": difference})
     report = {"passed": True, "comparisons": comparisons,
               "converterFingerprint": (converted / "tool-sha256.txt").read_text().strip()}
     (root / "check.json").write_text(json.dumps(report, indent=2) + "\n")

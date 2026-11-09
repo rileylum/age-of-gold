@@ -75,6 +75,16 @@ match the independent expectations exactly. The full numerical suite now checks 
 across eighteen comparisons. This does not yet establish the source material and lighting
 values to supply to a playable build.
 
+The converter can now specialize a program with a complete set of named parameter values.
+It replaces normalized constant declarations with exact register bits before compilation;
+unknown, missing or incorrectly typed fields still fail. An authored GPU check first fails
+when the converter ignores the supplied values. After specialization, eight cases render
+correctly even with zero buffers bound, retain no constant-buffer loads, and rebuild exactly
+with reversed parameter order. The numerical suite checks 6,656 values in twenty-six
+comparisons. Malformed and ambiguous generated declarations are rejected. This is a tested
+mechanism for supplying derived settings, not completed material or host pixel translation.
+The authored suite passes on Linux; native Windows specialization remains unverified.
+
 Sources and licences: read-only installed shader reflection and generated private comparisons
 (proprietary game data, never redistributed); the already approved HlslDecompiler source
 (MIT) and DXC compiler (University of Illinois/NCSA and Microsoft MIT notices). No source from
