@@ -8,6 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/AgeOfGold/AgeOfGold.csproj" />
-    <Compile Include="../../spikes/er-collision/probe/Build.cs;../../spikes/er-collision/probe/GeometryCheck.cs" Link="Collision/%(Filename)%(Extension)" />
+    <Compile Include="../../spikes/er-collision/probe/GeometryCheck.cs" Link="Collision/%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

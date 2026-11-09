@@ -25,6 +25,10 @@ playable mod.
 - Host collision serialization reads its metadata and type hashes from the installed
   compendium. It runs with HKLib's resource directory excluded. Both template round trips and
   generated meshes pass readback, including section and vertex-slot boundaries.
+- Terrain assembly connects that reader and writer to host map placements. It rebuilds the
+  accepted ordinary-solid subset in both detail sets, retains source visibility groups and
+  places the player above supported ground. Special and disabled placements are reported
+  separately. Existing collision physics and unrelated map fields are preserved.
 - Output is written in a fresh staging directory and published only after success. Existing
   output and paths overlapping either install are refused, including symlink aliases.
 - Dependencies use a pinned source revision, NuGet lock files and an explicit Oodle adapter
@@ -139,6 +143,13 @@ a private export from the preceding reader. It verifies the reference's input fi
 before comparing all geometry and transform values. That export is comparison evidence only;
 the maintained preparation command does not read it.
 
+`terrain-installs` runs with the same Windows check executable and install variables. It reads
+both installs directly, assembles both collision sets and the map twice, checks every written
+triangle and lookup tree, verifies source visibility and spawn support, and rechecks consumed
+install bytes. The `terrain-geometry` and `map-terrain` authored checks cover transforms,
+winding, excluded roles, visibility, identity conflicts and preservation of unrelated map
+fields. These stages do not yet produce a complete playable build.
+
 Preparation also reads scenery, character and point-light settings using the source install's
 own parameter definitions. `lighting.json` retains encoded colours separately from intensity;
 it does not yet translate their colour space or reproduce the renderer. Scene placements retain
@@ -194,9 +205,9 @@ toolchain and does not reproduce the accepted lighting, so it is separate eviden
 
 Work remains before a reproducible playtest can replace the accepted build:
 
-1. The checked collision reader and writer still need integration into the complete build and
-   its map placement stage. Preparation retains special collision roles; their gameplay
-   behaviour must not silently become ordinary solid terrain.
+1. Terrain collision and its map placement stage are checked together, but still need the
+   complete build orchestration. Special collision roles remain explicitly outside the
+   accepted ordinary-solid subset; they must not silently become solid terrain.
 2. Material, lighting, atmosphere and effect stages must replace historical exported inputs
    and captured constants with install-derived inputs. Shader assembly alone does not prove
    those translations or recover their source parameters.

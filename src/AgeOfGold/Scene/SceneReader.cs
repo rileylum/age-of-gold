@@ -90,6 +90,7 @@ internal static class SceneReader
             {
                 name = p.Name, model = p.ModelName, position = Vector(p.Position), rotation = Vector(p.Rotation), scale = Vector(p.Scale),
                 lighting = p.LightID, playerLight = p.LanternID, disablePointLights = p.DisablePointLightEffect,
+                drawGroups = p.DrawGroups,
             }).ToArray(),
         });
     }

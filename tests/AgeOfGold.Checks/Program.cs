@@ -8,6 +8,21 @@ var root = Path.Combine(Path.GetTempPath(), "aog-authored-" + Guid.NewGuid().ToS
 Directory.CreateDirectory(root);
 try
 {
+    if (args.SequenceEqual(new[] { "map-terrain" }))
+    {
+        MapTerrainCheck.Run();
+        return;
+    }
+    if (args.SequenceEqual(new[] { "terrain-installs" }))
+    {
+        TerrainInstallCheck.Run(root);
+        return;
+    }
+    if (args.SequenceEqual(new[] { "terrain-geometry" }))
+    {
+        TerrainGeometryCheck.Run();
+        return;
+    }
     if (args.SequenceEqual(new[] { "source-shader-installs" }))
     {
         SourceShaderInstallCheck.Run();
@@ -157,6 +172,8 @@ try
     TextureCheck.Run(root);
     CollisionMetadataCheck.Run();
     SourceTagfileCheck.Run();
+    TerrainGeometryCheck.Run();
+    MapTerrainCheck.Run();
     RegulationCheck.Run();
     GameplayTablesCheck.Run();
     ShaderArchiveCheck.Run();

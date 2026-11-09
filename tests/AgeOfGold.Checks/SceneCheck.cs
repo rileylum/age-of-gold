@@ -15,6 +15,7 @@ internal static class SceneCheck
         layout.Models.MapPieces.Add(new() { Name = "m0000" });
         layout.Parts.MapPieces.Add(new() { Name = "authored-placement", ModelName = "m0000", Position = new(5, 6, 7),
             LightID = 13, LanternID = 7, DisablePointLightEffect = 1 });
+        new uint[] { 1, 4, 16, 64 }.CopyTo(layout.Parts.MapPieces[0].DrawGroups, 0);
         Write("map/MapStudio/m10_02_00_00.msb", layout.Write());
         var definition = new MTD
         {
@@ -74,6 +75,7 @@ internal static class SceneCheck
         Require(surface.GetProperty("material").GetProperty("parameters").GetProperty("authored").GetSingle() == 0.75f, "patched material defaults");
         Require(rootElement.GetProperty("placements")[0].GetProperty("position")[0].GetSingle() == 5, "placement transform");
         var placement = rootElement.GetProperty("placements")[0];
+        Require(placement.GetProperty("drawGroups").EnumerateArray().Select(v => v.GetUInt32()).SequenceEqual(new uint[] { 1, 4, 16, 64 }), "source visibility groups");
         Require(placement.GetProperty("lighting").GetInt32() == 13 && placement.GetProperty("playerLight").GetInt32() == 7
             && placement.GetProperty("disablePointLights").GetInt32() == 1, "placement lighting selections");
         Require(surface.GetProperty("indices").EnumerateArray().Select(i => i.GetInt32()).SequenceEqual(new[] { 0, 1, 2 }), "triangle winding");

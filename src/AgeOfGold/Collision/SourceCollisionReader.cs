@@ -9,8 +9,15 @@ internal static class SourceCollisionReader
     internal sealed record Body(string HavokVersion, float[] BodyTransform, Mesh[] Meshes);
     internal sealed record Mesh(float[][] Vertices, int[][] Faces, int IndexBits, int Material,
         float[] Translation, float[] Rotation, float[] Scale, int FlipAlternateTriangles, float[] Extrusion);
+    internal sealed record Placement(string Name, string High, string Low, string Role, bool Disabled,
+        float[] Position, float[] Rotation, float[] Scale, uint[] DisplayGroups);
+    internal sealed record Spawn(float[] Position, float[] Rotation);
+    internal sealed record Scene(int Format, SortedDictionary<string, Body> Models, Placement[] Placements, Spawn Spawn);
 
-    internal static byte[] ReadFirelink(Install source)
+    internal static byte[] ReadFirelink(Install source) => JsonSerializer.SerializeToUtf8Bytes(ReadScene(source),
+        new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+
+    internal static Scene ReadScene(Install source)
     {
         var models = new SortedDictionary<string, Body>(StringComparer.Ordinal);
         foreach (string detail in new[] { "h", "l" })
@@ -31,19 +38,12 @@ internal static class SourceCollisionReader
             var model = layout.Models.Collisions.Single(m => m.Name == p.ModelName);
             var names = new[] { "h", "l" }.Select(d => d + model.Name[1..] + "A10.hkx.dcx").ToArray();
             if (names.Any(n => !models.ContainsKey(n))) throw new InvalidDataException($"Missing source collision model for {p.Name}");
-            return new
-            {
-                name = p.Name, high = names[0], low = names[1], role = FirelinkSource.Role(p.HitFilterID),
-                disabled = p.DisableStart, position = Vector(p.Position), rotation = Vector(p.Rotation), scale = Vector(p.Scale),
-            };
+            return new Placement(p.Name, names[0], names[1], FirelinkSource.Role(p.HitFilterID),
+                p.DisableStart, Vector(p.Position), Vector(p.Rotation), Vector(p.Scale), p.DispGroups);
         }).ToArray();
         var spawnEvent = layout.Events.SpawnPoints.Single();
         var spawn = layout.Regions.GetEntries().Single(r => r.Name == spawnEvent.SpawnPointName);
-        return JsonSerializer.SerializeToUtf8Bytes(new
-        {
-            format = 1, models, placements,
-            spawn = new { position = Vector(spawn.Position), rotation = Vector(spawn.Rotation) },
-        }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+        return new Scene(1, models, placements, new Spawn(Vector(spawn.Position), Vector(spawn.Rotation)));
     }
 
     internal static Body Read(byte[] raw)

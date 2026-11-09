@@ -136,3 +136,19 @@ separate field-by-field read. Preparation retains per-piece lighting selections,
 against these rows, and produces identical lighting output in two fresh runs. The earlier
 preparation and the redundant repeat were removed after comparing all unchanged contents and
 retaining their manifests. Accepted playtest data and historical construction inputs remain.
+
+Terrain assembly now uses the typed source collision scene directly. Source body and submesh
+transforms are composed with map placement, winding is translated, and zero-area faces are
+counted and excluded. The checked scope matches the accepted playtest's ordinary-solid subset;
+special roles and disabled placements remain explicit exclusions. The host writer retains the
+standalone metadata arrangement already exercised in play, deriving all serialization metadata
+from the installed compendium. Existing host physics settings, including body transforms, are
+preserved. An initial check incorrectly assumed that the installed template body transform was
+exactly identity; inspection corrected that assumption rather than changing the template.
+
+Both collision detail sets are independently rebuilt twice and every written triangle, section
+tree and SIMD lookup tree is checked. Map readback checks source visibility groups and a
+supported spawn, and restoring the deliberately changed placements restores all other map
+bytes. Authored fixtures cover visibility, transformed ground and occupied identities. Source
+visual preparation now also retains its draw groups. This is terrain integration evidence,
+not a new full playtest or proof that special collision behaviours are translated.

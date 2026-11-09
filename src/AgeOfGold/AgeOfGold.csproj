@@ -13,5 +13,6 @@
     <InternalsVisibleTo Include="AgeOfGold.Checks" />
     <Compile Include="../../spikes/er-collision/probe/FirelinkRigidGeometry.cs" Link="Scene/RigidGeometry.cs" />
     <Compile Include="../../spikes/er-collision/probe/FirelinkSource.cs" Link="Collision/SourceRoles.cs" />
+    <Compile Include="../../spikes/er-collision/probe/Build.cs" Link="Collision/MeshWriter.cs" />
   </ItemGroup>
 </Project>
