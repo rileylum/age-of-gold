@@ -32,7 +32,7 @@ internal static class TextureReader
     }
 
     // PC containers already hold DDS files; console reconstruction and its dependencies are unnecessary.
-    private static IEnumerable<(string Name, byte[] Bytes)> ReadPackage(byte[] bytes)
+    internal static IEnumerable<(string Name, byte[] Bytes)> ReadPackage(byte[] bytes)
     {
         using var reader = new BinaryReaderEx(false, DCX.Is(bytes) ? DCX.Decompress(bytes) : bytes);
         reader.AssertASCII("TPF\0");

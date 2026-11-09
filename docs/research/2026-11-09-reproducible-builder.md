@@ -152,3 +152,13 @@ supported spawn, and restoring the deliberately changed placements restores all 
 bytes. Authored fixtures cover visibility, transformed ground and occupied identities. Source
 visual preparation now also retains its draw groups. This is terrain integration evidence,
 not a new full playtest or proof that special collision behaviours are translated.
+
+The authored PC texture writer retains the host container's header settings and compression,
+while replacing its texture with source DDS mip data. It checks dimensions, complete mip extent
+and the supported BC1/BC5/BC7 formats. Linear versus sRGB sampling is an explicit caller choice;
+normal-map BC5 cannot be marked sRGB. Cubes, arrays and volumes remain outside this surface
+writer's checked scope. All 208 installed surface textures produce deterministic packages, and
+their mip payloads remain unchanged. The complete external SoulsFormats reader/writer (under
+the GPL terms recorded above) independently reads and exactly rewrites all 348 sampling
+variants. No reference build is used to construct them. Reports and representative packages
+are retained privately; redundant test packages can be removed after comparison.

@@ -8,6 +8,16 @@ var root = Path.Combine(Path.GetTempPath(), "aog-authored-" + Guid.NewGuid().ToS
 Directory.CreateDirectory(root);
 try
 {
+    if (args.Length == 2 && args[0] == "texture-installs")
+    {
+        TextureInstallCheck.Run(args[1]);
+        return;
+    }
+    if (args.SequenceEqual(new[] { "texture-writer" }))
+    {
+        TextureWriterCheck.Run();
+        return;
+    }
     if (args.SequenceEqual(new[] { "map-terrain" }))
     {
         MapTerrainCheck.Run();
@@ -170,6 +180,7 @@ try
     Console.WriteLine("PASS: missing inputs, install writes, symlink escapes and failed preparation leave no output");
     SceneCheck.Run(root);
     TextureCheck.Run(root);
+    TextureWriterCheck.Run();
     CollisionMetadataCheck.Run();
     SourceTagfileCheck.Run();
     TerrainGeometryCheck.Run();

@@ -29,6 +29,9 @@ playable mod.
   accepted ordinary-solid subset in both detail sets, retains source visibility groups and
   places the player above supported ground. Special and disabled placements are reported
   separately. Existing collision physics and unrelated map fields are preserved.
+- PC surface texture packaging preserves compressed mip payloads and derives container
+  settings from a host template. Sampling is explicitly linear or sRGB; BC5 rejects sRGB.
+  BC1, BC5 and BC7 are checked. Other formats, arrays, cubes and volumes currently fail.
 - Output is written in a fresh staging directory and published only after success. Existing
   output and paths overlapping either install are refused, including symlink aliases.
 - Dependencies use a pinned source revision, NuGet lock files and an explicit Oodle adapter
@@ -149,6 +152,15 @@ triangle and lookup tree, verifies source visibility and spawn support, and rech
 install bytes. The `terrain-geometry` and `map-terrain` authored checks cover transforms,
 winding, excluded roles, visibility, identity conflicts and preservation of unrelated map
 fields. These stages do not yet produce a complete playable build.
+
+`texture-writer` checks authored packages and malformed input. `texture-installs FRESH_OUTPUT`
+runs under Wine like the other host-format checks, with an output directory under its system
+temporary directory. It reads all source surface textures, rebuilds supported sampling variants
+twice, reads the DDS data back and records a manifest for independent comparison. Under Wine,
+set `TEMP` and `TMP` inside a `cmd` script when directing output to a Linux disk-backed temporary
+directory; Wine can replace values supplied only in the launching shell. The full external
+format reader/writer also matches the generated packages exactly. That independent oracle is
+private test tooling, not a builder dependency or construction input.
 
 Preparation also reads scenery, character and point-light settings using the source install's
 own parameter definitions. `lighting.json` retains encoded colours separately from intensity;
