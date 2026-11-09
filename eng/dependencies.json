@@ -9,6 +9,11 @@
     "revision": "ac40bc9915d8caff0df154c2b9a79656dfca1d77",
     "licence": "MIT"
   },
+  "HlslDecompiler": {
+    "url": "https://github.com/AndresTraks/HlslDecompiler.git",
+    "revision": "14bb0af4f9c074138df5a40d8d0bee0f30da0e30",
+    "licence": "MIT"
+  },
   "MinHook": {
     "url": "https://github.com/TsudaKageyu/minhook.git",
     "revision": "05c06c5bbca226b72ffb40fc0caaef33bcaf6f74",

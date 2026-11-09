@@ -123,7 +123,8 @@ maintained dependency. The inspected Windows SDK library package also supplied n
 and was discarded after recording its contents.
 The subsequent [source shader conversion experiment](2026-11-09-source-shader-conversion.md)
 evaluates a separate external candidate and records both its graphics checks and a confirmed
-compute translation failure. It has not been adopted.
+compute translation failure. Riley subsequently approved its restricted graphics-only use;
+the later section of that snapshot records the maintained checks.
 
 The maintained lighting reader now uses parameter definitions from the source install itself.
 It reads separate scenery and character light sets, directional and hemisphere colours,

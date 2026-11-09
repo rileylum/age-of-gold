@@ -35,6 +35,13 @@ separately installed build dependency on 9 November 2026. Compiler binaries and 
 outside the repository and our releases. Build-time shader inputs must still come from the
 player's installs; captured shader state remains private comparison evidence.
 
+**Source shader conversion.** Riley selected pinned external HlslDecompiler (MIT) on
+9 November 2026 for vertex and pixel programs without writable resources. Compute stages,
+writable resources and unsupported instructions stop conversion. The converter and generated
+shader source stay outside Git and releases. The adapter checks the pinned tool's fingerprints;
+DXC compiles its output using HLSL 2018 compatibility and strict arithmetic. Authored GPU
+comparisons remain required alongside compilation and deterministic readback.
+
 **Regulation key discovery.** Riley selected install-derived discovery on 9 November 2026.
 The tool searches read-only data in the player's host executable and validates candidates by
 opening the complete installed regulation archive. No key is embedded or written out. Missing

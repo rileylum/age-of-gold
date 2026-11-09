@@ -32,6 +32,10 @@ playable mod.
 - The DXC adapter compiles authored shader source and reassembles intermediate programs.
   A small authored C++ helper accesses DXC's assembly and validation APIs while preserving
   the template root signature. DXC itself remains separately installed.
+- A pinned external HlslDecompiler converts source vertex/pixel programs. Bytecode and resource
+  declarations are checked before conversion; compute stages, writable resources and unsupported
+  instructions fail. The converter's complete external distribution is fingerprinted. It is
+  built separately and never becomes a runtime or release dependency.
 - MinHook is pinned for the native lighting runtime. An authored native check proves hook,
   original-call, disable and removal behaviour, with deterministic builds and licence staging.
   The private lighting runtime's captured inputs and game-specific bindings still need replacing.
@@ -54,6 +58,7 @@ TMPDIR=/var/tmp python tests/check_installs.py /var/tmp/aog-input-check --fireli
 The bootstrap's optional `--mirror PATH` uses a local Git repository at the pinned commit.
 Use `--hk-mirror PATH` for an existing HKLib repository.
 Use `--minhook-mirror PATH` for an existing MinHook repository.
+Use `--shader-mirror PATH` for an existing HlslDecompiler repository.
 It creates a fresh checkout and ignores that repository's working-tree modifications.
 The external manifest records every checked-out file after the explicit adapter adjustment.
 
@@ -80,6 +85,37 @@ export AOG_DXC="$AOG_DXC_ROOT/bin/dxc"
 export AOG_DXC_ASSEMBLER=/var/tmp/aog-dxc-helper/aog-dxc-assemble
 dotnet run --project tests/AgeOfGold.Checks -- shaders
 ```
+
+Build the source shader converter separately, outside the repository. The authored recipe
+compiles only the pinned upstream command-line implementation under our .NET SDK, excluding
+its tests, fixtures and unused NUnit dependency:
+
+```sh
+python eng/build_shader_tool.py /var/tmp/aog-shader-converter
+export AOG_SHADER_CONVERTER=/var/tmp/aog-shader-converter
+TMPDIR=/var/tmp python tests/check_shader_tool.py /var/tmp/aog-shader-tool-check
+dotnet run --project tests/AgeOfGold.Checks -- source-shader-installs
+```
+
+`source-shader-installs` requires both install variables. It checks every source graphics stage
+against the restriction, rejects source compute stages, and converts the deferred-lighting
+programs twice with DXC readback. This establishes source-program conversion, not host renderer
+integration. The external converter manifest records its source revision, SDK and all output
+fingerprints. `build_shader_tool.py --runtime win-x64` builds its Windows distribution.
+
+With `AOG_LLVM_MINGW` set as described below, the authored numerical check runs without opening
+a game or window:
+
+```sh
+TMPDIR=/var/tmp python tests/check_shader_execution.py /var/tmp/aog-shader-gpu-check
+```
+
+It compiles our own source-format fixtures using the platform Direct3D compiler, translates
+them through the maintained adapter, and compares floating-point GPU readback with both the
+reference program and independent CPU expectations. It also rejects a compute program and a
+pixel program with writable buffers, and checks altered converter files and revisions. On
+Linux the native harness runs under Wine. These fixtures cover arithmetic, branching and loops;
+they do not prove the entire installed shader corpus equivalent in play.
 
 These commands have been exercised on Linux. Windows remains a target; this checkpoint does
 not claim that the complete builder or native helper has been verified on Windows. The host

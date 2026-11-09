@@ -18,12 +18,18 @@ internal sealed class ShaderCompiler
             throw new InvalidDataException($"DXC {Version} is required");
     }
 
-    internal byte[] Compile(string source, string entry, string profile) => Temporary(root =>
+    internal byte[] Compile(string source, string entry, string profile) => Compile(source, entry, profile, []);
+
+    // Instruction translation needs vector conditionals and must retain strict arithmetic semantics.
+    internal byte[] CompileSourceInstructions(string source, string profile) =>
+        Compile(source, "main", profile, ["-HV", "2018", "-Gis"]);
+
+    private byte[] Compile(string source, string entry, string profile, string[] flags) => Temporary(root =>
     {
         var input = Path.Combine(root, "source.hlsl");
         var output = Path.Combine(root, "shader.dxil");
         File.WriteAllText(input, source);
-        Run(executable, ["-T", profile, "-E", entry, "-Fo", output, "-Qstrip_debug", input]);
+        Run(executable, ["-T", profile, "-E", entry, "-Fo", output, "-Qstrip_debug", .. flags, input]);
         return File.ReadAllBytes(output);
     });
 

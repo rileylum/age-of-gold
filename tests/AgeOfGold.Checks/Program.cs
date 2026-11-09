@@ -8,6 +8,21 @@ var root = Path.Combine(Path.GetTempPath(), "aog-authored-" + Guid.NewGuid().ToS
 Directory.CreateDirectory(root);
 try
 {
+    if (args.SequenceEqual(new[] { "source-shader-installs" }))
+    {
+        SourceShaderInstallCheck.Run();
+        return;
+    }
+    if (args.Length == 3 && args[0] == "source-shader-compile")
+    {
+        SourceShaderCheck.Compile(args[1], args[2]);
+        return;
+    }
+    if (args.SequenceEqual(new[] { "source-shaders" }))
+    {
+        SourceShaderCheck.Run();
+        return;
+    }
     if (args.SequenceEqual(new[] { "source-lighting" }))
     {
         SourceLightingCheck.Run(root);
@@ -145,6 +160,7 @@ try
     RegulationCheck.Run();
     GameplayTablesCheck.Run();
     ShaderArchiveCheck.Run();
+    SourceShaderCheck.Run();
     SourceLightingCheck.Run(root);
 }
 finally { Directory.Delete(root, true); }

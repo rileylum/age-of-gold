@@ -14,6 +14,7 @@ def main():
     parser.add_argument("--mirror", type=Path, help="Local SoulsFormatsNEXT repository for offline setup")
     parser.add_argument("--hk-mirror", type=Path, help="Local HKLib repository for offline setup")
     parser.add_argument("--minhook-mirror", type=Path, help="Local MinHook repository for offline setup")
+    parser.add_argument("--shader-mirror", type=Path, help="Local HlslDecompiler repository for offline setup")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     destination = args.destination.resolve()
@@ -24,7 +25,8 @@ def main():
     for name, entry in spec.items():
         checkout = destination / name
         subprocess.run(["git", "init", "--quiet", str(checkout)], check=True)
-        mirror = {"SoulsFormatsNEXT": args.mirror, "HKLib": args.hk_mirror, "MinHook": args.minhook_mirror}[name]
+        mirror = {"SoulsFormatsNEXT": args.mirror, "HKLib": args.hk_mirror,
+                  "MinHook": args.minhook_mirror, "HlslDecompiler": args.shader_mirror}[name]
         source = str(mirror.resolve()) if mirror else entry["url"]
         subprocess.run(["git", "-C", str(checkout), "fetch", "--quiet", "--depth=1", source, entry["revision"]], check=True)
         subprocess.run(["git", "-C", str(checkout), "checkout", "--quiet", "--detach", "FETCH_HEAD"], check=True)

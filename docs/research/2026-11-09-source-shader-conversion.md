@@ -14,8 +14,8 @@ A separate private experiment evaluated
 [HlslDecompiler at revision 14bb0af4f9c074138df5a40d8d0bee0f30da0e30](https://github.com/AndresTraks/HlslDecompiler/tree/14bb0af4f9c074138df5a40d8d0bee0f30da0e30).
 It uses the [MIT licence](https://github.com/AndresTraks/HlslDecompiler/blob/14bb0af4f9c074138df5a40d8d0bee0f30da0e30/LICENSE).
 The unmodified external project targets .NET 8 and references NUnit 4.3.2, including in its
-command-line build. This is a candidate build tool, not an adopted dependency. Its source,
-binaries, generated HLSL and game inputs remain outside Git and releases.
+command-line build. It was evaluated as a candidate before the decision recorded below. Its
+source, binaries, generated HLSL and game inputs remain outside Git and releases.
 
 Using its instruction-oriented writer and the approved DXC compiler, all 2,848 extracted
 vertex and pixel programs compiled. HLSL 2018 compatibility was needed for vector conditional
@@ -45,7 +45,7 @@ writable-buffer resources, followed by the approved DXC compiler. A maintained a
 reject other stages and unsupported resources, record tool fingerprints, retain authored
 numerical checks, and compare the resulting Firelink rendering before replacing the accepted
 playtest. A new instruction or resource requirement must fail and be investigated. This
-proposal needs Riley's decision under core constraint 6 before implementation.
+proposal required Riley's decision under core constraint 6 before implementation.
 
 The generated graphics sources contained no writable-buffer declarations. This is survey
 evidence only; the proposed maintained adapter must inspect the input declarations itself.
@@ -55,3 +55,21 @@ archive and revision remain available if the failed DXC build needs further inve
 
 All game-derived programs and test output remain private. No game was launched, neither
 install was modified, and the accepted playtest and saves were left intact.
+
+Riley subsequently approved that restricted converter. The maintained build recipe compiles
+only upstream production source with the pinned .NET SDK; it needs neither upstream fixtures
+nor NUnit. Two independent external distributions match, including licence staging. The adapter
+checks tool fingerprints, container structure, stage/version, token lengths, resource
+declarations and unsupported opcodes before conversion. Authored rejection cases were observed
+failing before their implementation. The maintained GPU check retains the numerical result
+above and rejects an actual authored pixel shader that writes to a structured buffer. The
+install check accepts all 2,848 graphics programs, rejects all sixteen compute programs and
+converts each of the six deferred stages twice with deterministic DXC readback. Host renderer
+binding and visual equivalence remain separate work.
+The maintained Windows distribution also runs under Wine and matches the Linux distribution
+and the prior pinned tool for the ten representative programs, with Linux DXC used throughout.
+
+Instruction metadata is described by Microsoft's
+[public token-format header](https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/include/dxc/Support/d3d12TokenizedProgramFormat.hpp)
+under the DXC distribution's previously recorded licence terms. Our boundary reader was authored
+from that format description; it contains no game program or captured instruction stream.
