@@ -32,6 +32,11 @@ playable mod.
 - PC surface texture packaging preserves compressed mip payloads and derives container
   settings from a host template. Sampling is explicitly linear or sRGB; BC5 rejects sRGB.
   BC1, BC5 and BC7 are checked. Other formats, arrays, cubes and volumes currently fail.
+- Two-layer ground geometry retains both texture mappings, signed tangent frames, derived
+  bitangents and vertex colour/alpha through subdivision and host model readback. Secondary
+  coordinates and colour use floating-point storage; primary coordinates retain the host's
+  packed format. Visibility bounds cover every written vertex. Material and shader binding
+  remains a separate unfinished stage; these geometry checks do not produce a playable model.
 - Output is written in a fresh staging directory and published only after success. Existing
   output and paths overlapping either install are refused, including symlink aliases.
 - Dependencies use a pinned source revision, NuGet lock files and an explicit Oodle adapter
@@ -149,6 +154,14 @@ The `source-collision-installs` check additionally takes `AOG_COLLISION_REFERENC
 a private export from the preceding reader. It verifies the reference's input fingerprints
 before comparing all geometry and transform values. That export is comparison evidence only;
 the maintained preparation command does not read it.
+
+`layer-geometry` and `layer-model` exercise independent texture mappings, frame handedness,
+colour/alpha interpolation, large-coordinate subdivision and host-format readback using authored
+fixtures. They also run in the default authored suite. `layer-model-installs` reads both installs
+and, under Wine on Linux, checks all 85 surfaces in the supported two-layer ground family.
+It rebuilds each selected model twice, reads every attribute back and verifies unchanged inputs.
+The host template supplies the layout and material state; final material bindings are not yet
+applied. Other material families are outside this particular adapter's scope.
 
 `terrain-installs` runs with the same Windows check executable and install variables. It reads
 both installs directly, assembles both collision sets and the map twice, checks every written

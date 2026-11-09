@@ -196,3 +196,18 @@ as confirmed in the [upstream implementation](https://github.com/dotnet/runtime/
 (MIT). Our reader parses the standard fixed version resource from the same executable bytes
 on both platforms; no upstream implementation was copied. The disassembler remains part of
 the already adopted external LLVM-MinGW package and retains that package's licensing terms.
+
+The maintained two-layer geometry stage now translates the source reader's geometry directly,
+using the existing authored UV subdivision algorithm. Each split interpolates both mappings,
+both signed tangent frames, independently derived bitangents and the complete vertex colour.
+Only the primary repeating mapping is shifted into the host packed range. Secondary coordinates,
+bitangents and vertex colour retain floating-point precision. All attributes participate in
+vertex sharing, so different shading or texture values do not merge at a seam.
+
+Host templates come directly from the installed model archives. The writer retains the native
+primary layout and extends the input channels as the accepted private experiment did. Authored
+fixtures cover large secondary coordinates, colour precision and visibility bounds. The local
+install test rebuilds all 85 supported ground-family surfaces twice: 124,532 vertices and
+110,330 triangles pass host readback with unchanged installed inputs. Final material bindings,
+shader conversion and the other material families remain unfinished. No accepted build or
+historical converted model is a construction input to this stage.

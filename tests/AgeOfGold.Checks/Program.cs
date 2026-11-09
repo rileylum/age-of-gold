@@ -8,6 +8,21 @@ var root = Path.Combine(Path.GetTempPath(), "aog-authored-" + Guid.NewGuid().ToS
 Directory.CreateDirectory(root);
 try
 {
+    if (args.SequenceEqual(new[] { "layer-model-installs" }))
+    {
+        LayerModelInstallCheck.Run(root);
+        return;
+    }
+    if (args.SequenceEqual(new[] { "layer-model" }))
+    {
+        LayerModelCheck.Run();
+        return;
+    }
+    if (args.SequenceEqual(new[] { "layer-geometry" }))
+    {
+        LayerGeometryCheck.Run();
+        return;
+    }
     if (args.Length == 2 && args[0] == "host-state-fixture")
     {
         HostBindingCheck.Fixture(args[1]);
@@ -196,6 +211,8 @@ try
     SceneCheck.Run(root);
     TextureCheck.Run(root);
     TextureWriterCheck.Run();
+    LayerGeometryCheck.Run();
+    LayerModelCheck.Run();
     CollisionMetadataCheck.Run();
     SourceTagfileCheck.Run();
     TerrainGeometryCheck.Run();
