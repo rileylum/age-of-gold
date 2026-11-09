@@ -5,6 +5,7 @@ using AgeOfGold.Archives;
 using AgeOfGold.Scene;
 using AgeOfGold.Collision;
 using AgeOfGold.Params;
+using AgeOfGold.Shaders;
 
 namespace AgeOfGold;
 
@@ -45,6 +46,8 @@ internal static class Preparation
                 Write("host/regulation.bnd", regulation.Tables.Write(new SoulsFormats.DCX.NoCompressionInfo()));
                 Write("collision.json", SourceCollisionReader.ReadFirelink(source));
                 Write("lighting.json", JsonSerializer.SerializeToUtf8Bytes(SourceLightingReader.Read(source),
+                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+                Write("renderer.json", JsonSerializer.SerializeToUtf8Bytes(SourceRendererSettings.Read(source),
                     new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
                 var bytes = SceneReader.Read(source);
                 Write("scene.json", bytes);

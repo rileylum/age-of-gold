@@ -21,6 +21,10 @@ playable mod.
   channels. It extracts the explicitly referenced DDS textures without altering their bytes.
   The same checked lookup handles loose area packages, including the diffuse environment
   textures referenced by the source lighting rows; ambiguous names fail.
+- Preparation also reads the source renderer's named hemisphere and normal-strength settings
+  from its executable, with version, type and pointer checks. No address or captured value is
+  embedded. Ambient parameter translation combines colour and intensity before gamma conversion,
+  then applies hemisphere strength separately. Host pixel-program integration remains unfinished.
 - Source collision reading uses serialized type descriptions, validates references and extracts
   both sets of triangle meshes, their materials, transforms, placements and roles. It does not
   need the earlier Python reader or bundled game type descriptions.
@@ -75,6 +79,12 @@ playable mod.
 
 Use the SDK version in `global.json`. Install-dependent checks require both environment
 variables below, refuse CI, and write beneath the system temporary directory.
+
+`source-renderer` and `source-lighting-parameters` check authored executable metadata and ambient
+colour arithmetic. `source-renderer-installs OUTPUT` reads both installs, writes the renderer
+settings and ambient coefficients for every source scenery and character lighting row, and
+verifies unchanged inputs. Optional `AOG_SOURCE_LIGHTING_REFERENCE` supplies a private captured
+reference for comparison only. Linux and Windows output equality is checked separately.
 
 ```sh
 python eng/bootstrap.py /var/tmp/aog-libraries

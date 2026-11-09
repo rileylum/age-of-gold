@@ -8,6 +8,21 @@ var root = Path.Combine(Path.GetTempPath(), "aog-authored-" + Guid.NewGuid().ToS
 Directory.CreateDirectory(root);
 try
 {
+    if (args.SequenceEqual(new[] { "source-lighting-parameters" }))
+    {
+        SourceLightingParametersCheck.Run();
+        return;
+    }
+    if (args.Length == 2 && args[0] == "source-renderer-installs")
+    {
+        SourceRendererSettingsCheck.Installs(args[1]);
+        return;
+    }
+    if (args.SequenceEqual(new[] { "source-renderer" }))
+    {
+        SourceRendererSettingsCheck.Run(root);
+        return;
+    }
     if (args.Length == 3 && args[0] == "source-parameter-fixtures")
     {
         SourceShaderParametersCheck.Fixtures(args[1], args[2]);
@@ -312,6 +327,8 @@ try
     SourceShaderCheck.Run();
     SourceShaderParametersCheck.Run();
     SourceLightingCheck.Run(root);
+    SourceRendererSettingsCheck.Run(root);
+    SourceLightingParametersCheck.Run();
 }
 finally { Directory.Delete(root, true); }
 
