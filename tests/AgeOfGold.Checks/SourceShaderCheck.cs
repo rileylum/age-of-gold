@@ -11,9 +11,10 @@ internal static class SourceShaderCheck
         var converter = new SourceShaderConverter(Required("AOG_SHADER_CONVERTER"), compiler);
         CheckTool(compiler);
         var results = new Dictionary<string, byte[]>();
-        foreach (string stage in new[] { "pixel", "vertex" })
+        foreach (string stage in new[] { "pixel", "vertex", "resources", "constants", "packed", "matrices", "constants-sm4", "selector" })
         {
             var source = File.ReadAllBytes(Path.Combine(input, stage + ".dxbc"));
+            if (stage == "matrices") source = SourceShaderConstantsCheck.WithUnusedPrefix(source);
             var first = converter.Convert(source);
             if (!first.SequenceEqual(converter.Convert(source))) throw new Exception("Converted shader differs across runs");
             ShaderArchive.ValidateProgram(first);
@@ -68,6 +69,8 @@ internal static class SourceShaderCheck
 
     internal static void Run()
     {
+        SourceShaderBindingsCheck.Run();
+        SourceShaderConstantsCheck.Run();
         // Authored token streams use the public Direct3D token format, not a game's programs.
         Require(SourceShaderConverter.Inspect(Program(0x50, 0x0100003e)) == "ps_6_0", "pixel stage");
         Require(SourceShaderConverter.Inspect(Program(0x10050, 0x0100003e)) == "vs_6_0", "vertex stage");

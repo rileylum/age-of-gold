@@ -42,19 +42,46 @@ int main(int argc, char **argv) try {
   }
   bool frames = argc == 6 && !strcmp(argv[5], "--frames");
   bool tangents = frames || (argc == 6 && !strcmp(argv[5], "--tangents"));
-  if (argc != 5 && !tangents)
-    throw std::runtime_error("pixel output mode vertex [--tangents] required");
+  bool resources = argc == 6 && !strcmp(argv[5], "--resources");
+  bool constants = argc == 6 && !strcmp(argv[5], "--constants");
+  if (argc != 5 && !tangents && !resources && !constants)
+    throw std::runtime_error("pixel output mode vertex [--tangents|--frames|--resources|--constants] required");
   std::ifstream f(argv[1], std::ios::binary);
   if (!f)
     throw std::runtime_error("Shader input missing");
   std::vector<char> shader((std::istreambuf_iterator<char>(f)), {});
   ComPtr<ID3D12Device> device;
   ok(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)));
-  D3D12_ROOT_PARAMETER params[1]{};
+  D3D12_ROOT_PARAMETER params[2]{};
   params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
   params[0].Constants = {0, 0, 4};
   D3D12_ROOT_SIGNATURE_DESC rootDesc{1, params, 0, nullptr,
                                      D3D12_ROOT_SIGNATURE_FLAG_NONE};
+  D3D12_DESCRIPTOR_RANGE rangeDesc{D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 0, 0, 0};
+  D3D12_STATIC_SAMPLER_DESC samplers[5]{};
+  if (constants) {
+    params[0].ParameterType = params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    params[0].Descriptor = {0, 0};
+    params[1].Descriptor = {2, 0};
+    rootDesc.NumParameters = 2;
+  }
+  if (resources) {
+    params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[1].DescriptorTable = {1, &rangeDesc};
+    rootDesc.NumParameters = 2;
+    rootDesc.NumStaticSamplers = 5;
+    rootDesc.pStaticSamplers = samplers;
+    for (unsigned i = 0; i < 5; i++) {
+      auto &s = samplers[i];
+      s.ShaderRegister = i;
+      s.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+      s.AddressU = s.AddressV = s.AddressW = i == 4 ? D3D12_TEXTURE_ADDRESS_MODE_BORDER
+          : i == 3 ? D3D12_TEXTURE_ADDRESS_MODE_CLAMP : D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+      s.BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE;
+      s.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+      s.MaxLOD = D3D12_FLOAT32_MAX;
+    }
+  }
   if (tangents)
     rootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
   ComPtr<ID3DBlob> rootBytes, error;
@@ -150,7 +177,74 @@ int main(int argc, char **argv) try {
                                IID_PPV_ARGS(&list)));
   list->SetGraphicsRootSignature(root.Get());
   unsigned values[4] = {(unsigned)atoi(argv[3]), 0, 0, 0};
-  list->SetGraphicsRoot32BitConstants(0, 4, values, 0);
+  if (!constants) list->SetGraphicsRoot32BitConstants(0, 4, values, 0);
+  ComPtr<ID3D12Resource> constantBuffers[2];
+  if (constants) {
+    float globals[32]{}, settings[12]{};
+    globals[8] = 2.5f;
+    globals[14] = .625f;
+    globals[16] = -1.25f;
+    globals[17] = 3;
+    globals[22] = -.375f;
+    settings[5] = .75f;
+    settings[10] = .125f;
+    settings[11] = .5f;
+    for (unsigned i = 0; i < 2; i++) {
+      constantBuffers[i] = buffer(D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ,
+                                  D3D12_RESOURCE_FLAG_NONE);
+      void *mapped;
+      D3D12_RANGE empty{0, 0};
+      ok(constantBuffers[i]->Map(0, &empty, &mapped));
+      memset(mapped, 0, bytes);
+      memcpy(mapped, i == 0 ? globals : settings, i == 0 ? sizeof globals : sizeof settings);
+      constantBuffers[i]->Unmap(0, nullptr);
+      list->SetGraphicsRootConstantBufferView(i, constantBuffers[i]->GetGPUVirtualAddress());
+    }
+  }
+  ComPtr<ID3D12DescriptorHeap> resourceViews;
+  ComPtr<ID3D12Resource> images[5], uploads[5];
+  if (resources) {
+    D3D12_DESCRIPTOR_HEAP_DESC views{};
+    views.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    views.NumDescriptors = 5;
+    views.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ok(device->CreateDescriptorHeap(&views, IID_PPV_ARGS(&resourceViews)));
+    auto handle = resourceViews->GetCPUDescriptorHandleForHeapStart();
+    unsigned increment = device->GetDescriptorHandleIncrementSize(views.Type);
+    auto image = texture;
+    image.Width = 2;
+    image.Flags = D3D12_RESOURCE_FLAG_NONE;
+    for (unsigned i = 0; i < 5; i++) {
+      ok(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &image,
+          D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&images[i])));
+      uploads[i] = buffer(D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ,
+                          D3D12_RESOURCE_FLAG_NONE);
+      float pixels[8];
+      for (unsigned c = 0; c < 8; c++) pixels[c] = .1f * (i + 1) + (c >= 4 ? .05f : 0);
+      void *mapped;
+      D3D12_RANGE empty{0, 0};
+      ok(uploads[i]->Map(0, &empty, &mapped));
+      memcpy(mapped, pixels, sizeof pixels);
+      uploads[i]->Unmap(0, nullptr);
+      D3D12_TEXTURE_COPY_LOCATION from{}, to{};
+      from.pResource = uploads[i].Get();
+      from.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+      from.PlacedFootprint.Footprint = {image.Format, 2, 1, 1, 256};
+      to.pResource = images[i].Get();
+      to.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+      list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+      D3D12_RESOURCE_BARRIER ready{};
+      ready.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+      ready.Transition = {images[i].Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+          D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE};
+      list->ResourceBarrier(1, &ready);
+      device->CreateShaderResourceView(images[i].Get(), nullptr, handle);
+      handle.ptr += increment;
+    }
+    ID3D12DescriptorHeap *heaps[] = {resourceViews.Get()};
+    list->SetDescriptorHeaps(1, heaps);
+    list->SetGraphicsRootDescriptorTable(1, resourceViews->GetGPUDescriptorHandleForHeapStart());
+  }
   list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
   D3D12_VIEWPORT vp{0, 0, 64, 1, 0, 1};
   D3D12_RECT scissor{0, 0, 64, 1};

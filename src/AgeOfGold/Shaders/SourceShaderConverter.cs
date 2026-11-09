@@ -45,7 +45,7 @@ internal sealed class SourceShaderConverter
         try
         {
             string input = Path.Combine(root, "input.dxbc");
-            File.WriteAllBytes(input, program);
+            File.WriteAllBytes(input, SourceShaderConstants.Normalize(program));
             var start = new ProcessStartInfo(executable) { RedirectStandardError = true, RedirectStandardOutput = true };
             start.ArgumentList.Add("--instructions");
             start.ArgumentList.Add(input);
@@ -54,7 +54,8 @@ internal sealed class SourceShaderConverter
             var error = process.StandardError.ReadToEndAsync();
             process.WaitForExit();
             if (process.ExitCode != 0) throw new InvalidDataException("Source shader conversion failed: " + error.Result);
-            return compiler.CompileSourceInstructions(source.Result, profile);
+            var declarations = SourceShaderBindings.Preserve(program, source.Result);
+            return compiler.CompileSourceInstructions(SourceShaderConstants.PreserveIntegerSelectors(declarations), profile);
         }
         finally { Directory.Delete(root, true); }
     }

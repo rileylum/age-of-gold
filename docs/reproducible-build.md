@@ -128,10 +128,19 @@ TMPDIR=/var/tmp python tests/check_shader_tool.py /var/tmp/aog-shader-tool-check
 dotnet run --project tests/AgeOfGold.Checks -- source-shader-installs
 ```
 
-`source-shader-installs` requires both install variables. It checks every source graphics stage
-against the restriction, rejects source compute stages, and converts the deferred-lighting
-programs twice with DXC readback. This establishes source-program conversion, not host renderer
-integration. The external converter manifest records its source revision, SDK and all output
+`source-shader-installs` requires both install variables. It converts every source graphics
+stage, rejects source compute stages, and compares the compiled resource names and slots with
+the installed program's reflection records. It also checks every constant buffer's byte extent.
+Deferred-lighting programs and a layered ground program also repeat exactly. The adapter makes
+every texture and sampler slot explicit;
+automatic allocation can otherwise fill a gap with a later resource. This establishes
+conversion and binding preservation, not host renderer integration. Before conversion, constant
+reflection is normalized to complete register arrays while retaining the executable instructions.
+This preserves gaps, packed component offsets and dynamic indexing instead of asking the
+converter to reconstruct variable packing. Integer switch selectors retain their register bits.
+Unsupported field types and malformed extents fail. Reflection aliases are allowed only for an
+unused prefix over the first element of a used array with the same element shape.
+The external converter manifest records its source revision, SDK and all output
 fingerprints. `build_shader_tool.py --runtime win-x64` builds its Windows distribution.
 
 With `AOG_LLVM_MINGW` set as described below, the authored numerical check runs without opening
@@ -145,8 +154,13 @@ It compiles our own source-format fixtures using the platform Direct3D compiler,
 them through the maintained adapter, and compares floating-point GPU readback with both the
 reference program and independent CPU expectations. It also rejects a compute program and a
 pixel program with writable buffers, and checks altered converter files and revisions. On
-Linux the native harness runs under Wine. These fixtures cover arithmetic, branching and loops;
-they do not prove the entire installed shader corpus equivalent in play.
+Linux the native harness runs under Wine. These fixtures cover arithmetic, branching, loops,
+sparse texture slots and distinct wrap, clamp and border samplers. They do not prove the entire
+installed shader corpus equivalent in play. Constant fixtures also check gaps, packed components,
+dynamic matrix-array indexing, integer switch cases and shader-model 4 and 5 inputs. The matrix fixture uses buffer
+bindings: the development graphics backend failed its independent reference with root constants.
+Resource arrays and unsupported reflection or
+declaration shapes stop conversion rather than inheriting the compiler's guessed placement.
 
 `dotnet run --project tests/AgeOfGold.Checks -- vertex-shader` checks semantic second-tangent
 rewriting and rejected contracts. `TMPDIR=/var/tmp python tests/check_vertex_execution.py
