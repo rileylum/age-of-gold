@@ -53,6 +53,15 @@ def main():
             path = output / entry["path"]
             assert path.stat().st_size == entry["size"]
             assert digest(path) == entry["sha256"]
+        if args.firelink:
+            lighting = json.loads((output / "lighting.json").read_text())
+            scene = json.loads((output / "scene.json").read_text())
+            assert all(lighting[bank] for bank in ("scenery", "characters", "points")), "Lighting rows are missing"
+            sets = {row["id"] for row in lighting["scenery"]}
+            points = {row["id"] for row in lighting["points"]}
+            for placement in scene["placements"]:
+                assert placement["lighting"] in sets, "Scenery lighting selection has no row"
+                assert placement["playerLight"] in points, "Player-light selection has no row"
         for relative in [] if args.firelink else request["source"]:
             assert digest(source / relative) == digest(output / "source" / relative)
         for relative in request["host"]:

@@ -89,6 +89,7 @@ internal static class SceneReader
             placements = layout.Parts.MapPieces.OrderBy(p => p.Name, StringComparer.Ordinal).Select(p => new
             {
                 name = p.Name, model = p.ModelName, position = Vector(p.Position), rotation = Vector(p.Rotation), scale = Vector(p.Scale),
+                lighting = p.LightID, playerLight = p.LanternID, disablePointLights = p.DisablePointLightEffect,
             }).ToArray(),
         });
     }

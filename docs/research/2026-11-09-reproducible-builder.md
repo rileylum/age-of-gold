@@ -104,3 +104,31 @@ not been verified in this session.
 Primary DXC sources: [release](https://github.com/microsoft/DirectXShaderCompiler/releases/tag/v1.9.2609),
 [licences](https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/LICENSE.TXT),
 [public interfaces](https://github.com/microsoft/DirectXShaderCompiler/blob/v1.9.2609/include/dxc/dxcapi.h).
+
+Fresh archive inspection distinguishes the two shader formats: the host programs inspected
+contain DXIL, while the source programs contain DXBC shader instructions. The host programs
+therefore need no DXBC conversion before DXC disassembly. The maintained archive adapter reads
+only requested entries, validates the program container, and preserves unrelated entries and
+compression when replacing a stage. Authored checks and an installed-family replacement pass.
+An initial test repeatedly expanded and rewrote the complete host library and consumed too much
+memory; it was stopped. The revised check extracts the selected family and tests its rewrite.
+It does not establish memory bounds for writing the complete library.
+
+The pinned DXC source includes its DXBC converter, but the attempted LLVM-MinGW build fails on
+Windows-specific support dependencies. The pinned DXC binary release and NuGet package do not
+include that converter. This remains a source-program translation gap, not a reason to use
+captured programs as construction input. The external source checkout retains DXC's upstream
+licences; it and failed-build data are private research, not repository contents or a new
+maintained dependency. The inspected Windows SDK library package also supplied no converter
+and was discarded after recording its contents.
+
+The maintained lighting reader now uses parameter definitions from the source install itself.
+It reads separate scenery and character light sets, directional and hemisphere colours,
+environment texture references and point-light falloff. Encoded colours and intensity remain
+separate pending renderer translation. Authored fixtures rearrange fields to prove that their
+positions come from the supplied definitions; missing or ambiguous definitions, changed layouts,
+unknown fields, duplicate rows and invalid falloff fail. All 192 installed rows agree with a
+separate field-by-field read. Preparation retains per-piece lighting selections, resolves them
+against these rows, and produces identical lighting output in two fresh runs. The earlier
+preparation and the redundant repeat were removed after comparing all unchanged contents and
+retaining their manifests. Accepted playtest data and historical construction inputs remain.

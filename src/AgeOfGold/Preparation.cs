@@ -4,6 +4,7 @@ using System.Text.Json;
 using AgeOfGold.Archives;
 using AgeOfGold.Scene;
 using AgeOfGold.Collision;
+using AgeOfGold.Params;
 
 namespace AgeOfGold;
 
@@ -43,6 +44,8 @@ internal static class Preparation
                 var regulation = Regulation.Read(host.Read("eldenring.exe"), host.Read("regulation.bin"));
                 Write("host/regulation.bnd", regulation.Tables.Write(new SoulsFormats.DCX.NoCompressionInfo()));
                 Write("collision.json", SourceCollisionReader.ReadFirelink(source));
+                Write("lighting.json", JsonSerializer.SerializeToUtf8Bytes(SourceLightingReader.Read(source),
+                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
                 var bytes = SceneReader.Read(source);
                 Write("scene.json", bytes);
                 using var scene = JsonDocument.Parse(bytes);

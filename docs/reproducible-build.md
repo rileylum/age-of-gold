@@ -103,6 +103,19 @@ a private export from the preceding reader. It verifies the reference's input fi
 before comparing all geometry and transform values. That export is comparison evidence only;
 the maintained preparation command does not read it.
 
+Preparation also reads scenery, character and point-light settings using the source install's
+own parameter definitions. `lighting.json` retains encoded colours separately from intensity;
+it does not yet translate their colour space or reproduce the renderer. Scene placements retain
+their lighting and player-light selections. The install check verifies that these references
+resolve, and that both independent preparations retain identical lighting data.
+
+`shader-archives` checks flat and nested shader access, replacement, compression preservation
+and malformed-container rejection using authored fixtures. `shader-archive-installs` reads
+programs from both installs and exercises replacement within an installed host shader family.
+Run the latter under Wine with the Windows check executable and install paths, as above. Reads
+extract only the requested entries from the large host shader library. This proves archive
+access and preservation, not the shading translation or a complete shader-library rebuild.
+
 With both install environment variables set, `dotnet run --project tests/AgeOfGold.Checks --
 regulation-installs` checks key discovery, two independent rebuilds, readback and unchanged
 install inputs. It writes only to a temporary directory and needs no schema export.
