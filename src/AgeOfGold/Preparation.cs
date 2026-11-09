@@ -49,6 +49,9 @@ internal static class Preparation
                     new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
                 Write("renderer.json", JsonSerializer.SerializeToUtf8Bytes(SourceRendererSettings.Read(source),
                     new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+                Write("environment.json", JsonSerializer.SerializeToUtf8Bytes(SourceEnvironmentSettings.Read(source,
+                    Environment.GetEnvironmentVariable("AOG_LLVM_MINGW") ?? throw new ArgumentException("Set AOG_LLVM_MINGW to the pinned native toolchain")),
+                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
                 var bytes = SceneReader.Read(source);
                 Write("scene.json", bytes);
                 using var scene = JsonDocument.Parse(bytes);

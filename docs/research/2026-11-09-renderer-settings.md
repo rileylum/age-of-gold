@@ -18,10 +18,19 @@ identically on Linux and Windows. Four named ambient coefficients and normal str
 the private source capture; ambient comparisons allow relative floating-point error of one part
 per million, with the same absolute allowance below one. Both installs remain unchanged.
 
-This establishes parameter derivation, not a complete pixel translation. The environment sampling
-gain, material features, directional and local lighting, fog and host shader integration still
-need their own mapping and verification. Type metadata and instruction inspection also located
-environment-parameter construction, but that exploration has not become a maintained reader.
+The environment reader now follows relative code references to named settings. It recognizes
+the ordinary environment path's material-mode/flag gate and traces scalar loads and lane-unpack
+operations into the vector passed to the renderer. The mode and gain are read from that path,
+without fixed addresses or an instruction-byte signature. Analysis accepts one straight-line
+pack and rejects unclassified operations, invalid branches, argument clobbers, ambiguous paths
+and invalid gains. It reuses the already-approved native disassembler.
+
+Authored instruction fixtures vary the mode, gain, image base and unrelated argument loads.
+Invalid control flow and duplicate paths fail. The installed result repeats exactly, agrees
+with the source capture and is identical under the Linux and Windows disassembler distributions.
+The complete authored suite and the shared host-binding checks pass. This establishes parameter
+derivation, not a complete pixel translation: material features, directional and local lighting,
+fog and host shader integration remain unfinished.
 
 Sources and licences: the player's source executable, parameter definitions, lighting tables
 and shaders are proprietary local research inputs and are not redistributed. The source GPU

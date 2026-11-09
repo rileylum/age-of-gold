@@ -150,5 +150,16 @@ internal sealed class ExecutableImage
         return null;
     }
 
+    internal IEnumerable<int> RelativeReferences(HashSet<int> targets)
+    {
+        foreach (var s in Sections.Where(s => (s.Flags & SectionCharacteristics.MemExecute) != 0))
+            for (var i = 0; i <= s.Length - 4; i++)
+            {
+                var at = s.Start + i;
+                var target = unchecked((int)U32(s.Raw + i) + at + 4);
+                if (targets.Contains(target)) yield return at;
+            }
+    }
+
     private static bool Overlap(int a, int al, int b, int bl) => al > 0 && bl > 0 && a < (long)b + bl && b < (long)a + al;
 }

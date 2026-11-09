@@ -8,7 +8,7 @@ using AgeOfGold.Shaders;
 
 internal static class SourceRendererSettingsCheck
 {
-    internal static void Installs(string output)
+    internal static void Installs(string output, bool environment = false)
     {
         if (Environment.GetEnvironmentVariable("CI") is not null) throw new InvalidOperationException("Install checks must never run in CI");
         output = Install.Canonical(output);
@@ -19,6 +19,9 @@ internal static class SourceRendererSettingsCheck
         if (Install.Within(output, source.Root) || Install.Within(output, host.Root)) throw new ArgumentException("Output enters an install");
         var first = SourceRendererSettings.Read(source);
         Require(first == SourceRendererSettings.Read(source), "Repeated installed settings differ");
+        SourceEnvironmentSettings? environmentSettings = environment ? SourceEnvironmentSettings.Read(source, Required("AOG_LLVM_MINGW")) : null;
+        if (environment)
+            Require(environmentSettings == SourceEnvironmentSettings.Read(source, Required("AOG_LLVM_MINGW")), "Repeated environment settings differ");
         var lighting = SourceLightingReader.Read(source);
         var groups = new[] { lighting.Scenery, lighting.Characters };
         var rows = groups.Select(group => group.Select(row => new
@@ -41,6 +44,8 @@ internal static class SourceRendererSettingsCheck
                         "Captured source lighting differs: " + field.Name);
             }
             Require(first.NormalStrength == oracle.RootElement.GetProperty("normalStrength").GetSingle(), "Captured normal strength differs");
+            if (environmentSettings is not null)
+                Require(environmentSettings.Strength == oracle.RootElement.GetProperty("environmentStrength").GetSingle(), "Captured environment gain differs");
         }
         foreach (var install in new[] { source, host })
             foreach (var input in install.Fingerprints)
@@ -52,6 +57,8 @@ internal static class SourceRendererSettingsCheck
         File.WriteAllBytes(Path.Combine(output, "renderer.json"), JsonSerializer.SerializeToUtf8Bytes(first,
             new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
         File.WriteAllBytes(Path.Combine(output, "ambient.json"), JsonSerializer.SerializeToUtf8Bytes(rows));
+        if (environmentSettings is not null)
+            File.WriteAllBytes(Path.Combine(output, "environment.json"), JsonSerializer.SerializeToUtf8Bytes(environmentSettings));
         File.WriteAllText(Path.Combine(output, "check.json"), JsonSerializer.Serialize(new
         {
             repeatIdentical = true, unchangedInputs = true, source = source.Fingerprints, host = host.Fingerprints,

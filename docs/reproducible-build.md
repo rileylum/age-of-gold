@@ -25,6 +25,10 @@ playable mod.
   from its executable, with version, type and pointer checks. No address or captured value is
   embedded. Ambient parameter translation combines colour and intensity before gamma conversion,
   then applies hemisphere strength separately. Host pixel-program integration remains unfinished.
+- Environment sampling gain and its material mode come from bounded analysis of the source
+  renderer's parameter construction. Named setting references locate the code; its branch and
+  scalar-vector operations determine the values. Preparation records them in `environment.json`.
+  Missing, ambiguous or unsupported paths fail instead of using a captured constant.
 - Source collision reading uses serialized type descriptions, validates references and extracts
   both sets of triangle meshes, their materials, transforms, placements and roles. It does not
   need the earlier Python reader or bundled game type descriptions.
@@ -85,6 +89,9 @@ colour arithmetic. `source-renderer-installs OUTPUT` reads both installs, writes
 settings and ambient coefficients for every source scenery and character lighting row, and
 verifies unchanged inputs. Optional `AOG_SOURCE_LIGHTING_REFERENCE` supplies a private captured
 reference for comparison only. Linux and Windows output equality is checked separately.
+`source-environment-settings` checks authored instruction/control-flow variants;
+`source-environment-settings-installs OUTPUT` additionally derives the installed environment gain
+with `AOG_LLVM_MINGW`. Both platform distributions of the pinned LLVM-MinGW release are checked.
 
 ```sh
 python eng/bootstrap.py /var/tmp/aog-libraries
@@ -106,6 +113,7 @@ The external manifest records every checked-out file after the explicit adapter 
 To produce one preparation directory:
 
 ```sh
+export AOG_LLVM_MINGW='/path/to/pinned/llvm-mingw'
 dotnet run --project src/AgeOfGold -c Release -- prepare-firelink \
   --source "$AOG_DARK_SOULS_REMASTERED" --host "$AOG_ELDEN_RING" \
   --output /var/tmp/aog-firelink-inputs

@@ -16,7 +16,7 @@ internal sealed record HostBinding(uint ImageSize, uint WorldSlot, string Finger
         var decode = new NativeDisassembler(toolchain, executable, image);
         var table = WorldTable(image);
         var functions = new HashSet<ExecutableImage.Function>();
-        foreach (var reference in RelativeReferences(image, [table]))
+        foreach (var reference in image.RelativeReferences([table]))
         {
             var f = image.Containing(reference);
             if (f is null) continue;
@@ -25,7 +25,7 @@ internal sealed record HostBinding(uint ImageSize, uint WorldSlot, string Finger
         }
         var starts = functions.Select(f => f.Start).ToHashSet();
         var callers = new HashSet<ExecutableImage.Function>();
-        foreach (var reference in RelativeReferences(image, starts))
+        foreach (var reference in image.RelativeReferences(starts))
         {
             var f = image.Containing(reference - 1);
             if (f is not null && reference + 4 <= f.End && image.Bytes[image.Raw(reference - 1)] == 0xe8) callers.Add(f);
@@ -87,17 +87,6 @@ internal sealed record HostBinding(uint ImageSize, uint WorldSlot, string Finger
         }
         if (tables.Count != 1) throw new InvalidDataException("Host world-manager primary virtual table is missing or ambiguous");
         return tables.Single();
-    }
-
-    private static IEnumerable<int> RelativeReferences(ExecutableImage image, HashSet<int> targets)
-    {
-        foreach (var s in image.Sections.Where(s => (s.Flags & SectionCharacteristics.MemExecute) != 0))
-            for (var i = 0; i <= s.Length - 4; i++)
-            {
-                var at = s.Start + i;
-                var target = unchecked((int)image.U32(s.Raw + i) + at + 4);
-                if (targets.Contains(target)) yield return at;
-            }
     }
 
     private static int? ReturnStore(NativeDisassembler.Instruction[] code, int at, NativeDisassembler decode)
