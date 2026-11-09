@@ -8,6 +8,36 @@ var root = Path.Combine(Path.GetTempPath(), "aog-authored-" + Guid.NewGuid().ToS
 Directory.CreateDirectory(root);
 try
 {
+    if (args.Length == 2 && args[0] == "layer-material-installs")
+    {
+        LayerMaterialInstallCheck.Run(args[1]);
+        return;
+    }
+    if (args.SequenceEqual(new[] { "layer-material" }))
+    {
+        LayerMaterialCheck.Run();
+        return;
+    }
+    if (args.SequenceEqual(new[] { "texture-reader" }))
+    {
+        TextureCheck.Run(root);
+        return;
+    }
+    if (args.SequenceEqual(new[] { "material-writer" }))
+    {
+        MaterialWriterCheck.Run();
+        return;
+    }
+    if (args.Length == 2 && args[0] == "shader-metadata-installs")
+    {
+        ShaderMetadataInstallCheck.Run(args[1]);
+        return;
+    }
+    if (args.SequenceEqual(new[] { "shader-metadata" }))
+    {
+        ShaderMetadataCheck.Run();
+        return;
+    }
     if (args.Length == 2 && args[0] == "environment-texture-installs")
     {
         EnvironmentTextureInstallCheck.Run(args[1]);
@@ -266,6 +296,9 @@ try
     RegulationCheck.Run();
     GameplayTablesCheck.Run();
     ShaderArchiveCheck.Run();
+    ShaderMetadataCheck.Run();
+    MaterialWriterCheck.Run();
+    LayerMaterialCheck.Run();
     SourceShaderCheck.Run();
     SourceLightingCheck.Run(root);
 }

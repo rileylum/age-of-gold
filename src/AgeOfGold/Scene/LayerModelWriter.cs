@@ -5,9 +5,12 @@ namespace AgeOfGold.Scene;
 
 internal static class LayerModelWriter
 {
-    internal static byte[] Write(byte[] template, byte[] layerTemplate, int layerMesh, LayerGeometry.Surface[] surfaces)
+    internal static byte[] Write(byte[] template, byte[] layerTemplate, int layerMesh, LayerGeometry.Surface[] surfaces,
+        MaterialWriter.Bound[]? bindings = null)
     {
         var model = FLVER2.Read(template); var layer = FLVER2.Read(layerTemplate);
+        if (bindings is not null && bindings.Length != surfaces.Length)
+            throw new InvalidDataException("Each layered surface requires its material binding");
         if (model.Header.Version != 0x2001a || layer.Header.Version != 0x2001a || model.Header.BigEndian || layer.Header.BigEndian
             || model.Nodes.Count != 1 || model.Nodes[0].Translation != Vector3.Zero || model.Nodes[0].Rotation != Vector3.Zero
             || model.Nodes[0].Scale != Vector3.One || surfaces.Length == 0)
@@ -35,11 +38,21 @@ internal static class LayerModelWriter
         model.GXLists = [layer.GXLists[material.GXIndex]];
         material.GXIndex = 0; material.Index = 0;
         model.Materials = [material]; model.BufferLayouts = [layout]; model.Meshes.Clear(); model.Dummies.Clear();
+        if (bindings is not null)
+            model.Materials = bindings.Select((binding, i) =>
+            {
+                var definition = MATBIN.Read(binding.Definition);
+                var name = Path.GetFileNameWithoutExtension(definition.SourcePath.Replace('\\', '/'));
+                if (string.IsNullOrWhiteSpace(name)) throw new InvalidDataException("Bound material lacks an identity");
+                int start = material.MTD.LastIndexOfAny(['/', '\\']) + 1;
+                var path = material.MTD[..start] + name + Path.GetExtension(material.MTD[start..]);
+                return new FLVER2.Material { Name = name + "_" + i, MTD = path, GXIndex = 0, Index = i, Textures = binding.Textures.ToList() };
+            }).ToList();
         foreach (var surface in surfaces)
         {
             var mesh = new FLVER2.Mesh
             {
-                NodeIndex = 0, MaterialIndex = 0, VertexBuffers = [new(0)],
+                NodeIndex = 0, MaterialIndex = bindings is null ? 0 : model.Meshes.Count, VertexBuffers = [new(0)],
                 FaceSets = [new() { CullBackfaces = surface.CullBackfaces, Indices = surface.Indices.ToList() }],
                 Vertices = surface.Vertices.Select(v => new FLVER.Vertex
                 {

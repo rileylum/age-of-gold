@@ -34,6 +34,15 @@ internal static class LayerModelCheck
         Check(FLVER2.Read(result), [surface]);
         if (!result.SequenceEqual(LayerModelWriter.Write(bytes, bytes, 0, [surface])) || !bytes.SequenceEqual(template.Write()))
             throw new Exception("Layered model write changed inputs or repeat bytes");
+        MaterialWriter.Bound Bound(string colour) => MaterialWriter.BindTextures(MaterialWriterCheck.Fixture(2, "base"),
+            ShaderMetadataCheck.Fixture(2, "base"), MaterialWriterCheck.Fixture(4, "extra"), ShaderMetadataCheck.Fixture(4, "extra"),
+            new Dictionary<int, string> { [0] = colour, [1] = "AUTHORED_normal.tif", [2] = "AUTHORED_packed_a.tif", [3] = "AUTHORED_packed_b.tif" });
+        var bindings = new[] { Bound("AUTHORED_first.tif"), Bound("AUTHORED_second.tif") };
+        var bound = FLVER2.Read(LayerModelWriter.Write(bytes, bytes, 0, [surface, surface], bindings));
+        Check(bound, [surface, surface]);
+        if (bound.Materials.Count != 2 || bound.Meshes[0].MaterialIndex != 0 || bound.Meshes[1].MaterialIndex != 1
+            || bound.Materials[0].Textures[0].Path != "AUTHORED_first.tif" || bound.Materials[1].Textures[0].Path != "AUTHORED_second.tif"
+            || bound.Materials.Any(m => m.MTD != "authored.mtd" || m.GXIndex != 0)) throw new Exception("Layered surface bindings were lost or shared");
         Console.WriteLine("PASS: layered host format preserves full secondary coordinates, four frame vectors, float colour and bounds");
     }
 

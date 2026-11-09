@@ -39,6 +39,23 @@ internal static class TextureCheck
             throw new Exception("Missing requested texture was accepted");
         }
         catch (InvalidDataException) { }
+        var cube = new DDS { dwWidth = 4, dwHeight = 4, dwMipMapCount = 1, dwCaps2 = DDS.CUBEMAP_ALLFACES };
+        cube.ddspf.dwFlags = DDS.DDPF.FOURCC; cube.ddspf.dwFourCC = "DX10";
+        cube.header10 = new() { dxgiFormat = DDS.DXGI_FORMAT.BC6H_UF16, miscFlag = DDS.RESOURCE_MISC.TEXTURECUBE };
+        var environment = cube.Write(Enumerable.Range(0, 96).Select(i => (byte)i).ToArray());
+        var loose = TextureWriterCheck.Fixture(environment); loose[24] = 113; loose[25] = 1;
+        File.WriteAllBytes(Path.Combine(source, "map/m10/authored-environment.tpf.dcx"), loose);
+        var mixed = TextureReader.Read(install, ["authored-colour", "x"]).ToDictionary(t => t.Name, t => t.Bytes);
+        if (!mixed["x"].SequenceEqual(environment) || !mixed["authored-colour"].SequenceEqual(expected) || install.Fingerprints.Count != 4)
+            throw new Exception("Loose environment package was not read exactly and fingerprinted");
+        File.WriteAllBytes(Path.Combine(source, "map/m10/authored-duplicate.tpf.dcx"), loose);
+        try
+        {
+            TextureReader.Read(install, ["x"]).ToArray();
+            throw new Exception("Ambiguous loose texture was accepted");
+        }
+        catch (InvalidDataException) { }
         Console.WriteLine("PASS: source texture archives preserve exact DDS contents, record both files and reject missing names");
+        Console.WriteLine("PASS: loose environment textures share the checked lookup and reject ambiguous names");
     }
 }

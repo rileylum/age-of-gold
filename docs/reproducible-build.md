@@ -19,6 +19,8 @@ playable mod.
 - Firelink preparation reads placed source models and material definitions, including patch
   precedence, rigid transforms, triangle winding, vertex colours, tangent frames and all UV
   channels. It extracts the explicitly referenced DDS textures without altering their bytes.
+  The same checked lookup handles loose area packages, including the diffuse environment
+  textures referenced by the source lighting rows; ambiguous names fail.
 - Source collision reading uses serialized type descriptions, validates references and extracts
   both sets of triangle meshes, their materials, transforms, placements and roles. It does not
   need the earlier Python reader or bundled game type descriptions.
@@ -37,8 +39,13 @@ playable mod.
 - Two-layer ground geometry retains both texture mappings, signed tangent frames, derived
   bitangents and vertex colour/alpha through subdivision and host model readback. Secondary
   coordinates and colour use floating-point storage; primary coordinates retain the host's
-  packed format. Visibility bounds cover every written vertex. Material and shader binding
-  remains a separate unfinished stage; these geometry checks do not produce a playable model.
+  packed format. Visibility bounds cover every written vertex.
+- Ground material binding retains both colour, normal and packed specular inputs, with a
+  diffuse environment texture. Host sampler semantics and coordinate groups determine their
+  slots. Material definitions, model references and shader metadata remain consistent; added
+  pixel texture declarations preserve existing constants, vertex and tessellation bindings.
+  Pixel programs and lighting arithmetic remain unfinished; these checks do not produce a
+  playable model.
 - Output is written in a fresh staging directory and published only after success. Existing
   output and paths overlapping either install are refused, including symlink aliases.
 - Dependencies use a pinned source revision, NuGet lock files and an explicit Oodle adapter
@@ -185,8 +192,15 @@ colour/alpha interpolation, large-coordinate subdivision and host-format readbac
 fixtures. They also run in the default authored suite. `layer-model-installs` reads both installs
 and, under Wine on Linux, checks all 85 surfaces in the supported two-layer ground family.
 It rebuilds each selected model twice, reads every attribute back and verifies unchanged inputs.
-The host template supplies the layout and material state; final material bindings are not yet
-applied. Other material families are outside this particular adapter's scope.
+The host template supplies the layout and material state. `layer-material`, `material-writer`
+and `shader-metadata` check texture roles and consistent bindings with authored fixtures, and
+also run in the default suite. `layer-material-installs FRESH_DIRECTORY` extends the installed
+shader declarations and rebuilds all 85 ground surfaces with 70 source textures. It checks
+every face/mip payload, geometry attribute and model/material reference, exact repeat builds,
+and unchanged installed inputs. It retains one model and environment texture with complete
+reports, rather than a second texture library. `shader-metadata-installs FRESH_DIRECTORY`
+runs the narrower declaration check. Both run under Wine on Linux. Other material families,
+pixel-program translation and final shader/material identities remain unfinished.
 
 `terrain-installs` runs with the same Windows check executable and install variables. It reads
 both installs directly, assembles both collision sets and the map twice, checks every written

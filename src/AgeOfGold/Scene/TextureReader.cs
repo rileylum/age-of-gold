@@ -27,6 +27,13 @@ internal static class TextureReader
             }
             if (used) source.Fingerprint(data);
         }
+        foreach (var path in Directory.GetFiles(source.Locate("map/m10"), "*.tpf.dcx").Order(StringComparer.Ordinal))
+            foreach (var texture in ReadPackage(source.Read(Path.GetRelativePath(source.Root, path))))
+            {
+                if (!needed.Contains(texture.Name)) continue;
+                if (!found.Add(texture.Name)) throw new InvalidDataException($"Ambiguous source texture: {texture.Name}");
+                yield return texture;
+            }
         if (!found.SetEquals(needed))
             throw new InvalidDataException("Source textures not found: " + string.Join(", ", needed.Except(found).Order(StringComparer.Ordinal)));
     }
