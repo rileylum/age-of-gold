@@ -5,6 +5,40 @@ being assembled from readers that use the two installs directly. Restoring the p
 does not count as a fresh build, and the new preparation command does not yet produce a
 playable mod.
 
+## Checkpoint — 9 November 2026
+
+Implementation is paused at Riley's request to conserve the weekly usage allowance. The
+latest implementation is `6f54f5f` on `feat/reproducible-firelink`. The accepted playtest and
+its saves are unchanged. There is no complete maintained install-to-playable-build command.
+
+The authored suite passes. Source shader specialization also passes 26 GPU comparisons
+covering 6,656 floating-point results, including eight cases with zero constant buffers
+supplied. Repeated specialization produces identical bytes and retains no constant-buffer
+loads. Native Windows specialization remains unverified. See the
+[shader binding evidence](research/2026-11-09-shader-bindings.md) and
+[renderer settings evidence](research/2026-11-09-renderer-settings.md).
+
+The next recommended milestone is a freshly built Firelink subset with geometry, one ground
+material and lighting, loaded in the host and compared with the accepted playtest. This
+should establish the missing pixel-program integration before expanding material coverage.
+Construction must use the installs; the accepted build remains comparison evidence only.
+Success requires correct rendering and a repeated deterministic build, not compilation alone.
+
+After that milestone, extend material/model coverage, integrate atmosphere and the lighting
+runtime, connect map/event/text/table stages, and exercise the complete build and platform
+checks before promotion. The detailed remaining stages below still apply.
+
+Archive access, shader conversion, texture handling and comparison tools are broadly reusable.
+Current material, collision and map adapters cover checked cases, including Firelink-specific
+selection and placement assumptions. Other areas still need classification of new cases;
+successful shader conversion does not establish that every material renders correctly.
+
+Required temporary development material has moved to the HDD. Recovery instructions,
+verified relocation inventories and the environment setup are under
+`/mnt/storage/age-of-gold-private/2026-11-09-checkpoint-control/`. The private recovery README
+explains how to restore temporary aliases after reboot and select the HDD-backed TMPDIR.
+The repository handoff and an HDD snapshot identify the exact next steps and evidence paths.
+
 ## Implemented
 
 - A C# command reads requested files from both installs, derives host archive keys from the
@@ -66,11 +100,16 @@ playable mod.
   scalar unpacking is derived from the program so bitangents avoid quantization. It preserves
   independent control flow and rejects unsupported transforms or tangent-dependent branches.
   Authored CPU/GPU comparisons and two freshly read ground-family vertex programs pass.
-  Colour and pixel-stage translations remain unfinished.
+  Pixel-stage and final-colour translations remain unfinished.
 - A pinned external HlslDecompiler converts source vertex/pixel programs. Bytecode and resource
   declarations are checked before conversion; compute stages, writable resources and unsupported
   instructions fail. The converter's complete external distribution is fingerprinted. It is
   built separately and never becomes a runtime or release dependency.
+- Source parameters bind by reflected field name, type, position, matrix order and array
+  stride. Optional complete specialization embeds exact register bits before compilation;
+  missing or unsupported fields and malformed generated declarations fail. Deriving every
+  material/runtime value and integrating the specialized result with host pixel programs
+  remain unfinished.
 - MinHook is pinned for the native lighting runtime. An authored native check proves hook,
   original-call, disable and removal behaviour, with deterministic builds and licence staging.
 - Host runtime binding derives the world-manager slot from executable type metadata and bounded
