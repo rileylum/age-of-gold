@@ -36,10 +36,11 @@ int main(int count, char **args) try {
     LPCWSTR passes[] = {L"-hlsl-dxilfinalize", L"-viewid-state",
                         L"-hlsl-dxilemit"};
     IDxcBlobEncoding *optimizerText = nullptr;
-    ok(optimizer->RunOptimizer(text, passes, 3, &module, &optimizerText));
+    auto optimized = optimizer->RunOptimizer(text, passes, 3, &module, &optimizerText);
     if (optimizerText && optimizerText->GetBufferSize())
       std::cerr.write((char *)optimizerText->GetBufferPointer(),
                       optimizerText->GetBufferSize());
+    ok(optimized);
   }
   IDxcAssembler *assembler = nullptr;
   ok(DxcCreateInstance(CLSID_DxcAssembler, IID_PPV_ARGS(&assembler)));

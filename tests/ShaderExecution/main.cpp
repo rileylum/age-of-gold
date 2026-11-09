@@ -40,8 +40,9 @@ int main(int argc, char **argv) try {
     puts("Authored DXBC compiled");
     return 0;
   }
-  if (argc != 5)
-    throw std::runtime_error("pixel output mode vertex required");
+  bool tangents = argc == 6 && !strcmp(argv[5], "--tangents");
+  if (argc != 5 && !tangents)
+    throw std::runtime_error("pixel output mode vertex [--tangents] required");
   std::ifstream f(argv[1], std::ios::binary);
   if (!f)
     throw std::runtime_error("Shader input missing");
@@ -53,6 +54,8 @@ int main(int argc, char **argv) try {
   params[0].Constants = {0, 0, 4};
   D3D12_ROOT_SIGNATURE_DESC rootDesc{1, params, 0, nullptr,
                                      D3D12_ROOT_SIGNATURE_FLAG_NONE};
+  if (tangents)
+    rootDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
   ComPtr<ID3DBlob> rootBytes, error;
   ok(D3D12SerializeRootSignature(&rootDesc, D3D_ROOT_SIGNATURE_VERSION_1,
                                  &rootBytes, &error));
@@ -78,6 +81,13 @@ int main(int argc, char **argv) try {
   pso.BlendState.RenderTarget[0].RenderTargetWriteMask =
       D3D12_COLOR_WRITE_ENABLE_ALL;
   pso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+  D3D12_INPUT_ELEMENT_DESC elements[] = {
+      {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_UINT, 0, 0,
+       D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+      {"TANGENT", 2, DXGI_FORMAT_R32G32B32A32_UINT, 0, 16,
+       D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}};
+  if (tangents)
+    pso.InputLayout = {elements, 2};
   ComPtr<ID3D12PipelineState> pipeline;
   ok(device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&pipeline)));
   const size_t bytes = 64 * 4 * sizeof(float);
@@ -142,6 +152,22 @@ int main(int argc, char **argv) try {
   list->RSSetViewports(1, &vp);
   list->RSSetScissorRects(1, &scissor);
   list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  ComPtr<ID3D12Resource> vertices;
+  if (tangents) {
+    vertices = buffer(D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ,
+                      D3D12_RESOURCE_FLAG_NONE);
+    unsigned authored[3][8] = {{12, 160, 220, 85, 200, 40, 120, 250},
+                              {12, 160, 220, 85, 200, 40, 120, 250},
+                              {12, 160, 220, 85, 200, 40, 120, 250}};
+    void *mapped;
+    D3D12_RANGE empty{0, 0};
+    ok(vertices->Map(0, &empty, &mapped));
+    memcpy(mapped, authored, sizeof authored);
+    vertices->Unmap(0, nullptr);
+    D3D12_VERTEX_BUFFER_VIEW view{vertices->GetGPUVirtualAddress(),
+                                 sizeof authored, sizeof authored[0]};
+    list->IASetVertexBuffers(0, 1, &view);
+  }
   list->DrawInstanced(3, 1, 0, 0);
   D3D12_RESOURCE_BARRIER barrier{};
   barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;

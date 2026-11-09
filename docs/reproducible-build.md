@@ -44,6 +44,11 @@ playable mod.
 - The DXC adapter compiles authored shader source and reassembles intermediate programs.
   A small authored C++ helper accesses DXC's assembly and validation APIs while preserving
   the template root signature. DXC itself remains separately installed.
+- Vertex shader rewriting follows signature semantics and instruction dependencies to carry a
+  second tangent through the installed transform. It preserves independent control flow and
+  rejects unsupported transforms or tangent-dependent branches. Authored CPU/GPU comparisons
+  and two freshly read ground-family vertex programs pass. Additional bitangent, colour and
+  pixel-stage translations remain unfinished.
 - A pinned external HlslDecompiler converts source vertex/pixel programs. Bytecode and resource
   declarations are checked before conversion; compute stages, writable resources and unsupported
   instructions fail. The converter's complete external distribution is fingerprinted. It is
@@ -132,6 +137,19 @@ reference program and independent CPU expectations. It also rejects a compute pr
 pixel program with writable buffers, and checks altered converter files and revisions. On
 Linux the native harness runs under Wine. These fixtures cover arithmetic, branching and loops;
 they do not prove the entire installed shader corpus equivalent in play.
+
+`dotnet run --project tests/AgeOfGold.Checks -- vertex-shader` checks semantic second-tangent
+rewriting and rejected contracts. `TMPDIR=/var/tmp python tests/check_vertex_execution.py
+/var/tmp/aog-vertex-gpu-check` compares authored GPU and CPU results on both conditional paths
+without opening a window. It uses the same external DXC, assembler and native compiler.
+
+For installed programs, run `vertex-shader-extract FRESH_DIRECTORY` with the Windows check
+executable under Wine and both install variables. Then run `vertex-shader-installed DIRECTORY`
+with the native .NET check executable and DXC. The extraction records both installs' consumed
+fingerprints and the source surface inventory; the second step checks those extracted program
+hashes, rewrites each program twice and validates the generated signatures. All paths remain
+under system temp. This split permits using the installed Windows compression library and
+Linux DXC without treating a historical playtest as a construction input.
 
 These commands have been exercised on Linux. Windows remains a target; this checkpoint does
 not claim that the complete builder or native helper has been verified on Windows. The host

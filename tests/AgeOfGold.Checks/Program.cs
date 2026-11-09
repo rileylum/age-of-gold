@@ -8,6 +8,26 @@ var root = Path.Combine(Path.GetTempPath(), "aog-authored-" + Guid.NewGuid().ToS
 Directory.CreateDirectory(root);
 try
 {
+    if (args.Length == 2 && args[0] == "vertex-shader-extract")
+    {
+        VertexShaderInstallCheck.Extract(args[1]);
+        return;
+    }
+    if (args.Length == 2 && args[0] == "vertex-shader-installed")
+    {
+        VertexShaderInstallCheck.Check(args[1]);
+        return;
+    }
+    if (args.SequenceEqual(new[] { "vertex-shader" }))
+    {
+        VertexShaderCheck.Run();
+        return;
+    }
+    if (args.Length == 2 && args[0] == "vertex-shader-fixtures")
+    {
+        VertexShaderCheck.Fixtures(args[1]);
+        return;
+    }
     if (args.SequenceEqual(new[] { "layer-model-installs" }))
     {
         LayerModelInstallCheck.Run(root);
