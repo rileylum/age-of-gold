@@ -65,6 +65,15 @@ and revision; `eng/native-toolchain.json` records the upstream Linux and Windows
 checksums. The compiler stays outside Git and releases. Compiled runtime distributions retain
 the applicable upstream notices.
 
+**Host runtime layouts.** Riley selected a minimal, version-checked description of the player
+and physics fields read by the lighting runtime on 9 November 2026. The builder derives the
+world-manager slot from the installed executable's type metadata and constructor callers;
+no executable signature or absolute address is embedded. Unsupported versions and missing or
+ambiguous bindings fail. A generated configuration binds the relative slot and field layout
+to the exact executable fingerprint. The native reader rejects a changed executable and
+returns no player sample while state is missing, unloading or unreadable. This reader is
+checked separately; integration with the complete lighting runtime remains in progress.
+
 **Open decisions**
 
 Each is settled one at a time with Riley, and then moves into the section it belongs to.

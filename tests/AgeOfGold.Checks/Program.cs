@@ -8,6 +8,21 @@ var root = Path.Combine(Path.GetTempPath(), "aog-authored-" + Guid.NewGuid().ToS
 Directory.CreateDirectory(root);
 try
 {
+    if (args.Length == 2 && args[0] == "host-state-fixture")
+    {
+        HostBindingCheck.Fixture(args[1]);
+        return;
+    }
+    if (args.Length == 2 && args[0] == "host-binding-installs")
+    {
+        HostBindingInstallCheck.Run(args[1]);
+        return;
+    }
+    if (args.SequenceEqual(new[] { "host-binding" }))
+    {
+        HostBindingCheck.Run(root);
+        return;
+    }
     if (args.Length == 2 && args[0] == "texture-installs")
     {
         TextureInstallCheck.Run(args[1]);

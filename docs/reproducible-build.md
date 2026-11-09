@@ -45,7 +45,11 @@ playable mod.
   built separately and never becomes a runtime or release dependency.
 - MinHook is pinned for the native lighting runtime. An authored native check proves hook,
   original-call, disable and removal behaviour, with deterministic builds and licence staging.
-  The private lighting runtime's captured inputs and game-specific bindings still need replacing.
+- Host runtime binding derives the world-manager slot from executable type metadata and bounded
+  constructor-call analysis using the pinned compiler package's disassembler. A minimal player
+  and physics layout supports executable version 2.7.2.0. The native reader verifies the generated
+  configuration against the executable fingerprint, handles relocation and skips missing player
+  state. Captured shader and illumination inputs still need replacing before runtime integration.
 
 ## Developer checks
 
@@ -195,10 +199,21 @@ TMPDIR=/var/tmp python tests/check_native.py /var/tmp/aog-native-check
 
 The check configures `tests/NativeHooks` with `eng/llvm-mingw.cmake`, builds twice and runs the
 authored executable directly on Windows or under Wine on Linux. It checks deterministic bytes,
-hook removal and staged licence notices. On Linux it also checks refusal of an unsupported
+hook removal, native player/physics sampling and staged licence notices. It also uses the .NET
+check project to generate an authored runtime configuration. The native test binds it to its
+own executable and checks changed fingerprints, malformed configurations and missing state.
+On Linux it also checks refusal of an unsupported
 compiler. CMake needs a generator that honours the selected compiler, such as Ninja or Unix
 Makefiles. These checks have been exercised on Linux/Wine; native Windows remains unverified.
 No game is launched. The compiler distribution is neither committed nor bundled.
+
+With the same compiler environment, `dotnet run --project tests/AgeOfGold.Checks -- host-binding`
+checks a wholly authored PE executable, relocation, zero-filled data, ambiguous metadata and
+rejected control flow. `host-binding-installs FRESH_TEMP_DIRECTORY` additionally requires both
+install variables and checks two independent discoveries against unchanged installed inputs.
+Its output contains the generated runtime configuration and a check report. An optional
+`AOG_RUNTIME_REFERENCE` names the private discovery oracle for independent comparison; it is
+read only by this test and is never a builder input.
 
 ## Evidence and remaining stages
 
@@ -224,7 +239,7 @@ Work remains before a reproducible playtest can replace the accepted build:
    and captured constants with install-derived inputs. Shader assembly alone does not prove
    those translations or recover their source parameters.
 3. Gameplay tables now have checked writers; they must be connected to the map, event and
-   text bindings. The illumination runtime also needs an install-derived binding recipe.
+   text bindings. The checked install-derived runtime binding must join the illumination runtime.
 4. A fresh full build must match the accepted build's behaviour, pass readback and background
    play checks, and be built again independently before promotion and historical cleanup.
 

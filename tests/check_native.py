@@ -4,6 +4,8 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import struct
 from pathlib import Path
 import subprocess
 import tempfile
@@ -28,6 +30,25 @@ def main():
         if root.is_relative_to(protected) or protected.is_relative_to(root):
             raise ValueError("Native check output must be separate from sources and installed tools")
     root.mkdir()
+    subprocess.run(["dotnet", "run", "--project", str(repo / "tests/AgeOfGold.Checks"), "--",
+                    "host-state-fixture", str(root / "fixture")], check=True)
+
+    def state_configuration(executable):
+        data = executable.read_bytes()
+        pe = struct.unpack_from("<I", data, 60)[0]
+        image_base = struct.unpack_from("<Q", data, pe + 48)[0]
+        image_size = struct.unpack_from("<I", data, pe + 80)[0]
+        suffix = ".exe" if os.name == "nt" else ""
+        symbols = subprocess.check_output([str(compiler / ("bin/llvm-nm" + suffix)), str(executable)], text=True)
+        matches = re.findall(r"^([0-9a-fA-F]+) [BD] aog_test_world$", symbols, re.MULTILINE)
+        assert len(matches) == 1, "Authored exported world slot is missing or ambiguous"
+        slot = int(matches[0], 16) - image_base
+        config = bytearray((root / "fixture/host-state.bin").read_bytes())
+        struct.pack_into("<II", config, 16, image_size, slot)
+        config[24:56] = hashlib.sha256(data).digest()
+        path = executable.parent / "authored-state.bin"
+        path.write_bytes(config)
+        return str(path) if os.name == "nt" else "Z:" + str(path).replace("/", "\\")
 
     def configure(output, tool_root):
         return subprocess.run([
@@ -48,6 +69,7 @@ def main():
         assert result.returncode != 0 and "Unsupported LLVM-MinGW compiler" in result.stdout, result.stdout
 
     results = []
+    state_results = []
     for name in ("first", "repeat"):
         build = root / name
         result = configure(build, compiler)
@@ -58,15 +80,20 @@ def main():
         executable = build / "aog-native-hooks.exe"
         command = [str(executable)] if os.name == "nt" else ["wine", str(executable)]
         subprocess.run(command, check=True)
+        state_executable = build / "aog-host-state.exe"
+        state_command = [str(state_executable)] if os.name == "nt" else ["wine", str(state_executable)]
+        subprocess.run([*state_command, state_configuration(state_executable)], check=True)
+        state_results.append(digest(state_executable))
         assert (build / "LICENSES/MinHook.txt").read_bytes() == (dependencies / "MinHook/LICENSE.txt").read_bytes()
         assert (build / "LICENSES/LLVM-MinGW.txt").read_bytes() == (compiler / "LICENSE.TXT").read_bytes()
         for notice in (compiler / "x86_64-w64-mingw32/share/mingw32").glob("COPYING*"):
             assert (build / "LICENSES/mingw-w64" / notice.name).read_bytes() == notice.read_bytes()
         results.append(digest(executable))
     assert results[0] == results[1], "Independent native builds differ"
+    assert state_results[0] == state_results[1], "Independent host-state readers differ"
     (root / "check.json").write_text(json.dumps({"passed": True, "repeatIdentical": True,
-        "sha256": results[0], "licencesRetained": True}, indent=2) + "\n")
-    print("PASS: native hook lifecycle, rejected compiler, deterministic builds and staged notices")
+        "sha256": results[0], "hostStateSha256": state_results[0], "licencesRetained": True}, indent=2) + "\n")
+    print("PASS: native hook lifecycle, host-state reader, rejected compiler, deterministic builds and staged notices")
 
 
 if __name__ == "__main__":

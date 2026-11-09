@@ -173,8 +173,26 @@ one address-discovery route, not complete runtime compatibility or member-field 
 The experiment uses the existing LLVM-MinGW toolchain's disassembler; its output, executable
 addresses and the preceding signature remain outside the repository.
 
-The proposed maintained runtime would combine that install-derived address with a minimal,
-version-checked description of only the player and physics fields it reads. Unsupported host
-versions would fail. This is a separate runtime design decision from the already approved
-bonfire/interaction table layouts, and awaits Riley's decision. No memory-layout constants or
-game instructions from this experiment have been added to maintained code.
+Riley approved combining that install-derived address with a minimal, version-checked
+description of only the player and physics fields read. The maintained reader now supports
+the installed executable revision, rejects ambiguous discovery and writes a deterministic
+configuration tied to the executable fingerprint. Two independent discoveries match the
+private oracle without using it as construction input. Neither install changes.
+
+Authored PE fixtures exercise relocation, zero-filled writable data, unsupported revisions,
+missing or duplicate metadata, conflicting slots, conditional paths, loops, overwritten return
+values and jumps outside the function. An early bounds check incorrectly excluded zero-filled
+data; the authored regression failed before that correction. No executable signatures or
+disassembly fragments enter the maintained source.
+
+The native reader verifies the host fingerprint and loaded image before following the described
+fields. Authored state tests under Wine cover correct player/physics values, missing players,
+unreadable pointers, nonfinite coordinates and malformed or mismatched configurations. Two
+independent native builds are byte-identical. This is not yet a complete lighting DLL or proof
+of the maintained reader in a running game.
+
+The standard .NET file-version API does not parse native Windows PE version resources on Unix,
+as confirmed in the [upstream implementation](https://github.com/dotnet/runtime/blob/main/src/libraries/System.Diagnostics.FileVersionInfo/src/System/Diagnostics/FileVersionInfo.Unix.cs)
+(MIT). Our reader parses the standard fixed version resource from the same executable bytes
+on both platforms; no upstream implementation was copied. The disassembler remains part of
+the already adopted external LLVM-MinGW package and retains that package's licensing terms.
