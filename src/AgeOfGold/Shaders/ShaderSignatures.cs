@@ -57,7 +57,7 @@ internal sealed class ShaderSignatures
         return member;
     }
 
-    internal int Append(bool output, Member template, int index)
+    internal int Append(bool output, Member template, int index, int? componentType = null)
     {
         var members = Members(output);
         if (members.Any(m => m.Name.Equals(template.Name, StringComparison.OrdinalIgnoreCase) && m.Index == index))
@@ -67,6 +67,7 @@ internal sealed class ShaderSignatures
         if (row >= 32) throw new InvalidDataException("No free shader signature register");
         var fields = template.Fields.ToArray();
         fields[0] = "i32 " + id;
+        if (componentType is { } component) fields[2] = "i8 " + component;
         fields[4] = "!" + Add(["i32 " + index]);
         fields[8] = "i32 " + row;
         string node = Add(fields);

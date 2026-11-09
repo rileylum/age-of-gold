@@ -53,7 +53,7 @@ internal static class VertexShaderInstallCheck
         Console.WriteLine($"PASS: {shaders.Count} ground vertex programs freshly extracted, {layers} source surfaces and unchanged installed inputs");
     }
 
-    internal static void Check(string directory)
+    internal static void Check(string directory, bool frames = false)
     {
         if (Environment.GetEnvironmentVariable("CI") is not null) throw new InvalidOperationException("Install checks must never run in CI");
         if (!Install.Within(Install.Canonical(directory), Install.Canonical(Path.GetTempPath())))
@@ -61,23 +61,30 @@ internal static class VertexShaderInstallCheck
         using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(directory, "inputs.json")));
         var compiler = new ShaderCompiler(Required("AOG_DXC"), Required("AOG_DXC_ASSEMBLER"));
         var report = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        string Rewrite(string text) => frames ? VertexShader.AddLayerFrames(text) : VertexShader.AddSecondaryTangent(text);
         foreach (var input in manifest.RootElement.GetProperty("shaders").EnumerateObject())
         {
             var bytes = File.ReadAllBytes(Path.Combine(directory, Install.Relative(input.Name)));
             if (Convert.ToHexString(SHA256.HashData(bytes)) != input.Value.GetString()) throw new Exception("Prepared vertex input changed");
             var text = compiler.Disassemble(bytes);
-            var first = compiler.Assemble(VertexShader.AddSecondaryTangent(text), bytes);
-            var second = compiler.Assemble(VertexShader.AddSecondaryTangent(text), bytes);
+            var first = compiler.Assemble(Rewrite(text), bytes);
+            var second = compiler.Assemble(Rewrite(text), bytes);
             if (!first.SequenceEqual(second)) throw new Exception("Installed vertex transformation does not repeat");
             var parsed = compiler.Disassemble(first);
             new ShaderSignatures(parsed).Require(false, "TANGENT", 2, 5);
             new ShaderSignatures(parsed).Require(true, "TANGENT", 2, 9);
-            var output = Path.Combine(directory, input.Name + ".rebuilt");
+            if (frames)
+                foreach (int index in new[] { 4, 6 })
+                {
+                    new ShaderSignatures(parsed).Require(false, "TANGENT", index, 9);
+                    new ShaderSignatures(parsed).Require(true, "TANGENT", index, 9);
+                }
+            var output = Path.Combine(directory, input.Name + (frames ? ".frames" : ".rebuilt"));
             using (var stream = new FileStream(output, FileMode.CreateNew)) stream.Write(first);
             if (!first.SequenceEqual(File.ReadAllBytes(output))) throw new Exception("Vertex output readback differs");
             report.Add(input.Name, Convert.ToHexString(SHA256.HashData(first)));
         }
-        File.WriteAllText(Path.Combine(directory, "check.json"), JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(Path.Combine(directory, frames ? "frames-check.json" : "check.json"), JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine($"PASS: {report.Count} freshly installed vertex shaders rewritten by semantics, rebuilt twice and validated/read back");
     }
 

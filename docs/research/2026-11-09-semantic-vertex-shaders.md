@@ -19,7 +19,19 @@ Fresh reads of both installs identify 85 source ground surfaces and two relevant
 programs. Both host programs are rewritten twice with exact byte equality, DXC validation and
 signature/file readback. All consumed installed inputs remain unchanged. These checks prove
 second-tangent transport, not the complete material or pixel shader translation. No game was
-launched. Floating-point bitangents and subsequent colour/normal translations remain pending.
+launched. Subsequent colour/normal translations remain pending.
+
+The next checked extension carries both explicit bitangents as floating-point inputs. It
+finds the matching scalar affine unpacking shared by the four primary tangent components,
+then inserts the new inputs after that step. The installed transform is reused without
+quantizing or unpacking these vectors again. Unequal component encodings, paths bypassing
+the decode, and nonlinear encodings fail. An authored reciprocal-encoding rejection first
+failed and then passed after restricting the supported decode to one scale and one bias.
+
+The extended GPU comparison checks 1,536 floating-point values across the second tangent and
+both bitangents, on two conditional paths. All match the independently compiled reference
+exactly and the CPU arithmetic within two millionths. Both freshly read installed vertex
+programs also rebuild twice with signature validation and file readback.
 
 Sources: our own authored fixtures and read-only local install inspection, plus Microsoft's
 [DXIL specification](https://github.com/microsoft/DirectXShaderCompiler/blob/main/docs/DXIL.rst)

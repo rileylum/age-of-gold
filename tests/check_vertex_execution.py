@@ -13,7 +13,9 @@ import tempfile
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
-    root = parser.parse_args().output.resolve()
+    parser.add_argument("--frames", action="store_true")
+    args = parser.parse_args()
+    root = args.output.resolve()
     if root.exists() or not root.is_relative_to(Path(tempfile.gettempdir()).resolve()):
         raise ValueError("Use fresh output under system temp")
     root.mkdir()
@@ -24,7 +26,7 @@ def main():
     subprocess.run(["cmake", "--build", str(root / "native"), "--parallel", "2"], check=True)
     fixtures = root / "fixtures"
     subprocess.run(["dotnet", "run", "--project", str(repo / "tests/AgeOfGold.Checks"), "--",
-                    "vertex-shader-fixtures", str(fixtures)], cwd=repo, check=True)
+                    "vertex-frame-fixtures" if args.frames else "vertex-shader-fixtures", str(fixtures)], cwd=repo, check=True)
 
     def path(value):
         return str(value) if os.name == "nt" else "Z:" + str(value).replace("/", "\\")
@@ -33,24 +35,27 @@ def main():
     if os.name != "nt":
         command.insert(0, "wine")
     comparisons = []
-    x, y, z, w = (v / 64 - 2 for v in (200, 40, 120, 250))
-    rotated = (.5*x + 2*y - z, -2*x + .25*y + 1.5*z, x - 3*y + .75*z)
-    for mode in (0, 3):
-        expected = (*rotated, w) if mode == 0 else (
-            2*rotated[0] + x, 2*rotated[1] + y, 2*rotated[2] + z, -w)
-        results = []
-        for kind in ("reference", "translated"):
-            output = root / f"{kind}-{mode}.bin"
-            subprocess.run(command + [path(fixtures / "pixel.dxil"), path(output), str(mode),
-                                      path(fixtures / f"{kind}.dxil"), "--tangents"], check=True, timeout=45)
-            values = struct.unpack("<256f", output.read_bytes())
-            assert all(math.isfinite(v) for v in values), "Non-finite shader result"
-            error = max(abs(a-b) for a, b in zip(values, expected * 64, strict=True))
-            assert error < 0.000002, f"{kind} mode {mode} disagrees with CPU reference: {error}"
-            results.append(values)
-        difference = max(abs(a-b) for a, b in zip(*results, strict=True))
-        assert difference < 0.000002, f"Second tangent GPU mismatch: {difference}"
-        comparisons.append({"mode": mode, "values": 256, "maximumError": difference})
+    vectors = {"pixel": tuple(v / 64 - 2 for v in (200, 40, 120, 250))}
+    if args.frames:
+        vectors.update(pixel4=(.2, -.3, .4, 0), pixel6=(-.7, .8, .9, 0))
+    for pixel, (x, y, z, w) in vectors.items():
+        rotated = (.5*x + 2*y - z, -2*x + .25*y + 1.5*z, x - 3*y + .75*z)
+        for mode in (0, 3):
+            expected = (*rotated, w) if mode == 0 else (
+                2*rotated[0] + x, 2*rotated[1] + y, 2*rotated[2] + z, -w)
+            results = []
+            for kind in ("reference", "translated"):
+                output = root / f"{pixel}-{kind}-{mode}.bin"
+                subprocess.run(command + [path(fixtures / (pixel + ".dxil")), path(output), str(mode),
+                                          path(fixtures / f"{kind}.dxil"), "--frames" if args.frames else "--tangents"], check=True, timeout=45)
+                values = struct.unpack("<256f", output.read_bytes())
+                assert all(math.isfinite(v) for v in values), "Non-finite shader result"
+                error = max(abs(a-b) for a, b in zip(values, expected * 64, strict=True))
+                assert error < 0.000002, f"{pixel} {kind} mode {mode} disagrees with CPU reference: {error}"
+                results.append(values)
+            difference = max(abs(a-b) for a, b in zip(*results, strict=True))
+            assert difference < 0.000002, f"Second tangent GPU mismatch: {difference}"
+            comparisons.append({"pixel": pixel, "mode": mode, "values": 256, "maximumError": difference})
     (root / "check.json").write_text(json.dumps({"passed": True, "comparisons": comparisons}, indent=2) + "\n")
     print("PASS: semantic tangent rewrite matches independent CPU and GPU references on both control-flow paths")
 

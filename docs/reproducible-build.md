@@ -45,10 +45,11 @@ playable mod.
   A small authored C++ helper accesses DXC's assembly and validation APIs while preserving
   the template root signature. DXC itself remains separately installed.
 - Vertex shader rewriting follows signature semantics and instruction dependencies to carry a
-  second tangent through the installed transform. It preserves independent control flow and
-  rejects unsupported transforms or tangent-dependent branches. Authored CPU/GPU comparisons
-  and two freshly read ground-family vertex programs pass. Additional bitangent, colour and
-  pixel-stage translations remain unfinished.
+  second tangent and both floating-point bitangents through the installed transform. Matching
+  scalar unpacking is derived from the program so bitangents avoid quantization. It preserves
+  independent control flow and rejects unsupported transforms or tangent-dependent branches.
+  Authored CPU/GPU comparisons and two freshly read ground-family vertex programs pass.
+  Colour and pixel-stage translations remain unfinished.
 - A pinned external HlslDecompiler converts source vertex/pixel programs. Bytecode and resource
   declarations are checked before conversion; compute stages, writable resources and unsupported
   instructions fail. The converter's complete external distribution is fingerprinted. It is
@@ -142,6 +143,8 @@ they do not prove the entire installed shader corpus equivalent in play.
 rewriting and rejected contracts. `TMPDIR=/var/tmp python tests/check_vertex_execution.py
 /var/tmp/aog-vertex-gpu-check` compares authored GPU and CPU results on both conditional paths
 without opening a window. It uses the same external DXC, assembler and native compiler.
+The `vertex-frames` check and the GPU script's `--frames` option also exercise both floating-point
+bitangents, including rejection of unequal and nonlinear input decoding.
 
 For installed programs, run `vertex-shader-extract FRESH_DIRECTORY` with the Windows check
 executable under Wine and both install variables. Then run `vertex-shader-installed DIRECTORY`
@@ -150,6 +153,8 @@ fingerprints and the source surface inventory; the second step checks those extr
 hashes, rewrites each program twice and validates the generated signatures. All paths remain
 under system temp. This split permits using the installed Windows compression library and
 Linux DXC without treating a historical playtest as a construction input.
+`vertex-frames-installed DIRECTORY` checks the complete tangent/bitangent extension using
+those same fresh inputs and writes a separate report.
 
 These commands have been exercised on Linux. Windows remains a target; this checkpoint does
 not claim that the complete builder or native helper has been verified on Windows. The host

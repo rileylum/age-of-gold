@@ -54,7 +54,28 @@ internal static class VertexShaderCheck
         Console.WriteLine("PASS: semantic tangent rewriting repeats, ignores metadata numbering and rejects duplicate/missing/unsupported or tangent-dependent flow");
     }
 
-    internal static void Fixtures(string directory)
+    internal static void Frames()
+    {
+        var compiler = Compiler();
+        var input = compiler.Compile(Fixture, "Main", "vs_6_0");
+        var text = compiler.Disassemble(input);
+        var output = compiler.Assemble(VertexShader.AddLayerFrames(text), input);
+        var signatures = new ShaderSignatures(compiler.Disassemble(output));
+        foreach (int index in new[] { 2, 4, 6 })
+        {
+            signatures.Require(false, "TANGENT", index, index == 2 ? 5 : 9);
+            signatures.Require(true, "TANGENT", index, 9);
+        }
+        if (!output.SequenceEqual(compiler.Assemble(VertexShader.AddLayerFrames(text), input)))
+            throw new Exception("Layer frame shader does not repeat");
+        var asymmetric = compiler.Compile(Fixture.Replace("float3 r =", "v.x *= 3; float3 r ="), "Main", "vs_6_0");
+        Reject(() => VertexShader.AddLayerFrames(compiler.Disassemble(asymmetric)), "matching affine decode");
+        var nonlinear = compiler.Compile(Fixture.Replace("float4(packed) / 64 - 2", "1 / (float4(packed) / 64 - 2)"), "Main", "vs_6_0");
+        Reject(() => VertexShader.AddLayerFrames(compiler.Disassemble(nonlinear)), "decod");
+        Console.WriteLine("PASS: two tangent frames transport packed tangents and floating-point bitangents deterministically");
+    }
+
+    internal static void Fixtures(string directory, bool frames = false)
     {
         if (Directory.Exists(directory)) throw new ArgumentException("Fresh shader fixture output required");
         if (!Install.Within(Install.Canonical(directory), Install.Canonical(Path.GetTempPath())))
@@ -64,19 +85,34 @@ internal static class VertexShaderCheck
         var original = compiler.Compile(Fixture, "Main", "vs_6_0");
         File.WriteAllBytes(Path.Combine(directory, "input.dxil"), original);
         File.WriteAllText(Path.Combine(directory, "input.ll"), compiler.Disassemble(original));
-        File.WriteAllText(Path.Combine(directory, "translated.ll"), VertexShader.AddSecondaryTangent(compiler.Disassemble(original)));
-        File.WriteAllBytes(Path.Combine(directory, "translated.dxil"), compiler.Assemble(
-            VertexShader.AddSecondaryTangent(compiler.Disassemble(original)), original));
+        var rewritten = frames ? VertexShader.AddLayerFrames(compiler.Disassemble(original))
+            : VertexShader.AddSecondaryTangent(compiler.Disassemble(original));
+        File.WriteAllText(Path.Combine(directory, "translated.ll"), rewritten);
+        File.WriteAllBytes(Path.Combine(directory, "translated.dxil"), compiler.Assemble(rewritten, original));
         var reference = Fixture.Replace("uint4 tangent : TANGENT0;", "uint4 tangent : TANGENT0; uint4 second : TANGENT2;")
             .Replace("float4 tangent : TANGENT0;", "float4 tangent : TANGENT0; float4 second : TANGENT2;")
             .Replace("o.tangent = Transform(i.tangent);", "o.tangent = Transform(i.tangent); o.second = Transform(i.second);");
+        if (frames)
+            reference = reference.Replace("uint4 second : TANGENT2;", "uint4 second : TANGENT2; float4 b1 : TANGENT4; float4 b2 : TANGENT6;")
+                .Replace("float4 second : TANGENT2;", "float4 second : TANGENT2; float4 b1 : TANGENT4; float4 b2 : TANGENT6;")
+                .Replace("float4 Transform(uint4 packed)", "float4 TransformValue(float4 v)")
+                .Replace("float4 v = float4(packed) / 64 - 2;", "")
+                .Replace("Transform(i.tangent)", "TransformValue(float4(i.tangent) / 64 - 2)")
+                .Replace("Transform(i.second)", "TransformValue(float4(i.second) / 64 - 2)")
+                .Replace("return o;", "o.b1 = TransformValue(i.b1); o.b2 = TransformValue(i.b2); return o;");
         File.WriteAllBytes(Path.Combine(directory, "reference.dxil"), compiler.Compile(reference, "Main", "vs_6_0"));
-        const string pixel = """
+        string pixel = """
             struct Input { float4 position : SV_Position; float4 first : TANGENT0; float4 second : TANGENT2; };
             [RootSignature("RootFlags(ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT),RootConstants(num32BitConstants=4,b0)")]
             float4 Main(Input i) : SV_Target0 { return i.second; }
             """;
+        if (frames) pixel = pixel.Replace("float4 second : TANGENT2;", "float4 second : TANGENT2; float4 b1 : TANGENT4; float4 b2 : TANGENT6;");
         File.WriteAllBytes(Path.Combine(directory, "pixel.dxil"), compiler.Compile(pixel, "Main", "ps_6_0"));
+        if (frames)
+        {
+            File.WriteAllBytes(Path.Combine(directory, "pixel4.dxil"), compiler.Compile(pixel.Replace("return i.second;", "return i.b1;"), "Main", "ps_6_0"));
+            File.WriteAllBytes(Path.Combine(directory, "pixel6.dxil"), compiler.Compile(pixel.Replace("return i.second;", "return i.b2;"), "Main", "ps_6_0"));
+        }
     }
 
     private static ShaderCompiler Compiler() => new(

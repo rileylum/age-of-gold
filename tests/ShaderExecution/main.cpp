@@ -40,7 +40,8 @@ int main(int argc, char **argv) try {
     puts("Authored DXBC compiled");
     return 0;
   }
-  bool tangents = argc == 6 && !strcmp(argv[5], "--tangents");
+  bool frames = argc == 6 && !strcmp(argv[5], "--frames");
+  bool tangents = frames || (argc == 6 && !strcmp(argv[5], "--tangents"));
   if (argc != 5 && !tangents)
     throw std::runtime_error("pixel output mode vertex [--tangents] required");
   std::ifstream f(argv[1], std::ios::binary);
@@ -85,9 +86,13 @@ int main(int argc, char **argv) try {
       {"TANGENT", 0, DXGI_FORMAT_R32G32B32A32_UINT, 0, 0,
        D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
       {"TANGENT", 2, DXGI_FORMAT_R32G32B32A32_UINT, 0, 16,
+       D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+      {"TANGENT", 4, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32,
+       D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+      {"TANGENT", 6, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 48,
        D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}};
   if (tangents)
-    pso.InputLayout = {elements, 2};
+    pso.InputLayout = {elements, frames ? 4u : 2u};
   ComPtr<ID3D12PipelineState> pipeline;
   ok(device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&pipeline)));
   const size_t bytes = 64 * 4 * sizeof(float);
@@ -156,9 +161,11 @@ int main(int argc, char **argv) try {
   if (tangents) {
     vertices = buffer(D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ,
                       D3D12_RESOURCE_FLAG_NONE);
-    unsigned authored[3][8] = {{12, 160, 220, 85, 200, 40, 120, 250},
-                              {12, 160, 220, 85, 200, 40, 120, 250},
-                              {12, 160, 220, 85, 200, 40, 120, 250}};
+    struct Vertex { unsigned tangents[8]; float bitangents[8]; };
+    Vertex authored[3];
+    for (auto &v : authored)
+      v = {{12, 160, 220, 85, 200, 40, 120, 250},
+           {.2f, -.3f, .4f, 0, -.7f, .8f, .9f, 0}};
     void *mapped;
     D3D12_RANGE empty{0, 0};
     ok(vertices->Map(0, &empty, &mapped));

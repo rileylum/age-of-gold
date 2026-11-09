@@ -4,13 +4,17 @@ namespace AgeOfGold.Shaders;
 
 internal static class VertexShader
 {
-    internal static string AddSecondaryTangent(string module)
+    internal static string AddLayerFrames(string module) => AddDirection(AddDirection(AddSecondaryTangent(module), 4, false), 6, false);
+
+    internal static string AddSecondaryTangent(string module) => AddDirection(module, 2, true);
+
+    private static string AddDirection(string module, int index, bool packed)
     {
         var signatures = new ShaderSignatures(module);
         var input = signatures.Require(false, "TANGENT", 0, 5);
         var output = signatures.Require(true, "TANGENT", 0, 9);
-        int newInput = signatures.Append(false, input, 2);
-        int newOutput = signatures.Append(true, output, 2);
+        int newInput = signatures.Append(false, input, index, packed ? 5 : 9);
+        int newOutput = signatures.Append(true, output, index);
         var lines = signatures.Lines;
         int start = Array.FindIndex(lines, l => l == $"define void @{signatures.Entry}() {{");
         int end = Array.FindIndex(lines, start + 1, l => l == "}");
@@ -30,7 +34,6 @@ internal static class VertexShader
             throw new InvalidDataException("Vertex shader exceeds the bounded scalar adapter");
         var loads = instructions.Where(p => Load(p.Value.Text, input.Id)).Select(p => p.Key).ToHashSet();
         if (loads.Count == 0) throw new InvalidDataException("Primary tangent is not read");
-        var dependent = loads.ToHashSet();
         var users = new Dictionary<string, List<string>>();
         foreach (var (name, instruction) in instructions)
             foreach (var operand in instruction.Operands)
@@ -38,7 +41,10 @@ internal static class VertexShader
                 if (!users.TryGetValue(operand, out var list)) users.Add(operand, list = []);
                 list.Add(name);
             }
-        var pending = new Queue<string>(loads);
+        var roots = packed ? loads.ToDictionary(n => n, n => int.Parse(Regex.Match(instructions[n].Text, @"i8 ([0-3])").Groups[1].Value))
+            : DecodeRoots(instructions, loads, users);
+        var dependent = roots.Keys.ToHashSet();
+        var pending = new Queue<string>(roots.Keys);
         while (pending.TryDequeue(out var value))
         {
             if (users.TryGetValue(value, out var list))
@@ -64,13 +70,24 @@ internal static class VertexShader
         {
             if (!dependent.Contains(name) || !slice.Add(name)) return;
             var instruction = instructions[name];
-            if (!loads.Contains(name) && !Pure(instruction.Text))
+            if (!roots.ContainsKey(name) && !Pure(instruction.Text))
                 throw new InvalidDataException("Unsupported tangent transform instruction: " + instruction.Text.Split(' ')[0]);
             foreach (var operand in instruction.Operands) Visit(operand);
         }
         foreach (var store in stores.Values) Visit(store.Groups["value"].Value);
-        if (!loads.IsSubsetOf(slice)) throw new InvalidDataException("Tangent has unused or unrelated input components");
-        var names = instructions.Keys.Where(slice.Contains).Select((name, i) => (name, fresh: "%aog_tangent_" + i))
+        if (!roots.Keys.All(slice.Contains)) throw new InvalidDataException("Tangent has unused or unrelated input components");
+        if (!packed)
+        {
+            var visited = new HashSet<string>();
+            void CheckDecode(string name)
+            {
+                if (roots.ContainsKey(name) || !visited.Add(name) || !instructions.TryGetValue(name, out var instruction)) return;
+                if (loads.Contains(name)) throw new InvalidDataException("Tangent transform bypasses its decoded components");
+                foreach (var operand in instruction.Operands) CheckDecode(operand);
+            }
+            foreach (var store in stores.Values) CheckDecode(store.Groups["value"].Value);
+        }
+        var names = instructions.Keys.Where(slice.Contains).Select((name, i) => (name, fresh: $"%aog_tangent{index}_" + i))
             .ToDictionary(p => p.name, p => p.fresh);
         if (names.Values.Any(instructions.ContainsKey)) throw new InvalidDataException("Secondary tangent names already exist");
         string Remap(string text) => Regex.Replace(text, @"%[\w.$-]+", m => names.GetValueOrDefault(m.Value, m.Value));
@@ -79,13 +96,54 @@ internal static class VertexShader
         {
             var instruction = instructions[name];
             string text = Remap(instruction.Text);
-            if (loads.Contains(name))
+            if (!packed && roots.TryGetValue(name, out int component))
+                text = $"call float @dx.op.loadInput.f32(i32 4, i32 {newInput}, i32 0, i8 {component}, i32 undef)";
+            else if (loads.Contains(name))
                 text = Regex.Replace(text, @"(@dx\.op\.loadInput\.i32\(i32 4, i32 )\d+", "${1}" + newInput);
             after.Add(instruction.Line, $"  {fresh} = {text}");
         }
         foreach (var (line, store) in stores)
             after.Add(line, $"  call void @dx.op.storeOutput.f32(i32 5, i32 {newOutput}, i32 0, i8 {store.Groups["column"].Value}, float {Remap(store.Groups["value"].Value)})");
-        return string.Join('\n', lines.SelectMany((line, i) => after.TryGetValue(i, out var added) ? new[] { line, added } : [line]));
+        var result = string.Join('\n', lines.SelectMany((line, i) => after.TryGetValue(i, out var added) ? new[] { line, added } : [line]));
+        if (!packed && !lines.Any(l => l.StartsWith("declare float @dx.op.loadInput.f32(")))
+            result += "\ndeclare float @dx.op.loadInput.f32(i32, i32, i32, i8, i32)\n";
+        return result;
+    }
+
+    private static Dictionary<string, int> DecodeRoots(Dictionary<string, Instruction> instructions, HashSet<string> loads,
+        Dictionary<string, List<string>> users)
+    {
+        var roots = new Dictionary<string, int>();
+        string[]? contract = null;
+        foreach (string load in loads)
+        {
+            string current = load;
+            var steps = new List<string>();
+            while (users.TryGetValue(current, out var uses))
+            {
+                var unique = uses.Distinct().ToArray();
+                if (unique.Length != 1) break;
+                var next = instructions[unique[0]];
+                string normalized = Regex.Replace(next.Text, @"%[\w.$-]+", m => m.Value == current ? "%component" : m.Value);
+                bool conversion = steps.Count == 0 && normalized == "uitofp i32 %component to float";
+                bool affine = steps.Count > 0 && Regex.IsMatch(normalized,
+                    @"^f(add|sub|mul|div)(?: fast)? float (%component, ([-+0-9.eE]+|0x[0-9A-Fa-f]+)|([-+0-9.eE]+|0x[0-9A-Fa-f]+), %component)$");
+                if (!conversion && !affine) break;
+                steps.Add(normalized); current = unique[0];
+                // lazy: scalar affine unpacking only; nonlinear or longer encodings need a separate proof.
+                if (steps.Count > 8) throw new InvalidDataException("Unsupported tangent decoding chain");
+            }
+            bool scaled = steps.Count == 3 && steps.Skip(1).Count(s => s.StartsWith("fmul ")
+                || Regex.IsMatch(s, @"^fdiv(?: fast)? float %component, ")) == 1;
+            bool biased = steps.Count == 3 && steps.Skip(1).Count(s => s.StartsWith("fadd ") || s.StartsWith("fsub ")) == 1;
+            if (!scaled || !biased || contract is not null && !steps.SequenceEqual(contract))
+                throw new InvalidDataException("Expected one matching affine decode for all tangent components");
+            contract = steps.ToArray();
+            roots.Add(current, int.Parse(Regex.Match(instructions[load].Text, @"i8 ([0-3])").Groups[1].Value));
+        }
+        if (!roots.Values.ToHashSet().SetEquals([0, 1, 2, 3]))
+            throw new InvalidDataException("Expected four independently decoded tangent components");
+        return roots;
     }
 
     private sealed record Instruction(int Line, string Text, string[] Operands);
