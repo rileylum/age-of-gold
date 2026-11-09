@@ -8,6 +8,16 @@ var root = Path.Combine(Path.GetTempPath(), "aog-authored-" + Guid.NewGuid().ToS
 Directory.CreateDirectory(root);
 try
 {
+    if (args.Length == 2 && args[0] == "environment-texture-installs")
+    {
+        EnvironmentTextureInstallCheck.Run(args[1]);
+        return;
+    }
+    if (args.SequenceEqual(new[] { "environment-texture" }))
+    {
+        EnvironmentTextureCheck.Run();
+        return;
+    }
     if (args.Length == 2 && args[0] == "vertex-frames-installed")
     {
         VertexShaderInstallCheck.Check(args[1], true);
@@ -246,6 +256,7 @@ try
     SceneCheck.Run(root);
     TextureCheck.Run(root);
     TextureWriterCheck.Run();
+    EnvironmentTextureCheck.Run();
     LayerGeometryCheck.Run();
     LayerModelCheck.Run();
     CollisionMetadataCheck.Run();

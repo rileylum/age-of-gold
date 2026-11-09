@@ -31,7 +31,9 @@ playable mod.
   separately. Existing collision physics and unrelated map fields are preserved.
 - PC surface texture packaging preserves compressed mip payloads and derives container
   settings from a host template. Sampling is explicitly linear or sRGB; BC5 rejects sRGB.
-  BC1, BC5 and BC7 are checked. Other formats, arrays, cubes and volumes currently fail.
+  BC1, BC5 and BC7 are checked for surfaces. BC6H unsigned HDR cubemaps retain six complete
+  face/mip chains and derive the host container format from an installed cube template.
+  Other formats, incomplete cubes, arrays and volumes currently fail.
 - Two-layer ground geometry retains both texture mappings, signed tangent frames, derived
   bitangents and vertex colour/alpha through subdivision and host model readback. Secondary
   coordinates and colour use floating-point storage; primary coordinates retain the host's
@@ -201,6 +203,13 @@ set `TEMP` and `TMP` inside a `cmd` script when directing output to a Linux disk
 directory; Wine can replace values supplied only in the launching shell. The full external
 format reader/writer also matches the generated packages exactly. That independent oracle is
 private test tooling, not a builder dependency or construction input.
+
+`environment-texture` exercises authored HDR cubes and rejection of incomplete faces, arrays,
+inconsistent dimensions/headers and sRGB interpretation. It also runs in the authored suite.
+`environment-texture-installs FRESH_OUTPUT` runs under Wine as above, reading the area's full
+source environment library and a host cube template. It checks exact repeats and all face/mip
+payloads while retaining only two representative packages and the complete report. Packaging
+does not yet bind these textures to the rebuilt lighting programs.
 
 Preparation also reads scenery, character and point-light settings using the source install's
 own parameter definitions. `lighting.json` retains encoded colours separately from intensity;
