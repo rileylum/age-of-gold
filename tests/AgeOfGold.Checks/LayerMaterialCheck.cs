@@ -31,6 +31,21 @@ internal static class LayerMaterialCheck
         groups[6] = "left";
         var ambiguous = ShaderMetadataCheck.Fixture(7, "unused", labels, groups, types);
         Reject(() => MaterialWriter.BindLayers(Definition(5), metadata, Definition(7), ambiguous, material, paths, "AUTHORED_env.tif"));
+        // A one-layer source surface fills both host layers with the same inputs; a two-layer shader never does so silently.
+        JsonElement Single(string shader, string detail = "", string extra = "g_DetailBumpmap")
+        {
+            var fields = new[] { ("g_Diffuse", "colour-a"), ("g_Bumpmap", "normal-a"), ("g_Specular", "packed-a"), (extra, detail) };
+            return JsonSerializer.SerializeToElement(new { definition = "authored", shader, blendMode = 0,
+                textures = fields.Select(f => new { input = f.Item1, texture = f.Item2, scale = new[] { 1f, 1f } }),
+                coordinates = fields.Select(f => new { input = f.Item1, channel = 0 }) });
+        }
+        var single = LayerMaterial.Read(Single(@"N:\authored\FRPG_Phn_ColDifSpcBmp.spx"));
+        if (single.First != single.Second || single.First != new LayerMaterial.Layer("colour-a", "normal-a", "packed-a") || !LayerMaterial.Single(Single(@"N:\authored\FRPG_Phn_ColDifSpcBmp.spx"))
+            || LayerMaterial.Single(Input()))
+            throw new Exception("One-layer source surface was not duplicated across both host layers");
+        Reject(() => LayerMaterial.Read(Single(@"N:\authored\FRPG_Phn_ColDifSpcBmp.spx", detail: "unexpected-detail")));
+        Reject(() => LayerMaterial.Read(Single(@"N:\authored\FRPG_Phn_ColDifSpcBmp.spx", extra: "g_Lightmap")));
+        Reject(() => LayerMaterial.Read(Single(@"N:\authored\FRPG_Other.spx")));
         Console.WriteLine("PASS: ground colour, normal, packed and environment roles bind by layer and semantic; unsupported mappings fail");
     }
 
@@ -38,7 +53,7 @@ internal static class LayerMaterialCheck
     {
         var fields = new[] { ("g_Diffuse", "colour-a", 0), ("g_Bumpmap", "normal-a", 0), ("g_Specular", "packed-a", 0),
             ("g_Diffuse_2", "colour-b", secondary), ("g_Bumpmap_2", "normal-b", secondary), ("g_Specular_2", "packed-b", secondary), ("g_DetailBumpmap", detail, 0) };
-        return JsonSerializer.SerializeToElement(new { definition = "M[DB][M]", blendMode = 0,
+        return JsonSerializer.SerializeToElement(new { definition = "M[DB][M]", shader = @"N:\authored\FRPG_Phn_ColDifSpcBmpMul.spx", blendMode = 0,
             textures = fields.Select(f => new { input = f.Item1, texture = f.Item2, scale = new[] { scale, scale } }),
             coordinates = fields.Select(f => new { input = f.Item1, channel = f.Item3 }) });
     }

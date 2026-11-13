@@ -43,7 +43,7 @@ internal static class LayerGeometryCheck
         Require(result.Vertices.SequenceEqual(second.Vertices) && result.Indices.SequenceEqual(second.Indices), "Packing is nondeterministic");
         JsonElement Input(int secondChannel) => JsonSerializer.SerializeToElement(new
         {
-            material = new { definition = "M[DB][M]", blendMode = 0,
+            material = new { definition = "M[DB][M]", shader = @"N:\authored\FRPG_Phn_ColDifSpcBmpMul.spx", blendMode = 0,
                 coordinates = new[] { ("g_Diffuse", 0), ("g_Bumpmap", 0), ("g_Diffuse_2", secondChannel), ("g_Bumpmap_2", 1) }
                     .Select(v => new { input = v.Item1, channel = v.Item2 }), textures = Array.Empty<object>() },
             indices = source.Indices, cullBackfaces = source.CullBackfaces,
@@ -59,6 +59,19 @@ internal static class LayerGeometryCheck
         try { LayerGeometry.Read(Input(0)); }
         catch (InvalidDataException e) when (e.Message.Contains("coordinate binding", StringComparison.Ordinal)) { rejected = true; }
         Require(rejected, "Changed source coordinate binding accepted");
+        var one = LayerGeometry.Read(System.Text.Json.JsonSerializer.SerializeToElement(new
+        {
+            material = new { definition = "authored", shader = @"N:\authored\FRPG_Phn_ColDifSpcBmp.spx", blendMode = 0,
+                textures = new[] { new { input = "g_Diffuse", texture = "colour", scale = new[] { 1f, 1f } } },
+                coordinates = new[] { new { input = "g_Diffuse", channel = 0 }, new { input = "g_Bumpmap", channel = 0 } } },
+            indices = new[] { 0, 1, 2 }, cullBackfaces = true,
+            vertices = new[] { (0f, 0f), (1f, 0f), (0f, 1f) }.Select(p => new { position = new[] { p.Item1, 0f, p.Item2 }, normal = new[] { 0f, 1f, 0f },
+                uvs = new[] { new[] { p.Item1 * 3, p.Item2 * 2, 0f } }, tangents = new[] { new[] { 1f, 0f, 0f, -1f } }, secondaryTangent = (float[]?)null,
+                colours = new[] { new[] { 0.5f, 0.6f, 0.7f, 0.8f } } }),
+        }));
+        Require(one.Vertices.All(v => v.Primary == v.Secondary && v.Tangent == v.SecondaryTangent && v.Bitangent == v.SecondaryBitangent
+            && v.Bitangent == new Vector4(0, 0, 1, 0) && v.Colour == new Vector4(0.5f, 0.6f, 0.7f, 0.8f)) && one.Vertices[1].Primary == new Vector2(3, 0),
+            "one-layer surface does not repeat its mapping and frame for both host layers");
         Console.WriteLine("PASS: split geometry retains both texture mappings, signed frames, colours, alpha, area and winding");
     }
 

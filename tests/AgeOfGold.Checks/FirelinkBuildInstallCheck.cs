@@ -79,7 +79,7 @@ internal static class FirelinkBuildInstallCheck
                 surfaces++;
             }
         }
-        if (surfaces != 85) throw new Exception("Built ground surface inventory differs");
+        if (surfaces != 206) throw new Exception("Built opaque surface inventory differs");
         var lit = manifest.RootElement.GetProperty("groundFamilies").EnumerateObject().Select(f => f.Name).Order(StringComparer.Ordinal).ToArray();
         if (!lit.SequenceEqual(families.Order(StringComparer.Ordinal))) throw new Exception("Built models do not use exactly the recorded lit ground families");
         foreach (string family in families)
@@ -113,7 +113,7 @@ internal static class FirelinkBuildInstallCheck
                 if (Hash(bytes) != input.Value.GetString()) throw new Exception("Install input changed during the build");
             }
         Directory.Delete(repeat, true);
-        Console.WriteLine($"PASS: Firelink build repeats across {files.Length} files; {surfaces} ground surfaces, {pieces.Length} scenery placements and 39 terrain placements read back; installs unchanged");
+        Console.WriteLine($"PASS: Firelink build repeats across {files.Length} files; {surfaces} opaque lit surfaces, {pieces.Length} scenery placements and 39 terrain placements read back; installs unchanged");
     }
 
     private static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
