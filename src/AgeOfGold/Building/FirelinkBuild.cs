@@ -116,6 +116,12 @@ internal static class FirelinkBuild
             .Select(p => new FirelinkMapWriter.SceneryPlacement(p.GetProperty("name").GetString()!, p.GetProperty("model").GetString()!,
                 V(p.GetProperty("position")), V(p.GetProperty("rotation")), V(p.GetProperty("scale")))).ToArray(), terrain.Offset);
         files.Add($"mod/map/mapstudio/{Map}.msb.dcx", layout.Write());
+        // The source picks its screen settings from the collision the player stands on; the build starts with the arrival's.
+        // lazy: one selection for the whole map; other collisions select other rows and need the host's per-area switching.
+        var arrival = SourceAtmosphereReader.Selections(source)[terrain.Arrival];
+        var focus = SourceAtmosphereReader.DepthOfField(source);
+        if (!focus.TryGetValue(arrival.DepthOfField, out var arrivalFocus)) throw new InvalidDataException("Arrival selects a missing depth-of-field row");
+        files.Add("mod/param/drawparam/mapbase.gparam.dcx", HostAtmosphere.FocusLikeSource(archive.Read("param/drawparam/mapbase.gparam.dcx"), arrivalFocus));
         string graphics = $"param/drawparam/{Map[..6]}_{Map[7..9]}00.gparam.dcx";
         files.Add("mod/" + graphics, HostAtmosphere.RemoveHostEffects(archive.Read(graphics)));
 
@@ -275,6 +281,7 @@ internal static class FirelinkBuild
             textures = names,
             groundFamilies = families,
             cutoutFamilies = cutouts,
+            arrival = new { collision = terrain.Arrival, selection = arrival, focus = arrivalFocus },
             unbuiltSurfaces = unbuilt,
             excludedCollision = terrain.Excluded.Select(p => new { p.Name, p.Role, p.Disabled }),
             files = files.Files.Select(f => new { path = f.Key, size = f.Value.Size, sha256 = f.Value.Hash }).ToArray(),

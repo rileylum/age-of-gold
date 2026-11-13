@@ -29,7 +29,7 @@ internal static class MapTerrainCheck
         var player = check.Parts.Players.Single();
         if (player.Position != new Vector3(100,220.3f,300) || player.Rotation != new Vector3(0,75,0)
             || terrain.Offset != new Vector3(100,220,300) || terrain.Spawn != player.Position
-            || terrain.High.Length != 1 || terrain.Low.Length != 1
+            || terrain.High.Length != 1 || terrain.Low.Length != 1 || terrain.Arrival != "authored-solid"
             || !terrain.Excluded.Select(p => p.Name).SequenceEqual(new[] { "authored-water", "authored-disabled" }))
             throw new Exception("Terrain placement, spawn or special-role accounting differs");
         var collision = check.Parts.Collisions.Single(p => p.ModelName == "h800000");

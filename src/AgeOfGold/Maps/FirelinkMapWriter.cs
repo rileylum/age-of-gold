@@ -6,8 +6,9 @@ namespace AgeOfGold.Maps;
 
 internal static class FirelinkMapWriter
 {
+    /// <param name="Arrival">The source collision placement that supports the spawn.</param>
     internal sealed record Terrain(Vector3 Offset, Vector3 Spawn, HostCollisionWriter.Part[] High,
-        HostCollisionWriter.Part[] Low, SourceCollisionReader.Placement[] Excluded);
+        HostCollisionWriter.Part[] Low, SourceCollisionReader.Placement[] Excluded, string Arrival);
 
     internal static Terrain AddTerrain(MSBE layout, SourceCollisionReader.Scene source)
     {
@@ -33,6 +34,14 @@ internal static class FirelinkMapWriter
         if (Math.Abs(floor - sourceSpawn.Y - offset.Y) > 3)
             throw new InvalidDataException("Source spawn is not near ordinary solid terrain");
         var spawn = new Vector3(sourceSpawn.X + offset.X, floor + 0.3f, sourceSpawn.Z + offset.Z);
+        bool Supports(TerrainGeometry.Mesh mesh)
+        {
+            // Most placements have no surface under the spawn at all.
+            try { return TerrainGeometry.GroundBelow([mesh], sourceSpawn + offset + new Vector3(0, 2, 0)) == floor; }
+            catch (InvalidDataException) { return false; }
+        }
+        var supports = placements.Where((_, i) => Supports(low[i].Geometry)).ToArray();
+        if (supports.Length != 1) throw new InvalidDataException("Source spawn is supported by several collision placements");
         for (int i = 0; i < placements.Length; i++)
         {
             var collision = (MSBE.Part.Collision)template.DeepCopy();
@@ -54,7 +63,7 @@ internal static class FirelinkMapWriter
         }
         player.Position = spawn;
         player.Rotation = Vector(source.Spawn.Rotation);
-        return new(offset, spawn, high, low, excluded);
+        return new(offset, spawn, high, low, excluded, supports[0].Name);
     }
 
     internal sealed record SceneryPlacement(string Name, string Model, Vector3 Position, Vector3 Rotation, Vector3 Scale);

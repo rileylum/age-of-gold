@@ -33,6 +33,11 @@ try
         HostAtmosphereCheck.Run();
         return;
     }
+    if (args.SequenceEqual(new[] { "source-atmosphere" }))
+    {
+        SourceAtmosphereCheck.Run(root);
+        return;
+    }
     if (args.SequenceEqual(new[] { "map-scenery" }))
     {
         MapSceneryCheck.Run();
@@ -355,6 +360,7 @@ try
     MapTerrainCheck.Run();
     MapSceneryCheck.Run();
     HostAtmosphereCheck.Run();
+    SourceAtmosphereCheck.Run(root);
     RegulationCheck.Run();
     GameplayTablesCheck.Run();
     ShaderArchiveCheck.Run();
