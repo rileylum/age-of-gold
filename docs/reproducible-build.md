@@ -5,6 +5,41 @@ being assembled from readers that use the two installs directly. Restoring the p
 does not count as a fresh build, and the new preparation command does not yet produce a
 playable mod.
 
+## Checkpoint — 14 November 2026
+
+`build-firelink` now writes a loadable build from the two installs in one command. It needs the
+pinned DXC, the assembler helper and LLVM-MinGW (`AOG_DXC`, `AOG_DXC_ASSEMBLER`, `AOG_LLVM_MINGW`).
+The tool is one Windows program; on Linux it runs under Wine with Windows DXC, because the host's
+compression library is a Windows library.
+
+```sh
+AgeOfGold.exe build-firelink --source SOURCE_INSTALL --host HOST_INSTALL\Game --output FRESH_DIRECTORY
+```
+
+The output holds `mod/`, a mod loader profile that keeps the game offline, and `manifest.json`.
+What the build contains so far:
+
+- The host map with every installed placement and map effect disabled, the player kept.
+- Terrain collision for the 39 ordinary solid placements, always visible as in the accepted playtest.
+- Scenery for the 206 opaque lit source surfaces (of 330): one- and two-layer surfaces share the
+  host's two-layer family. Each layer keeps its own coordinates and frame.
+- A shader family and material per source lighting row and diffuse multiplier. The G-buffer
+  pixel program is the installed host program, rewritten by resource and signature meaning: it
+  blends the layers by vertex alpha and emits the source's environment and hemisphere light.
+  The lighting values come from the source lighting tables, renderer settings and material
+  parameters. Vertex variants of a family place their added outputs on the same registers.
+
+`firelink-build-installs FRESH` builds twice, compares every file, reads the build back and
+rechecks the consumed install inputs. `pixel-shader` checks the pixel rewrite numerically on the
+CPU against independent arithmetic, using an authored evaluator for scalar shader programs.
+A freshly built candidate loads in the host and renders the chapel and cliff views with source
+lighting. That is one private background capture, not a play proof.
+
+Not built yet: 124 surfaces in 17 families (cutout, blended, foliage, lightmapped, water, sky,
+mist), source local lights and the light composition stage, atmosphere, effects, the bonfire,
+characters, text, events and tables. Scene baking still differs in the last float digit between
+native Linux and Wine, because rotation uses the platform's sine and cosine.
+
 ## Checkpoint — 9 November 2026
 
 Implementation is paused at Riley's request to conserve the weekly usage allowance. The
