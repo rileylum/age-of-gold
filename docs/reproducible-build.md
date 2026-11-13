@@ -35,6 +35,10 @@ What the build contains so far:
 - The host map's graphics parameters with vignette, chromatic aberration and volumetric fog
   off, environment lighting regions moved to the scenery, and the lens far focus range from
   the source depth-of-field row selected by the collision under the spawn.
+- The host's tone-map stage rewritten to display the scene as the source does: exposure times
+  the scene, clamped, through display gamma, then the source row's contrast, brightness and
+  saturation. In matched private captures the cliff and ground fit the source game's displayed
+  values with slope 0.95–1.05 and correlation 0.96–0.98.
 
 `firelink-build-installs FRESH` builds twice, compares every file, reads the build back and
 rechecks the consumed install inputs. `pixel-shader` checks the pixel rewrite numerically on the
@@ -43,7 +47,7 @@ A freshly built candidate loads in the host and renders the chapel and cliff vie
 lighting. That is one private background capture, not a play proof.
 
 Not built yet: 23 surfaces in 8 families (cloud, mist, tree planes, light shafts, water,
-lightmapped), the source display stage (exposure, bloom, tone correction), source local lights
+lightmapped), exposure adaptation and bloom, source local lights
 and the light composition stage, the drifting host leaves, effects, the bonfire, characters,
 text, events and tables. Scene baking still differs in the last float digit between native
 Linux and Wine, because rotation uses the platform's sine and cosine.
