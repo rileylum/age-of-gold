@@ -8,3 +8,7 @@ add_executable(aog-dxc-assemble main.cpp)
 target_compile_features(aog-dxc-assemble PRIVATE cxx_std_17)
 target_include_directories(aog-dxc-assemble PRIVATE "${DXC_INCLUDE_DIR}")
 target_link_libraries(aog-dxc-assemble PRIVATE "${DXC_LIBRARY}")
+if(WIN32 AND NOT MSVC)
+  # The helper is copied beside DXC's libraries; it must not need the compiler's own runtime DLLs.
+  target_link_options(aog-dxc-assemble PRIVATE -static)
+endif()
