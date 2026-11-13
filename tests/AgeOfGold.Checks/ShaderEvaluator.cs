@@ -12,6 +12,8 @@ internal sealed class ShaderEvaluator
     /// <summary>Texture range, coordinates (two for a surface, three for a cube) and whether a level was explicit.</summary>
     internal Func<int, float[], bool, float[]> Sample = (_, _, _) => throw new Exception("Unexpected texture sample");
     internal readonly Dictionary<(int Id, int Column), float> Outputs = [];
+    /// <summary>Whether the program discarded the pixel; evaluation continues so its outputs can still be compared.</summary>
+    internal bool Discarded { get; private set; }
 
     internal void Run(string module)
     {
@@ -75,6 +77,7 @@ internal sealed class ShaderEvaluator
                 int code = I(a[0]);
                 result = (name, code) switch
                 {
+                    ("discard", 82) => Discard((bool)Value(Strip(a[1]))),
                     ("createHandle", 57) => (object)(I(a[1]), I(a[3])),
                     ("loadInput", 4) => Input(I(a[1]), I(a[3])),
                     ("storeOutput", 5) => Store(I(a[1]), I(a[3]), F(a[4])),
@@ -146,5 +149,6 @@ internal sealed class ShaderEvaluator
         }
     }
 
+    private object Discard(bool condition) { Discarded |= condition; return 0; }
     private object Store(int id, int column, float value) { Outputs[(id, column)] = value; return 0; }
 }

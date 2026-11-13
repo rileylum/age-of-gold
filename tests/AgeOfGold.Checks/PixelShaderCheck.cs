@@ -118,6 +118,31 @@ internal static class PixelShaderCheck
                     throw new Exception("Lit marker, packed normal channel or untouched targets differ");
             }
 
+        // An alpha-tested variant branches around a discard after its normal; the lighting must still reach the stores.
+        var cutoutProgram = compiler.Compile(Pixel.Replace("Output o;", "if (normalize(world).y * Blend.x > i.extra.w - 2) discard;\n    Output o;"), "Main", "ps_6_0");
+        var cutoutModule = compiler.Disassemble(cutoutProgram);
+        if (!System.Text.RegularExpressions.Regex.IsMatch(cutoutModule, @"(?m)^  br i1 "))
+            throw new Exception("Cutout fixture lost its branch: " + string.Join(" | ", cutoutModule.Split('\n').Where(l => l.Contains("discard") || l.Contains("br "))));
+        var cutout = compiler.Disassemble(compiler.Assemble(PixelShader.ComposeLayeredGround(cutoutModule, vertex, Slots, Targets, Lighting), cutoutProgram));
+        foreach (float threshold in new[] { 1.5f, 2.75f })
+        {
+            var inputs = new Dictionary<(string, int), float[]>
+            {
+                [("NORMAL", 0)] = [0.3f, 0.9f, -0.2f, 0], [("TANGENT", 0)] = [0.8f, -0.1f, 0.5f, 1], [("TEXCOORD", 0)] = [0.9f, 0.8f, 0.7f, 0.35f],
+                [("TEXCOORD", 4)] = [0.37f], [("TEXCOORD", 5)] = [1.21f], [("TEXCOORD", 7)] = [-0.6f, 0.45f, 0, threshold],
+                [("TANGENT", 4)] = [0.1f, 0.3f, 0.9f, 0], [("TANGENT", 6)] = [-0.7f, 0.2f, 0.6f, 0],
+            };
+            var plain = Evaluate(text, inputs, true, cube: true, out _);
+            var tested = Evaluate(cutout, inputs, true, cube: true, out bool discarded);
+            float height = plain[(0, 1)] * 2 - 1;
+            if (discarded != (height * Blend.X > threshold - 2) || !tested.OrderBy(p => p.Key).SequenceEqual(plain.OrderBy(p => p.Key)))
+                throw new Exception("Alpha-tested ground variant discards wrongly or shades differently");
+        }
+        // A host value computed only on one side of a branch cannot feed lighting that runs on both.
+        var guarded = new System.Text.RegularExpressions.Regex(@"(?m)^(  %[\w.]+ = call float @dx\.op\.unary\.f32\(i32 25, .*)$",
+            System.Text.RegularExpressions.RegexOptions.RightToLeft | System.Text.RegularExpressions.RegexOptions.Multiline).Replace(module,
+            "  br i1 undef, label %authored_side, label %authored_join\n\nauthored_side:\n$1\n  br label %authored_join\n\nauthored_join:", 1);
+        Reject(() => PixelShader.ComposeLayeredGround(guarded, vertex, Slots, Targets, Lighting), "conditional");
         Reject(() => PixelShader.ComposeLayeredGround(composed, vertex, Slots, Targets, Lighting), "already");
         Reject(() => PixelShader.ComposeLayeredGround(module, compiler.Disassemble(compiler.Compile(Vertex, "Main", "vs_6_0")), Slots, Targets, Lighting), "semantic");
         Reject(() => PixelShader.ComposeLayeredGround(module, vertex, Slots with { Colour = [1, 1] }, Targets, Lighting), "distinct");
@@ -137,7 +162,10 @@ internal static class PixelShaderCheck
     // Smooth authored texture contents, distinct per slot.
     private static Vector3 Colour(int slot, Vector2 uv) => new(0.2f + 0.05f * slot + 0.1f * MathF.Sin(uv.X), 0.3f + 0.04f * slot + 0.1f * MathF.Cos(uv.Y), 0.6f - 0.05f * slot + 0.05f * MathF.Sin(uv.X + uv.Y));
 
-    private static Dictionary<(int, int), float> Evaluate(string module, Dictionary<(string, int), float[]> inputs, bool front, bool cube)
+    private static Dictionary<(int, int), float> Evaluate(string module, Dictionary<(string, int), float[]> inputs, bool front, bool cube) =>
+        Evaluate(module, inputs, front, cube, out _);
+
+    private static Dictionary<(int, int), float> Evaluate(string module, Dictionary<(string, int), float[]> inputs, bool front, bool cube, out bool discarded)
     {
         var signatures = new ShaderSignatures(module, "ps");
         var evaluator = new ShaderEvaluator();
@@ -162,6 +190,7 @@ internal static class PixelShaderCheck
             return [c.X, c.Y, c.Z, 1];
         };
         evaluator.Run(module);
+        discarded = evaluator.Discarded;
         var targets = Enumerable.Range(0, 5).ToDictionary(i => signatures.Find(true, "SV_Target", i).Id);
         return evaluator.Outputs.ToDictionary(p => (targets[p.Key.Id], p.Key.Column), p => p.Value);
     }

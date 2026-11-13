@@ -288,8 +288,37 @@ internal static class PixelShader
             edits[i] = $"  call void @dx.op.storeOutput.f32(i32 5, i32 {id}, i32 0, i8 {column}, float {value})";
         }
         if (replaced.Count != 7) throw new InvalidDataException("Expected final colour and emission target stores after the lighting");
-        for (int i = litLine; i < end; i++)
-            if (Regex.IsMatch(Code(i), @"^(br|switch) ")) throw new InvalidDataException("Unsupported control flow after the host normal");
+        // Every host value read here, and both inserted blocks, must run on every path to the final stores.
+        var labels = new Dictionary<string, int>();
+        for (int i = start + 1; i < end; i++)
+        {
+            var label = Regex.Match(lines[i], @"^; <label>:(\d+)|^([\w.$-]+):");
+            if (label.Success) labels.Add(label.Groups[1].Success ? label.Groups[1].Value : label.Groups[2].Value, i);
+        }
+        var jumps = new List<(int From, int To)>();
+        for (int i = start + 1; i < end; i++)
+        {
+            string code = Code(i);
+            if (code.StartsWith("switch ", StringComparison.Ordinal)) throw new InvalidDataException("Unsupported pixel control flow");
+            if (!code.StartsWith("br ", StringComparison.Ordinal)) continue;
+            foreach (Match target in Regex.Matches(code, @"label %([\w.$-]+)"))
+            {
+                if (!labels.TryGetValue(target.Groups[1].Value, out int to) || to <= i) throw new InvalidDataException("Pixel program loops or branches to an unknown block");
+                jumps.Add((i, to));
+            }
+        }
+        var ordered = labels.Values.Order().ToArray();
+        void Unconditional(int line)
+        {
+            int first = ordered.LastOrDefault(l => l <= line, start);
+            if (jumps.Any(j => j.From < first && j.To > first)) throw new InvalidDataException("Pixel program computes a needed value on a conditional path");
+        }
+        foreach (string value in new[] { reciprocalLength, weightName }.Concat(axes).Concat(blended).Concat(surfaceNormal).Concat(surfaceTangent)
+            .Concat(textures.Select(slot => samples[slot].Result))) Unconditional(instructions[value].Line);
+        Unconditional(normalLine); Unconditional(litLine);
+        int last = ordered.LastOrDefault(l => l <= end, start);
+        if (replaced.Count != 7 || edits.Keys.Where(k => k >= litLine && stored.IsMatch(Code(k))).Any(k => k < last))
+            throw new InvalidDataException("Colour and emission stores are not in the program's final block");
 
         // The environment slot becomes a cube; the host's own surface sample of it no longer applies.
         var (edge, edgeCall) = samples[slots.Environment];
