@@ -19,8 +19,9 @@ internal static class FirelinkBuildInstallCheck
         var compiler = new ShaderCompiler(Required("AOG_DXC"), Required("AOG_DXC_ASSEMBLER"));
         string first = Path.Combine(output, "first"), repeat = Path.Combine(output, "repeat");
         Directory.CreateDirectory(output);
-        FirelinkBuild.Run(source, host, first, compiler);
-        FirelinkBuild.Run(source, host, repeat, compiler);
+        string toolchain = Required("AOG_LLVM_MINGW");
+        FirelinkBuild.Run(source, host, first, compiler, toolchain);
+        FirelinkBuild.Run(source, host, repeat, compiler, toolchain);
         string[] Files(string root) => Directory.GetFiles(root, "*", SearchOption.AllDirectories)
             .Select(p => Path.GetRelativePath(root, p).Replace('\\', '/')).Order(StringComparer.Ordinal).ToArray();
         var files = Files(first);
@@ -79,6 +80,8 @@ internal static class FirelinkBuildInstallCheck
             }
         }
         if (surfaces != 85) throw new Exception("Built ground surface inventory differs");
+        var lit = manifest.RootElement.GetProperty("groundFamilies").EnumerateObject().Select(f => f.Name).Order(StringComparer.Ordinal).ToArray();
+        if (!lit.SequenceEqual(families.Order(StringComparer.Ordinal))) throw new Exception("Built models do not use exactly the recorded lit ground families");
         foreach (string family in families)
         {
             using var bundle = new BND4Reader(ShaderArchive.ReadFamily(shaders, family + ".shaderbdle"));
@@ -87,6 +90,12 @@ internal static class FirelinkBuildInstallCheck
                 var signatures = new ShaderSignatures(compiler.Disassemble(bundle.ReadFile(stage)));
                 foreach (int index in new[] { 2, 4, 6 }) signatures.Require(true, "TANGENT", index, 9);
             }
+            var pixel = compiler.Disassemble(bundle.ReadFile(bundle.Files.Single(f => f.Name.EndsWith(family + "_Gbuf.ppo", StringComparison.Ordinal))));
+            var inputs = new ShaderSignatures(pixel, "ps");
+            foreach (int index in new[] { 4, 6 }) inputs.Find(false, "TANGENT", index);
+            var declared = METAPARAM.Read(bundle.ReadFile(bundle.Files.Single(f => f.Name.EndsWith(".metaparam", StringComparison.Ordinal))));
+            if (!pixel.Contains("TextureCube", StringComparison.Ordinal) || (declared.ShaderId & 0x800) == 0)
+                throw new Exception("Built ground pixel stage lacks its environment cube or emission writes");
         }
         if (!File.ReadAllText(Path.Combine(first, "age-of-gold.me3")).Contains("start_online = false", StringComparison.Ordinal))
             throw new Exception("Mod loader profile does not keep the game offline");

@@ -17,8 +17,10 @@ namespace AgeOfGold.Building;
 internal static class FirelinkBuild
 {
     private const string Map = "m10_01_00_00", HostFamily = "M[AMSN_V][Mb2]", DonorFamily = "M[AMSN][Mb2]", GroundFamily = "aog_ground";
+    // The host's deferred targets as its installed opaque programs write them: encoded normal, surface colour, emitted light.
+    private static readonly PixelShader.Targets HostTargets = new(0, 2, 4);
 
-    internal static void Run(string sourcePath, string hostPath, string outputPath, ShaderCompiler compiler)
+    internal static void Run(string sourcePath, string hostPath, string outputPath, ShaderCompiler compiler, string toolchain)
     {
         var source = new Install(sourcePath, "DarkSoulsRemastered.exe");
         var host = new Install(hostPath, "eldenring.exe");
@@ -33,7 +35,7 @@ internal static class FirelinkBuild
         string staging = Path.Combine(parent, ".aog-building-" + Guid.NewGuid().ToString("N"));
         try
         {
-            Stage(source, host, archive, compiler, new Output(staging));
+            Stage(source, host, archive, compiler, toolchain, new Output(staging));
             Directory.Move(staging, output);
         }
         finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
@@ -52,7 +54,7 @@ internal static class FirelinkBuild
         }
     }
 
-    private static void Stage(Install source, Install host, HostArchive archive, ShaderCompiler compiler, Output files)
+    private static void Stage(Install source, Install host, HostArchive archive, ShaderCompiler compiler, string toolchain, Output files)
     {
         var unbuilt = new SortedDictionary<string, int>(StringComparer.Ordinal);
         // A new identity must never shadow an installed host file.
@@ -70,20 +72,31 @@ internal static class FirelinkBuild
 
         // lazy: only the two-layer ground family is built; every other surface is counted in the manifest until its family lands.
         // First pass: classify each model's surfaces and collect texture names; geometry is read again when its model is built.
-        var models = new List<(string Name, int[] Surfaces, string[] Textures)>();
+        var renderer = SourceRendererSettings.Read(source);
+        var environmentSettings = SourceEnvironmentSettings.Read(source, toolchain);
+        var models = new List<(string Name, int[] Surfaces, string[] Textures, float[] Diffuse)>();
         foreach (string name in reader.Models)
         {
             using var model = JsonDocument.Parse(reader.ReadModel(name));
-            var ground = new List<int>(); var textures = new List<string>();
+            var ground = new List<int>(); var textures = new List<string>(); float[]? diffuse = null;
             foreach (var surface in model.RootElement.GetProperty("surfaces").EnumerateArray())
             {
                 var material = surface.GetProperty("material");
                 string definition = material.GetProperty("definition").GetString()!;
                 if (definition != "M[DB][M]") { unbuilt[definition] = unbuilt.GetValueOrDefault(definition) + 1; continue; }
                 ground.Add(surface.GetProperty("index").GetInt32());
+                var parameters = material.GetProperty("parameters");
+                // The source applies its environment light only to materials in the renderer's environment mode.
+                if (parameters.GetProperty("g_LightingType").GetInt32() != environmentSettings.LightingType)
+                    throw new InvalidDataException("Ground material uses an unclassified lighting type: " + name);
+                float power = parameters.GetProperty("g_DiffuseMapColorPower").GetSingle();
+                var tint = parameters.GetProperty("g_DiffuseMapColor").EnumerateArray().Select(v => MathF.Pow(v.GetSingle() * power, 2.2f)).ToArray();
+                if (tint.Length != 3 || diffuse is not null && !diffuse.SequenceEqual(tint))
+                    throw new InvalidDataException("Ground surfaces of one model need different diffuse multipliers: " + name);
+                diffuse = tint;
                 textures.AddRange(material.GetProperty("textures").EnumerateArray().Select(t => t.GetProperty("texture").GetString()!).Where(n => n != ""));
             }
-            if (ground.Count != 0) models.Add((name, ground.ToArray(), textures.ToArray()));
+            if (ground.Count != 0) models.Add((name, ground.ToArray(), textures.ToArray(), diffuse!));
         }
 
         var layout = MSBE.Read(archive.Read($"map/mapstudio/{Map}.msb.dcx"));
@@ -103,11 +116,27 @@ internal static class FirelinkBuild
         files.Add($"mod/map/mapstudio/{Map}.msb.dcx", layout.Write());
 
         // Each model samples the diffuse environment of the one lighting row its placements select.
-        var environments = models.ToDictionary(m => m.Name, m =>
+        var rowOf = models.ToDictionary(m => m.Name, m =>
         {
             var rows = placements.Where(p => p.GetProperty("model").GetString() == m.Name).Select(p => p.GetProperty("lighting").GetInt32()).Distinct().ToArray();
-            if (rows.Length != 1) throw new InvalidDataException("Scenery model is placed under several lighting rows: " + m.Name);
-            var textures = lighting[rows[0]].DiffuseEnvironment.Textures;
+            return rows.Length == 1 ? rows[0] : throw new InvalidDataException("Scenery model is placed under several lighting rows: " + m.Name);
+        }, StringComparer.Ordinal);
+        // The source lighting is compiled into the pixel program, so each lighting row has its own shader family and material.
+        var families = new SortedDictionary<int, PixelShader.GroundLighting>();
+        foreach (var model in models)
+        {
+            var values = SourceLightingParameters.Values(lighting[rowOf[model.Name]], renderer);
+            float[] Rgb(string field) => ((float[])values[("$Globals", field)])[..3];
+            var ground = new PixelShader.GroundLighting(Rgb("gFC_EnvDifMapMulCol").Select(v => v * environmentSettings.Strength).ToArray(),
+                Rgb("gFC_HemAmbCol_u"), Rgb("gFC_HemAmbCol_d"), model.Diffuse);
+            if (families.TryGetValue(rowOf[model.Name], out var known) && !known.Diffuse.SequenceEqual(ground.Diffuse))
+                throw new InvalidDataException("One lighting row needs several ground diffuse multipliers");
+            families[rowOf[model.Name]] = ground;
+        }
+        string Family(int row) => $"{GroundFamily}_{row}";
+        var environments = models.ToDictionary(m => m.Name, m =>
+        {
+            var textures = lighting[rowOf[m.Name]].DiffuseEnvironment.Textures;
             if (textures.Length != 1) throw new InvalidDataException("Lighting row lacks one diffuse environment texture");
             return $"EnvDif_m10_{textures[0]:D3}";
         }, StringComparer.Ordinal);
@@ -149,9 +178,10 @@ internal static class FirelinkBuild
         int exemplar = layerModel.Meshes.FindIndex(m => layerModel.Materials[m.MaterialIndex].Textures.Any(t => t.ParamName.StartsWith("M_AMSN_V_Mb2__", StringComparison.Ordinal)));
         if (exemplar < 0) throw new InvalidDataException("Host install lacks the two-layer ground exemplar");
 
-        byte[]? groundDefinition = null, groundMetadata = null;
+        var groundDefinitions = new SortedDictionary<int, byte[]>(); byte[]? groundMetadata = null;
         foreach (var model in models)
         {
+            int row = rowOf[model.Name];
             using var document = JsonDocument.Parse(reader.ReadModel(model.Name));
             var selected = document.RootElement.GetProperty("surfaces").EnumerateArray()
                 .Where(s => model.Surfaces.Contains(s.GetProperty("index").GetInt32())).ToArray();
@@ -161,14 +191,15 @@ internal static class FirelinkBuild
                 var bound = MaterialWriter.BindLayers(hostDefinition.Bytes, metadata, donorDefinition, donorMetadata,
                     LayerMaterial.Read(s.GetProperty("material")), names, names[environments[model.Name]]);
                 var definition = MATBIN.Read(bound.Definition);
-                definition.SourcePath = Rename(definition.SourcePath); definition.ShaderPath = Rename(definition.ShaderPath);
+                definition.SourcePath = Rename(definition.SourcePath, Family(row)); definition.ShaderPath = Rename(definition.ShaderPath, Family(row));
                 return bound with { Definition = definition.Write() };
             }).ToArray();
             foreach (var bound in bindings)
             {
-                groundDefinition ??= bound.Definition; groundMetadata ??= bound.Metadata;
-                if (!bound.Definition.AsSpan().SequenceEqual(groundDefinition) || !bound.Metadata.AsSpan().SequenceEqual(groundMetadata))
-                    throw new InvalidDataException("Ground surfaces need more than one material definition");
+                groundMetadata ??= bound.Metadata;
+                if (!groundDefinitions.TryAdd(row, bound.Definition) && !bound.Definition.AsSpan().SequenceEqual(groundDefinitions[row])
+                    || !bound.Metadata.AsSpan().SequenceEqual(groundMetadata))
+                    throw new InvalidDataException("Ground surfaces need more than one material definition per lighting row");
             }
             string digits = scenery.Models[model.Name];
             var binder = BND4.Read(archive.Read(modelTemplatePath));
@@ -178,21 +209,38 @@ internal static class FirelinkBuild
             binder.Files = [file];
             Add($"map/m10/{Map}/{Map}_{digits}.mapbnd.dcx", binder.Write());
         }
-        if (groundDefinition is null || groundMetadata is null) throw new InvalidDataException("Source area has no ground surfaces");
-        string definitionName = Rename(hostDefinition.Name);
-        if (definitions.Files.Any(f => f.Name.Equals(definitionName, StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidDataException("Ground material identity is occupied");
-        definitions.Files.Add(new BinderFile(hostDefinition.Flags, definitions.Files.Max(f => f.ID) + 1, definitionName, groundDefinition));
-        files.Add("mod/material/allmaterial.matbinbnd.dcx", definitions.Write());
-
-        definitions = null!;
-        files.Add("mod/shader/shaderbdle.shaderbdlebnd.dcx", ShaderArchive.AddFamily(shaders, HostFamily, GroundFamily, (suffix, bytes) =>
+        if (groundMetadata is null) throw new InvalidDataException("Source area has no ground surfaces");
+        foreach (var (row, definition) in groundDefinitions)
         {
-            if (suffix == ".metaparam") return groundMetadata;
-            // The ground model carries a second tangent and both bitangents; only its G-buffer vertex stages forward them.
-            if (Regex.IsMatch(suffix, @"^_Gbuf.*\.vpo$")) return compiler.Assemble(VertexShader.AddLayerFrames(compiler.Disassemble(bytes)), bytes);
-            return bytes;
-        }));
+            string definitionName = Rename(hostDefinition.Name, Family(row));
+            if (definitions.Files.Any(f => f.Name.Equals(definitionName, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidDataException("Ground material identity is occupied");
+            definitions.Files.Add(new BinderFile(hostDefinition.Flags, definitions.Files.Max(f => f.ID) + 1, definitionName, definition));
+        }
+        files.Add("mod/material/allmaterial.matbinbnd.dcx", definitions.Write());
+        definitions = null!;
+
+        // The ground model carries a second tangent and both bitangents; its G-buffer vertex stages forward them and
+        // its G-buffer pixel stage shades both layers with the row's source lighting.
+        var slots = MaterialWriter.LayerSlots(groundMetadata);
+        var emitting = ShaderMetadata.EnableEmission(groundMetadata);
+        var vertexStages = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        string forwarding = VertexShader.AddLayerFrames(compiler.Disassemble(
+            ShaderArchive.Read(shaders, HostFamily + ".shaderbdle", HostFamily + "_Gbuf.vpo")));
+        files.Add("mod/shader/shaderbdle.shaderbdlebnd.dcx", ShaderArchive.AddFamilies(shaders, HostFamily,
+            families.Select(family => (Family(family.Key), (Func<string, byte[], byte[]>)((suffix, bytes) =>
+            {
+                if (suffix == ".metaparam") return emitting;
+                if (Regex.IsMatch(suffix, @"^_Gbuf.*\.vpo$"))
+                {
+                    if (!vertexStages.TryGetValue(suffix, out var stage))
+                        vertexStages.Add(suffix, stage = compiler.Assemble(VertexShader.AddLayerFrames(compiler.Disassemble(bytes)), bytes));
+                    return stage;
+                }
+                if (suffix == "_Gbuf.ppo")
+                    return compiler.Assemble(PixelShader.ComposeLayeredGround(compiler.Disassemble(bytes), forwarding, slots, HostTargets, family.Value), bytes);
+                return bytes;
+            }))).ToArray()));
 
         files.Add("age-of-gold.me3", System.Text.Encoding.UTF8.GetBytes(
             "profileVersion = \"v1\"\nsavefile = \"AgeOfGold.sl2\"\nstart_online = false\n\n[[supports]]\ngame = \"eldenring\"\n\n[[packages]]\npath = 'mod'\n"));
@@ -206,6 +254,8 @@ internal static class FirelinkBuild
             shaderCompiler = ShaderCompiler.Version,
             inputs = new { source = source.Fingerprints, host = host.Fingerprints },
             scenery = new { models = scenery.Models, placements = scenery.Placements },
+            textures = names,
+            groundFamilies = families.ToDictionary(f => Family(f.Key), f => f.Value),
             unbuiltSurfaces = unbuilt,
             excludedCollision = terrain.Excluded.Select(p => new { p.Name, p.Role, p.Disabled }),
             files = files.Files.Select(f => new { path = f.Key, size = f.Value.Size, sha256 = f.Value.Hash }).ToArray(),
@@ -214,6 +264,6 @@ internal static class FirelinkBuild
         Console.WriteLine($"Built {files.Files.Count} files. {unbuilt.Values.Sum()} source surfaces in {unbuilt.Count} material families are not built yet.");
     }
 
-    private static string Rename(string path) => path.Contains(HostFamily, StringComparison.Ordinal)
-        ? path.Replace(HostFamily, GroundFamily) : throw new InvalidDataException("Host material path lacks its family name");
+    private static string Rename(string path, string family) => path.Contains(HostFamily, StringComparison.Ordinal)
+        ? path.Replace(HostFamily, family) : throw new InvalidDataException("Host material path lacks its family name");
 }

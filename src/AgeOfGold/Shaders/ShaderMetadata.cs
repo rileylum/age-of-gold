@@ -8,6 +8,16 @@ internal static class ShaderMetadata
 {
     internal static METAPARAM Read(byte[] bytes) => new Layout(bytes).Material;
 
+    /// <summary>Marks the family as writing the emission target, which the host otherwise leaves unbound for it.</summary>
+    internal static byte[] EnableEmission(byte[] metadata)
+    {
+        _ = new Layout(metadata);
+        var result = metadata.ToArray();
+        // Bit 11 of the family's identity word selects emission writes in the checked revision.
+        BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(0x58), BinaryPrimitives.ReadUInt32LittleEndian(metadata.AsSpan(0x58)) | 0x800);
+        return result;
+    }
+
     internal static byte[] AppendTextures(byte[] template, byte[] donor, params int[] slots)
     {
         var before = new Layout(template); var extra = new Layout(donor);

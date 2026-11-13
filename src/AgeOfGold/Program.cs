@@ -11,9 +11,9 @@ internal static class Program
                 var build = args.Skip(1).Chunk(2).ToDictionary(pair => pair[0], pair => pair[1]);
                 if (!build.Keys.Order().SequenceEqual(new[] { "--host", "--output", "--source" }))
                     throw new ArgumentException("Usage: AgeOfGold build-firelink --source INSTALL --host INSTALL --output FRESH_DIRECTORY");
-                string Tool(string name) => Environment.GetEnvironmentVariable(name) ?? throw new ArgumentException("Set " + name + " to the pinned external shader tool");
+                string Tool(string name) => Environment.GetEnvironmentVariable(name) ?? throw new ArgumentException("Set " + name + " to the pinned external tool");
                 Building.FirelinkBuild.Run(build["--source"], build["--host"], build["--output"],
-                    new Shaders.ShaderCompiler(Tool("AOG_DXC"), Tool("AOG_DXC_ASSEMBLER")));
+                    new Shaders.ShaderCompiler(Tool("AOG_DXC"), Tool("AOG_DXC_ASSEMBLER")), Tool("AOG_LLVM_MINGW"));
                 return 0;
             }
             if (args.Length is not (7 or 9) || args[0] is not ("prepare" or "prepare-firelink"))

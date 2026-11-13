@@ -42,6 +42,22 @@ internal static class MaterialWriter
         return BindTextures(definition, metadata, donorDefinition, donorMetadata, paths);
     }
 
+    /// <summary>The texture registers the layered ground pixel program reads, by role.</summary>
+    internal static PixelShader.LayerSlots LayerSlots(byte[] metadata)
+    {
+        var textures = ShaderMetadata.Read(metadata).Textures;
+        METAPARAM.Texture One(IEnumerable<METAPARAM.Texture> matches)
+        {
+            var found = matches.ToArray();
+            return found.Length == 1 ? found[0] : throw new InvalidDataException("Ambiguous layered host texture semantic");
+        }
+        var colours = Enumerable.Range(0, 2).Select(layer => One(textures.Where(t => t.Type == METAPARAM.TextureType.Albedo
+            && t.Name.EndsWith("AlbedoMap_" + layer, StringComparison.Ordinal)))).ToArray();
+        var normals = colours.Select(c => One(textures.Where(t => t.Type == METAPARAM.TextureType.Normal && t.UvGroupName == c.UvGroupName))).ToArray();
+        var cube = One(textures.Where(t => t.Type == METAPARAM.TextureType.Other && t.Name.EndsWith("BlendEdge", StringComparison.Ordinal)));
+        return new(cube.Slot, colours.Select(t => (int)t.Slot).ToArray(), normals.Select(t => (int)t.Slot).ToArray());
+    }
+
     internal static Bound BindTextures(byte[] definition, byte[] metadata, byte[] donorDefinition, byte[] donorMetadata,
         IReadOnlyDictionary<int, string> textures)
     {

@@ -42,6 +42,11 @@ internal static class ShaderArchiveCheck
         Require(addedOuter.Write().SequenceEqual(input), "adding a family changed existing entries");
         Require(ShaderArchive.AddFamily(input, "surface", "aog_surface", (suffix, bytes) => suffix == ".ppo" ? replacement : bytes).SequenceEqual(added),
             "family addition differs across runs");
+        var several = ShaderArchive.AddFamilies(input, "surface", [("aog_first", (_, bytes) => bytes), ("aog_second", (suffix, bytes) => suffix == ".ppo" ? replacement : bytes)]);
+        Require(ShaderArchive.Read(several, "aog_first.shaderbdle", "aog_first.ppo").SequenceEqual(old)
+            && ShaderArchive.Read(several, "aog_second.shaderbdle", "aog_second.ppo").SequenceEqual(replacement)
+            && BND4.Read(several).Files.Select(f => f.ID).SequenceEqual(new[] { 73, 74, 75, 76 }), "several added families differ");
+        Reject(() => ShaderArchive.AddFamilies(input, "surface", [("aog_first", (_, bytes) => bytes), ("AOG_FIRST", (_, bytes) => bytes)]), "duplicate new family");
         Reject(() => ShaderArchive.AddFamily(added, "surface", "aog_surface", (_, bytes) => bytes), "occupied family");
         Reject(() => ShaderArchive.AddFamily(input, "missing", "aog_surface", (_, bytes) => bytes), "missing template family");
         Reject(() => ShaderArchive.AddFamily(input, "surface", "aog/../x", (_, bytes) => bytes), "invalid family name");

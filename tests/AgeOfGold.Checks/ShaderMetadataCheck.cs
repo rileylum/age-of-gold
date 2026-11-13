@@ -34,6 +34,13 @@ internal static class ShaderMetadataCheck
         bad = (byte[])source.Clone(); bad[152 + 32] = 1;
         Reject(() => ShaderMetadata.AppendTextures(bad, donor, 2));
         Reject(() => ShaderMetadata.AppendTextures(source[..^1], donor, 2));
+        var plain = Fixture(2, "base");
+        var emitting = ShaderMetadata.EnableEmission(plain);
+        if (METAPARAM.Read(emitting).ShaderId != (METAPARAM.Read(plain).ShaderId | 0x800) || (METAPARAM.Read(plain).ShaderId & 0x800) != 0
+            || !ShaderMetadata.EnableEmission(emitting).SequenceEqual(emitting))
+            throw new Exception("Emission target writes were not enabled exactly once");
+        var restored = emitting.ToArray(); plain.AsSpan(0x58, 4).CopyTo(restored.AsSpan(0x58));
+        if (!restored.SequenceEqual(plain)) throw new Exception("Enabling emission changed unrelated shader metadata");
         Console.WriteLine("PASS: shader texture declarations extend consistently, preserve parameters and alternate stages, repeat and reject unsupported layouts");
     }
 
