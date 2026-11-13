@@ -14,9 +14,16 @@ internal sealed record LayerMaterial(LayerMaterial.Layer First, LayerMaterial.La
         // lazy: the opaque lit families only; cutout, blended, lightmapped and foliage shaders need their own translations.
         return (shader, material.GetProperty("blendMode").GetInt32()) switch
         {
-            ("FRPG_Phn_ColDifSpcBmp", 0 or 1 or 2) => 1, ("FRPG_Phn_ColDifSpcBmpMul", 0) => 2, _ => 0,
+            ("FRPG_Phn_ColDifSpcBmp", 0 or 1 or 2) => 1, ("FRPG_Phn_ColDifSpcBmpMul", 0) => 2,
+            // lazy: foliage and ivy are lit as plain surfaces; their wind sway needs the vertex stage and their extra coordinate sets.
+            ("FRPG_Foliage_ColDifSpcBmp" or "FRPG_Ivy_ColDifSpcBmp", 0 or 1) => 1,
+            _ => 0,
         };
     }
+
+    /// <summary>Whether a one-layer material's vertices carry wind coordinate sets after the texture mapping.</summary>
+    internal static bool Sways(JsonElement material) => Path.GetFileNameWithoutExtension(material.GetProperty("shader").GetString()!.Replace('\\', '/'))
+        is "FRPG_Foliage_ColDifSpcBmp" or "FRPG_Ivy_ColDifSpcBmp";
 
     /// <summary>Whether the surface's alpha removes pixels.</summary>
     // lazy: blended surfaces are cut out too, as in the accepted playtest, until forward blending is translated.

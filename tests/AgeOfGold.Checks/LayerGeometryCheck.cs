@@ -72,6 +72,18 @@ internal static class LayerGeometryCheck
         Require(one.Vertices.All(v => v.Primary == v.Secondary && v.Tangent == v.SecondaryTangent && v.Bitangent == v.SecondaryBitangent
             && v.Bitangent == new Vector4(0, 0, 1, 0) && v.Colour == new Vector4(0.5f, 0.6f, 0.7f, 0.8f)) && one.Vertices[1].Primary == new Vector2(3, 0),
             "one-layer surface does not repeat its mapping and frame for both host layers");
+        var plant = LayerGeometry.Read(System.Text.Json.JsonSerializer.SerializeToElement(new
+        {
+            material = new { definition = "authored", shader = @"N:\authored\FRPG_Foliage_ColDifSpcBmp.spx", blendMode = 1,
+                textures = new[] { new { input = "g_Diffuse", texture = "colour", scale = new[] { 1f, 1f } } },
+                coordinates = new[] { new { input = "g_Diffuse", channel = 0 }, new { input = "g_Bumpmap", channel = 0 } } },
+            indices = new[] { 0, 1, 2 }, cullBackfaces = false,
+            vertices = new[] { (0f, 0f), (1f, 0f), (0f, 1f) }.Select(p => new { position = new[] { p.Item1, 0f, p.Item2 }, normal = new[] { 0f, 1f, 0f },
+                uvs = new[] { new[] { p.Item1, p.Item2, 0f }, new[] { 9f, 9f, 0f }, new[] { 7f, 7f, 0f } }, tangents = new[] { new[] { 1f, 0f, 0f, 1f } },
+                secondaryTangent = (float[]?)null, colours = new[] { new[] { 1f, 1f, 1f, 1f } } }),
+        }));
+        Require(plant.Vertices.All(v => v.Primary == v.Secondary) && plant.Vertices[2].Primary == new Vector2(0, 1) && !plant.CullBackfaces,
+            "foliage does not take its texture mapping from its first coordinate set");
         Console.WriteLine("PASS: split geometry retains both texture mappings, signed frames, colours, alpha, area and winding");
     }
 

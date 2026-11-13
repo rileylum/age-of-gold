@@ -11,7 +11,7 @@ internal static class LayerGeometry
     internal static Surface Read(JsonElement surface)
     {
         var material = surface.GetProperty("material");
-        bool single = LayerMaterial.Single(material);
+        bool single = LayerMaterial.Single(material), sways = LayerMaterial.Sways(material);
         foreach (var (name, channel) in single ? new[] { ("g_Diffuse", 0), ("g_Bumpmap", 0) }
             : new[] { ("g_Diffuse", 0), ("g_Bumpmap", 0), ("g_Diffuse_2", 1), ("g_Bumpmap_2", 1) })
         {
@@ -24,7 +24,7 @@ internal static class LayerGeometry
                 throw new InvalidDataException("Unsupported independent-layer texture scale");
         var vertices = surface.GetProperty("vertices").EnumerateArray().Select(v =>
         {
-            if (v.GetProperty("uvs").GetArrayLength() != (single ? 1 : 2) || v.GetProperty("tangents").GetArrayLength() != 1
+            if (v.GetProperty("uvs").GetArrayLength() != (sways ? 3 : single ? 1 : 2) || v.GetProperty("tangents").GetArrayLength() != 1
                 || v.GetProperty("colours").GetArrayLength() != 1 || !single && v.GetProperty("secondaryTangent").ValueKind != JsonValueKind.Array)
                 throw new InvalidDataException("Independent layer vertex lacks its mappings, frames or colour");
             var position = V3(v.GetProperty("position")); var normal = V3(v.GetProperty("normal"));

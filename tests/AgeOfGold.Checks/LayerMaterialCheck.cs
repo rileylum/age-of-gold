@@ -52,6 +52,10 @@ internal static class LayerMaterialCheck
             || LayerMaterial.Read(Single(phong, blend: 1)) != single || LayerMaterial.Layers(Single(phong, blend: 4)) != 0
             || LayerMaterial.Layers(Single(@"N:\authored\FRPG_Phn_ColDifSpcBmpMul.spx", blend: 1)) != 0)
             throw new Exception("Cutout classification of one-layer surfaces differs");
+        // Foliage and ivy shade as one lit layer; their sway is a separate translation.
+        foreach (string plant in new[] { @"N:\authored\FRPG_Foliage_ColDifSpcBmp.spx", @"N:\authored\FRPG_Ivy_ColDifSpcBmp.spx" })
+            if (LayerMaterial.Read(Single(plant, blend: 1)) != single || LayerMaterial.Layers(Single(plant)) != 1 || LayerMaterial.Layers(Single(plant, blend: 2)) != 0)
+                throw new Exception("Foliage is not classified as one lit layer");
         Console.WriteLine("PASS: ground colour, normal, packed and environment roles bind by layer and semantic; unsupported mappings fail");
     }
 
