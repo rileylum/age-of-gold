@@ -16,7 +16,8 @@ internal sealed class SourceTagfile
     }
     private sealed record Item(HavokType Type, int Offset, int Count, int Kind);
 
-    internal SourceTagfile(byte[] bytes)
+    /// <param name="version">The Havok release the file must declare: the source's 2015 or the host's 2018.</param>
+    internal SourceTagfile(byte[] bytes, string version = "20150100")
     {
         this.bytes = bytes;
         var container = Sections(0, bytes.Length).Single();
@@ -24,8 +25,8 @@ internal sealed class SourceTagfile
         var sections = Sections(container.Content, container.End);
         if (!sections.Select(s => s.Name).SequenceEqual(new[] { "SDKV", "DATA", "TYPE", "INDX" }))
             throw new InvalidDataException("Unsupported source tagfile sections");
-        if (Encoding.ASCII.GetString(bytes[sections[0].Content..sections[0].End]) != "20150100")
-            throw new InvalidDataException("Expected Havok 2015 source collision");
+        if (version is not ("20150100" or "20180100") || Encoding.ASCII.GetString(bytes[sections[0].Content..sections[0].End]) != version)
+            throw new InvalidDataException("Tagged file is not of the expected Havok release");
         data = sections[1];
         var type = sections[2];
         // Both versions serialize type descriptions in this form; no generated 2015 classes are needed.
@@ -152,6 +153,12 @@ internal sealed class SourceTagfile
             return new Value(file, field.Type, offset + field.Offset);
         }
 
+        /// <summary>Whether this is a reference to nothing.</summary>
+        internal bool IsNull => type.Kind == HavokType.TypeKind.Pointer && BinaryPrimitives.ReadUInt64LittleEndian(file.Data(offset, 8)) == 0;
+
+        /// <summary>The value's kind after following a reference: record, array, whole number, real, string and so on.</summary>
+        internal string Kind => (IsNull ? type : Dereference().type).Kind.ToString();
+
         /// <summary>The names of a record's fields, for readers that must reject layouts they do not know.</summary>
         internal string[] FieldNames => Dereference().type.Fields.Select(f => f.Name).ToArray();
 
@@ -196,6 +203,8 @@ internal sealed class SourceTagfile
 
         internal long Integer()
         {
+            // A named whole-number type (an index, say) reads as the number type it stands for.
+            if (type.Kind is HavokType.TypeKind.Void or HavokType.TypeKind.Opaque && type.Parent is { } named && named.Size == type.Size) return new Value(file, named, offset).Integer();
             if (type.Kind == HavokType.TypeKind.Bool && type.Size == 1)
             {
                 byte value = file.Data(offset, 1)[0];
