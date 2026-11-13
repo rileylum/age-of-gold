@@ -43,6 +43,11 @@ try
         SourceAirCheck.Run(root);
         return;
     }
+    if (args.SequenceEqual(new[] { "display-shader" }))
+    {
+        DisplayShaderCheck.Run();
+        return;
+    }
     if (args.SequenceEqual(new[] { "map-scenery" }))
     {
         MapSceneryCheck.Run();
