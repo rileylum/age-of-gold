@@ -20,7 +20,8 @@ internal static class MapSceneryCheck
             { Name = name, Position = at, Shape = new MSB.Shape.Box { Width = size, Height = size, Depth = size }, PointLightMult = 1.5f };
         layout.Regions.EnvironmentMapEffectBoxes.Add(Box("authored-outdoors", new(0, -50, 0), 100));
         layout.Regions.EnvironmentMapEffectBoxes.Add(Box("authored-room", new(3, 0, 3), 4));
-        layout.Regions.SpawnPoints.Add(new() { Name = "authored-spawn", Position = new(9, 9, 9) });
+        layout.Regions.SpawnPoints.Add(new() { Name = "authored-spawn", Position = new(-3.2f, 40.1f, 7) });
+        layout.Regions.SpawnPoints.Add(new() { Name = "authored-elsewhere", Position = new(90, 9, 9) });
         var native = layout.Write();
 
         FirelinkMapWriter.IsolateWorld(layout);
@@ -43,11 +44,14 @@ internal static class MapSceneryCheck
             || lit.Regions.EnvironmentMapEffectBoxes.Single(b => b.Name == "authored-outdoors").Position != new Vector3(0, 150, 0)
             || lit.Regions.EnvironmentMapEffectBoxes.Single(b => b.Name == "authored-room").Position != new Vector3(3, 0, 3)
             || lit.Regions.EnvironmentMapEffectBoxes.Any(b => b.PointLightMult != 3)
-            || lit.Regions.SpawnPoints.Single().Position != new Vector3(-3, 240, 7) || lit.Regions.SpawnPoints.Single().Rotation != new Vector3(0, 145, 0))
+            || lit.Regions.SpawnPoints.Single(r => r.Name == "authored-spawn").Position != new Vector3(-3, 240, 7)
+            || lit.Regions.SpawnPoints.Single(r => r.Name == "authored-spawn").Rotation != new Vector3(0, 145, 0)
+            || lit.Regions.SpawnPoints.Single(r => r.Name == "authored-elsewhere").Position != new Vector3(90, 9, 9))
             throw new Exception("Environment regions or the spawn region did not follow the scenery");
         var ambiguous = MSBE.Read(native);
         ambiguous.Regions.EnvironmentMapEffectBoxes.Add(Box("authored-second-outdoors", new(0, -50, 0), 100));
-        Reject(() => FirelinkMapWriter.MoveEnvironment(ambiguous, new(0, 200, 0), Vector3.Zero, Vector3.Zero));
+        Reject(() => FirelinkMapWriter.MoveEnvironment(ambiguous, new(0, 200, 0), new(-3, 240, 7), Vector3.Zero));
+        Reject(() => FirelinkMapWriter.MoveEnvironment(MSBE.Read(native), new(0, 200, 0), new(50, 240, 7), Vector3.Zero));
 
         FirelinkMapWriter.SceneryPlacement[] placements = [
             new("wall-b", "wall", new(10, 0, 0), new(0, 90, 0), new(1, 1, 1)),

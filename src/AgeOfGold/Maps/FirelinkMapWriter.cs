@@ -81,7 +81,7 @@ internal static class FirelinkMapWriter
 
     /// <summary>
     /// Raises the host's environment lighting to the scenery: every probe and the one outdoor volume enclosing the
-    /// others move by <paramref name="displacement"/>; room volumes stay below. The host spawn region moves to the spawn.
+    /// others move by <paramref name="displacement"/>; room volumes stay below. The host's arrival region moves to the spawn.
     /// </summary>
     internal static void MoveEnvironment(MSBE layout, Vector3 displacement, Vector3 spawn, Vector3 spawnRotation)
     {
@@ -109,8 +109,10 @@ internal static class FirelinkMapWriter
         // lazy: the accepted playtest's doubled fill for host-lit characters; source environment light for characters is not translated yet.
         foreach (var box in boxes) box.PointLightMult *= 2;
         foreach (var point in layout.Regions.EnvironmentMapPoints) point.Position += displacement;
-        if (layout.Regions.SpawnPoints.Count != 1) throw new InvalidDataException("Expected one host spawn region");
-        layout.Regions.SpawnPoints[0].Position = spawn; layout.Regions.SpawnPoints[0].Rotation = spawnRotation;
+        // The host's arrival region sits at its own player start; other spawn regions belong to host events.
+        var arrival = layout.Regions.SpawnPoints.Where(r => Vector3.Distance(r.Position, spawn - displacement) < 1).ToArray();
+        if (arrival.Length != 1) throw new InvalidDataException("Expected one host spawn region at the host player start");
+        arrival[0].Position = spawn; arrival[0].Rotation = spawnRotation;
     }
 
     internal static Scenery AddScenery(MSBE layout, IReadOnlyList<SceneryPlacement> placements, Vector3 offset)
