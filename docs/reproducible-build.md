@@ -21,13 +21,20 @@ What the build contains so far:
 
 - The host map with every installed placement and map effect disabled, the player kept.
 - Terrain collision for the 39 ordinary solid placements, always visible as in the accepted playtest.
-- Scenery for the 206 opaque lit source surfaces (of 330): one- and two-layer surfaces share the
-  host's two-layer family. Each layer keeps its own coordinates and frame.
-- A shader family and material per source lighting row and diffuse multiplier. The G-buffer
-  pixel program is the installed host program, rewritten by resource and signature meaning: it
-  blends the layers by vertex alpha and emits the source's environment and hemisphere light.
-  The lighting values come from the source lighting tables, renderer settings and material
-  parameters. Vertex variants of a family place their added outputs on the same registers.
+- Scenery for 307 of the 330 source surfaces: opaque one- and two-layer surfaces, cutouts
+  (alpha-tested and blended surfaces, cut at half coverage), foliage and ivy without sway, and
+  the sky dome. All share the host's two-layer family; each layer keeps its own coordinates and
+  frame. Colour-only surfaces use authored neutral normal and packed textures.
+- A shader family and material per source lighting row, fog row, scattering row and diffuse
+  multiplier. The G-buffer pixel program is the installed host program, rewritten by resource
+  and signature meaning: it blends the layers by vertex alpha, emits the source's environment
+  and hemisphere light, and applies the source's fog and light scattering (the published
+  Hoffman–Preetham model with constants from the source's scattering table). Vertex variants
+  of a family place their added outputs on the same registers and forward the camera vector
+  the installed programs already compute.
+- The host map's graphics parameters with vignette, chromatic aberration and volumetric fog
+  off, environment lighting regions moved to the scenery, and the lens far focus range from
+  the source depth-of-field row selected by the collision under the spawn.
 
 `firelink-build-installs FRESH` builds twice, compares every file, reads the build back and
 rechecks the consumed install inputs. `pixel-shader` checks the pixel rewrite numerically on the
@@ -35,10 +42,11 @@ CPU against independent arithmetic, using an authored evaluator for scalar shade
 A freshly built candidate loads in the host and renders the chapel and cliff views with source
 lighting. That is one private background capture, not a play proof.
 
-Not built yet: 124 surfaces in 17 families (cutout, blended, foliage, lightmapped, water, sky,
-mist), source local lights and the light composition stage, atmosphere, effects, the bonfire,
-characters, text, events and tables. Scene baking still differs in the last float digit between
-native Linux and Wine, because rotation uses the platform's sine and cosine.
+Not built yet: 23 surfaces in 8 families (cloud, mist, tree planes, light shafts, water,
+lightmapped), the source display stage (exposure, bloom, tone correction), source local lights
+and the light composition stage, the drifting host leaves, effects, the bonfire, characters,
+text, events and tables. Scene baking still differs in the last float digit between native
+Linux and Wine, because rotation uses the platform's sine and cosine.
 
 ## Checkpoint — 9 November 2026
 
