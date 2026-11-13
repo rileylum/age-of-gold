@@ -198,6 +198,38 @@ internal static class PixelShaderCheck
         }
         if (kept == 0 || removed == 0) throw new Exception("Cutout fixture does not exercise both outcomes");
         Reject(() => PixelShader.ComposeLayeredGround(module, vertex, Slots, Targets, Lighting, 1.5f), "reference");
+        // Source air: fog by view depth, then scattering along the view vector, both on the gamma-encoded light.
+        var air = new AgeOfGold.Params.SourceAir.Values([0.004f, 0.005f, 0.007f], [4e-6f, 7e-6f, 1.5e-5f], [8e-4f, 1e-3f, 1.5e-3f], [0.84f, 1.4f, 0.8f],
+            sun, [0.8f, 2.3f, 2.6f], [0.8f, 0.9f, 1f], 1.3f, 0.5f, 0.9f, [0.17f, 0.18f, 0.16f], -50, 1 / 120f, 0.65f);
+        var hazy = compiler.Disassemble(compiler.Assemble(PixelShader.ComposeLayeredGround(module, viewed, Slots, Targets, Lighting, null, air), original));
+        foreach (var (position, toSun) in new[] { (new Vector3(3, -2, 25), new Vector3(0.36f, 0.48f, -0.8f)), (new Vector3(-40, 10, 160), new Vector3(0, -1, 0)) })
+        {
+            var inputs = new Dictionary<(string, int), float[]>
+            {
+                [("NORMAL", 0)] = [0.3f, 0.9f, -0.2f, 0], [("TANGENT", 0)] = [0.8f, -0.1f, 0.5f, 1], [("TEXCOORD", 0)] = [0.9f, 0.8f, 0.7f, 0.35f],
+                [("TEXCOORD", 4)] = [0.37f], [("TEXCOORD", 5)] = [1.21f], [("TEXCOORD", 7)] = [-0.6f, 0.45f, 0, 0.25f],
+                [("TANGENT", 4)] = [0.1f, 0.3f, 0.9f, 0], [("TANGENT", 6)] = [-0.7f, 0.2f, 0.6f, 0],
+                [("TANGENT", 8)] = [position.X, position.Y, position.Z, 0], [("TANGENT", 10)] = [toSun.X, toSun.Y, toSun.Z, 0],
+            };
+            var clear = Evaluate(text, inputs, true, cube: true);
+            var actual = Evaluate(hazy, inputs, true, cube: true);
+            var expected = new float[3];
+            float distance = position.Length(), cosine = Vector3.Dot(-position / distance, toSun);
+            float fog = Math.Clamp(Math.Clamp((position.Z - air.FogBegin) * air.FogScale, 0, 1) * air.FogLimit, 0, 1);
+            float mie = air.Phase[0] / MathF.Pow(air.Phase[1] - air.Phase[2] * cosine, 1.5f);
+            for (int c = 0; c < 3; c++)
+            {
+                float encoded = MathF.Pow(clear[(4, c)], 1 / 2.2f);
+                encoded += (air.FogColour[c] - encoded) * fog;
+                float through = MathF.Pow(2, -distance * air.Extinction[c] * air.Distance * 2.0813689f);
+                float added = (air.BetaDashRayleigh[c] * (1 + cosine * cosine) + air.BetaDashMie[c] * mie) * (1 - through) / air.Extinction[c] * air.ReflectanceStrength * air.SunColour[c];
+                encoded += (encoded * through * air.Reflectance[c] + added - encoded) * air.Blend;
+                expected[c] = MathF.Pow(encoded, 2.2f);
+            }
+            Near(actual, 4, new(expected), "fogged and scattered light");
+            if (actual.Where(p => p.Key.Item1 != 4 || p.Key.Item2 == 3).Any(p => clear[p.Key] != p.Value)) throw new Exception("Source air changed other targets");
+        }
+        Reject(() => PixelShader.ComposeLayeredGround(module, vertex, Slots, Targets, Lighting, null, air), "semantic");
         Reject(() => PixelShader.ComposeLayeredGround(composed, vertex, Slots, Targets, Lighting), "already");
         Reject(() => PixelShader.ComposeLayeredGround(module, compiler.Disassemble(compiler.Compile(Vertex, "Main", "vs_6_0")), Slots, Targets, Lighting), "semantic");
         Reject(() => PixelShader.ComposeLayeredGround(module, vertex, Slots with { Colour = [1, 1] }, Targets, Lighting), "distinct");

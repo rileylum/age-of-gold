@@ -1,4 +1,5 @@
 using System.Globalization;
+using AgeOfGold.Params;
 using System.Text.RegularExpressions;
 
 namespace AgeOfGold.Shaders;
@@ -23,7 +24,9 @@ internal static class PixelShader
     /// source's environment and hemisphere lighting of the blended colour to the emission target.
     /// </summary>
     /// <param name="cutout">When set, pixels whose blended colour alpha is below this reference are discarded.</param>
-    internal static string ComposeLayeredGround(string module, string vertex, LayerSlots slots, Targets targets, GroundLighting lighting, float? cutout = null)
+    /// <param name="air">When set, the source's fog and light scattering are applied to the emitted light; the vertex stage must forward the view.</param>
+    internal static string ComposeLayeredGround(string module, string vertex, LayerSlots slots, Targets targets, GroundLighting lighting,
+        float? cutout = null, SourceAir.Values? air = null)
     {
         if (cutout is { } reference && !(reference > 0 && reference <= 1)) throw new InvalidDataException("Cutout reference must be within (0, 1]");
         foreach (var factor in new[] { lighting.Environment, lighting.Upper, lighting.Lower, lighting.Diffuse })
@@ -61,6 +64,13 @@ internal static class PixelShader
         {
             signatures.Link(produced.Find(true, "TANGENT", 4 + 2 * layer));
             bitangents[layer] = "xyz".Select((axis, i) => Load("TANGENT", 4 + 2 * layer, i, $"b{layer}{axis}")).ToArray();
+        }
+        string[] view = [], sun = [];
+        if (air is not null)
+        {
+            signatures.Link(produced.Find(true, "TANGENT", 8)); signatures.Link(produced.Find(true, "TANGENT", 10));
+            view = "xyz".Select((axis, i) => Load("TANGENT", 8, i, "view" + axis)).ToArray();
+            sun = "xyz".Select((axis, i) => Load("TANGENT", 10, i, "sun" + axis)).ToArray();
         }
         foreach (var (id, mask) in used) signatures.Use(false, id, mask);
         int Target(int index) => signatures.Find(true, "SV_Target", index).Id;
@@ -275,6 +285,34 @@ internal static class PixelShader
             string light = Mad("light" + c, Emit("env" + c, $"extractvalue %dx.types.ResRet.f32 {environment}, {i}"), Float(lighting.Environment[i]),
                 Mad("hemi" + c, hemisphere, Float(lighting.Upper[i] - lighting.Lower[i]), Float(lighting.Lower[i])));
             lit[i] = Emit("sourcelit" + c, $"fmul fast float {light}, " + Emit("sourcealbedo" + c, $"fmul fast float {colour}, {Float(lighting.Diffuse[i])}"));
+        }
+        if (air is not null)
+        {
+            // The source fogs and scatters its gamma-encoded colour, then returns to linear light.
+            string distance = Unary("airdistance", 24, Dot3("airsquare", view));
+            string cosine = Emit("aircosine", $"fdiv fast float " + Emit("airalong", "fsub fast float -0.000000e+00, "
+                + Emit("airdot", $"call float @dx.op.dot3.f32(i32 55, float {view[0]}, float {view[1]}, float {view[2]}, float {sun[0]}, float {sun[1]}, float {sun[2]})")) + $", {distance}");
+            string fog = Unary("fog", 7, Emit("fogscaled", "fmul fast float " + Unary("fogdepth", 7, Emit("fogramp", "fmul fast float "
+                + Emit("fogoffset", $"fsub fast float {view[2]}, {Float(air.FogBegin)}") + ", " + Float(air.FogScale))) + ", " + Float(air.FogLimit)));
+            string rayleigh = Mad("airrayleigh", cosine, cosine, "1.000000e+00");
+            string lobe = Emit("airlobe", $"fsub fast float {Float(air.Phase[1])}, " + Emit("airlobescaled", $"fmul fast float {cosine}, {Float(air.Phase[2])}"));
+            // The forward-scattering lobe: its strength over the lobe term to the power one and a half.
+            string mie = Emit("airmie", "fmul fast float " + Emit("airmiebase", "fmul fast float " + Emit("airlobeinverse", $"fdiv fast float 1.000000e+00, {lobe}")
+                + ", " + Unary("airloberoot", 25, lobe)) + ", " + Float(air.Phase[0]));
+            for (int i = 0; i < 3; i++)
+            {
+                char c = "rgb"[i];
+                string encoded = Unary("airencoded" + c, 21, Emit("airgamma" + c, "fmul fast float " + Unary("airlog" + c, 23, Unary("airabs" + c, 6, lit[i])) + ", " + Float(1 / 2.2f)));
+                string fogged = Mad("airfogged" + c, Emit("airfogdelta" + c, $"fsub fast float {Float(air.FogColour[i])}, {encoded}"), fog, encoded);
+                // 2.0813689 is the source's own exponent scale for its base-two extinction.
+                string kept = Unary("airkept" + c, 21, Emit("airdepth" + c, $"fmul fast float {distance}, {Float(-air.Extinction[i] * air.Distance * 2.0813689f)}"));
+                string added = Emit("airadded" + c, "fmul fast float " + Emit("airgained" + c, "fmul fast float "
+                    + Mad("airphase" + c, mie, Float(air.BetaDashMie[i]), Emit("airphaser" + c, $"fmul fast float {rayleigh}, {Float(air.BetaDashRayleigh[i])}"))
+                    + ", " + Emit("airlost" + c, $"fsub fast float 1.000000e+00, {kept}")) + ", " + Float(air.ReflectanceStrength * air.SunColour[i] / air.Extinction[i]));
+                string scattered = Mad("airscattered" + c, Emit("airthrough" + c, $"fmul fast float {fogged}, {kept}"), Float(air.Reflectance[i]), added);
+                string mixed = Mad("airmixed" + c, Emit("airdelta" + c, $"fsub fast float {scattered}, {fogged}"), Float(air.Blend), fogged);
+                lit[i] = Unary("airlit" + c, 21, Emit("airlinear" + c, "fmul fast float " + Unary("airloglit" + c, 23, Unary("airabslit" + c, 6, mixed)) + ", " + Float(2.2f)));
+            }
         }
         if (cutout is { } threshold)
         {
