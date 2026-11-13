@@ -57,7 +57,7 @@ internal static class PixelShaderCheck
         """;
 
     private static readonly PixelShader.LayerSlots Slots = new(0, [1, 4], [2, 3]);
-    private static readonly PixelShader.Targets Targets = new(0, 2, 4);
+    private static readonly PixelShader.Targets Targets = new(0, 2, 4, -0.5f);
     private static readonly PixelShader.GroundLighting Lighting = new([9.5f, 10.25f, 11f], [0.2f, 0.25f, 0.3f], [0.05f, 0.0625f, 0.075f], [0.5f, 0.375f, 0.25f]);
 
     internal static void Run()
@@ -113,7 +113,7 @@ internal static class PixelShaderCheck
                 Near(actual, 0, world * 0.5f + new Vector3(0.5f), "blended world normal");
                 Near(actual, 2, Vector3.Zero, "colour target must be cleared for emitted light");
                 Near(actual, 4, light * colour * new Vector3(Lighting.Diffuse), "source-lit colour");
-                if (actual[(4, 3)] != -1 || MathF.Abs(actual[(1, 1)] - Math.Clamp(p0 + (p1 - p0) * alpha, 0, 1)) > 2e-5f
+                if (actual[(4, 3)] != -0.5f || MathF.Abs(actual[(1, 1)] - Math.Clamp(p0 + (p1 - p0) * alpha, 0, 1)) > 2e-5f
                     || actual[(0, 3)] != host[(0, 3)] || actual[(3, 3)] != host[(3, 3)])
                     throw new Exception("Lit marker, packed normal channel or untouched targets differ");
             }

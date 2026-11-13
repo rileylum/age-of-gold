@@ -70,7 +70,9 @@ internal static class FirelinkReferenceCheck
             }
             var mine = Evaluate(maintained); var expected = Evaluate(accepted);
             if (!mine.Keys.Order().SequenceEqual(expected.Keys.Order())) throw new Exception("Maintained ground program writes different targets");
-            foreach (var (key, value) in expected)
+            // The accepted program marks its emitted light for a later composition stage that is not built yet.
+            if (mine[(4, 3)] != 0 || expected[(4, 3)] != -1) throw new Exception("Unexpected emission weights");
+            foreach (var (key, value) in expected.Where(p => p.Key != (4, 3)))
             {
                 double error = Math.Abs(value - mine[key]) / Math.Max(1, Math.Abs(value));
                 if (!(error <= 2e-4)) throw new Exception($"Maintained ground program differs at target {key}: {mine[key]} != {value}");

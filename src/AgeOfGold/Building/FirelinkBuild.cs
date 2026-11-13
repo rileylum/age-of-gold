@@ -18,7 +18,8 @@ internal static class FirelinkBuild
 {
     private const string Map = "m10_01_00_00", HostFamily = "M[AMSN_V][Mb2]", DonorFamily = "M[AMSN][Mb2]", GroundFamily = "aog_ground";
     // The host's deferred targets as its installed opaque programs write them: encoded normal, surface colour, emitted light.
-    private static readonly PixelShader.Targets HostTargets = new(0, 2, 4);
+    // lazy: zero emission weight keeps the host from adding glow; the source local lights need the light-composition stage and its marker.
+    private static readonly PixelShader.Targets HostTargets = new(0, 2, 4, 0);
 
     internal static void Run(string sourcePath, string hostPath, string outputPath, ShaderCompiler compiler, string toolchain)
     {

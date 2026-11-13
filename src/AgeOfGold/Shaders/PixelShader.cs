@@ -9,8 +9,8 @@ internal static class PixelShader
     /// <summary>Texture registers by role: the environment cube and each layer's colour and normal.</summary>
     internal sealed record LayerSlots(int Environment, int[] Colour, int[] Normal);
 
-    /// <summary>The host's G-buffer render targets by role.</summary>
-    internal sealed record Targets(int Normal, int Colour, int Emission);
+    /// <summary>The host's G-buffer render targets by role, and the weight written beside emitted light.</summary>
+    internal sealed record Targets(int Normal, int Colour, int Emission, float EmissionWeight);
 
     /// <summary>Linear RGB factors: environment gain, upper and lower hemisphere light, and the material's diffuse multiplier.</summary>
     internal sealed record GroundLighting(float[] Environment, float[] Upper, float[] Lower, float[] Diffuse);
@@ -281,8 +281,8 @@ internal static class PixelShader
             var store = stored.Match(Code(i));
             if (!store.Success) continue;
             int id = int.Parse(store.Groups["id"].Value, CultureInfo.InvariantCulture), column = store.Groups["column"].Value[0] - '0';
-            // A negative emission weight marks the target as light already accumulated by this program.
-            string? value = id == colourTarget && column < 3 ? "0.000000e+00" : id == emissionTarget ? column < 3 ? lit[column] : "-1.000000e+00" : null;
+            // With no surface colour left, the host's own lighting adds nothing to the light emitted here.
+            string? value = id == colourTarget && column < 3 ? "0.000000e+00" : id == emissionTarget ? column < 3 ? lit[column] : Float(targets.EmissionWeight) : null;
             if (value is null) continue;
             if (!replaced.Add((id, column))) throw new InvalidDataException("Ambiguous colour or emission target store");
             edits[i] = $"  call void @dx.op.storeOutput.f32(i32 5, i32 {id}, i32 0, i8 {column}, float {value})";
