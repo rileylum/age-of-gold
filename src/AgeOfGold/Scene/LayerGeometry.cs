@@ -12,7 +12,8 @@ internal static class LayerGeometry
     {
         var material = surface.GetProperty("material");
         bool single = LayerMaterial.Single(material), sways = LayerMaterial.Sways(material);
-        foreach (var (name, channel) in single ? new[] { ("g_Diffuse", 0), ("g_Bumpmap", 0) }
+        bool colourOnly = LayerMaterial.ColourOnly(material);
+        foreach (var (name, channel) in colourOnly ? new[] { ("g_Diffuse", 0) } : single ? new[] { ("g_Diffuse", 0), ("g_Bumpmap", 0) }
             : new[] { ("g_Diffuse", 0), ("g_Bumpmap", 0), ("g_Diffuse_2", 1), ("g_Bumpmap_2", 1) })
         {
             if (material.GetProperty("coordinates").EnumerateArray().Single(c => c.GetProperty("input").GetString() == name)
@@ -24,13 +25,16 @@ internal static class LayerGeometry
                 throw new InvalidDataException("Unsupported independent-layer texture scale");
         var vertices = surface.GetProperty("vertices").EnumerateArray().Select(v =>
         {
-            if (v.GetProperty("uvs").GetArrayLength() != (sways ? 3 : single ? 1 : 2) || v.GetProperty("tangents").GetArrayLength() != 1
+            if (v.GetProperty("uvs").GetArrayLength() != (sways ? 3 : single ? 1 : 2) || v.GetProperty("tangents").GetArrayLength() != (colourOnly ? 0 : 1)
                 || v.GetProperty("colours").GetArrayLength() != 1 || !single && v.GetProperty("secondaryTangent").ValueKind != JsonValueKind.Array)
                 throw new InvalidDataException("Independent layer vertex lacks its mappings, frames or colour");
             var position = V3(v.GetProperty("position")); var normal = V3(v.GetProperty("normal"));
             // A one-layer surface repeats its mapping and frame for the host's second layer.
             var uv = V3(v.GetProperty("uvs")[0]); var secondary = single ? uv : V3(v.GetProperty("uvs")[1]);
-            var tangent = V4(v.GetProperty("tangents")[0]); var other = single ? tangent : V4(v.GetProperty("secondaryTangent"));
+            // A surface without a normal map stores no tangent; any unit vector across the normal completes its frame.
+            var tangent = colourOnly ? new Vector4(Vector3.Normalize(Vector3.Cross(normal, MathF.Abs(normal.Y) < 0.9f * normal.Length() ? Vector3.UnitY : Vector3.UnitX)), 1)
+                : V4(v.GetProperty("tangents")[0]);
+            var other = single ? tangent : V4(v.GetProperty("secondaryTangent"));
             var colour = V4(v.GetProperty("colours")[0]);
             if (uv.Z != 0 || secondary.Z != 0 || Math.Abs(tangent.W) != 1 || Math.Abs(other.W) != 1 || normal.LengthSquared() == 0)
                 throw new InvalidDataException("Unsupported independent-layer coordinate or tangent encoding");

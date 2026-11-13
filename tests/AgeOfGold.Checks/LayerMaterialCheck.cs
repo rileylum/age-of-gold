@@ -56,6 +56,17 @@ internal static class LayerMaterialCheck
         foreach (string plant in new[] { @"N:\authored\FRPG_Foliage_ColDifSpcBmp.spx", @"N:\authored\FRPG_Ivy_ColDifSpcBmp.spx" })
             if (LayerMaterial.Read(Single(plant, blend: 1)) != single || LayerMaterial.Layers(Single(plant)) != 1 || LayerMaterial.Layers(Single(plant, blend: 2)) != 0)
                 throw new Exception("Foliage is not classified as one lit layer");
+        // A colour-only surface (the sky) fills the normal and packed roles with authored neutral textures.
+        var sky = JsonSerializer.SerializeToElement(new { definition = "authored", shader = @"N:\authored\FRPG_Phn_ColDif.spx", blendMode = 32,
+            textures = new[] { new { input = "g_Diffuse", texture = "colour-a", scale = new[] { 1f, 1f } }, new { input = "g_DetailBumpmap", texture = "", scale = new[] { 1f, 1f } } },
+            coordinates = new[] { new { input = "g_Diffuse", channel = 0 }, new { input = "g_DetailBumpmap", channel = 0 } } });
+        var plain = LayerMaterial.Read(sky);
+        if (plain.First != plain.Second || plain.First != new LayerMaterial.Layer("colour-a", NeutralTextures.FlatNormal, NeutralTextures.Neutral) || LayerMaterial.Cutout(sky))
+            throw new Exception("Colour-only surface does not use neutral normal and packed textures");
+        var flat = new DDS(NeutralTextures.Bytes(NeutralTextures.FlatNormal)); var neutral = new DDS(NeutralTextures.Bytes(NeutralTextures.Neutral));
+        if (flat.GetDXGIFormat() != DDS.DXGI_FORMAT.BC5_UNORM || neutral.GetDXGIFormat() != DDS.DXGI_FORMAT.BC1_UNORM || flat.dwWidth != 4 || neutral.dwHeight != 4
+            || !NeutralTextures.Bytes(NeutralTextures.FlatNormal).AsSpan(flat.DataOffset).SequenceEqual(new byte[] { 128, 128, 0, 0, 0, 0, 0, 0, 128, 128, 0, 0, 0, 0, 0, 0 }))
+            throw new Exception("Authored neutral textures are not one flat block");
         Console.WriteLine("PASS: ground colour, normal, packed and environment roles bind by layer and semantic; unsupported mappings fail");
     }
 

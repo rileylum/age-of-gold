@@ -84,6 +84,17 @@ internal static class LayerGeometryCheck
         }));
         Require(plant.Vertices.All(v => v.Primary == v.Secondary) && plant.Vertices[2].Primary == new Vector2(0, 1) && !plant.CullBackfaces,
             "foliage does not take its texture mapping from its first coordinate set");
+        var dome = LayerGeometry.Read(System.Text.Json.JsonSerializer.SerializeToElement(new
+        {
+            material = new { definition = "authored", shader = @"N:\authored\FRPG_Phn_ColDif.spx", blendMode = 32,
+                textures = new[] { new { input = "g_Diffuse", texture = "colour", scale = new[] { 1f, 1f } } },
+                coordinates = new[] { new { input = "g_Diffuse", channel = 0 } } },
+            indices = new[] { 0, 1, 2 }, cullBackfaces = true,
+            vertices = new[] { (0f, 0f), (1f, 0f), (0f, 1f) }.Select(p => new { position = new[] { p.Item1, 0f, p.Item2 }, normal = new[] { 0f, 1f, 0f },
+                uvs = new[] { new[] { p.Item1, p.Item2, 0f } }, tangents = Array.Empty<float[]>(), secondaryTangent = (float[]?)null, colours = new[] { new[] { 1f, 1f, 1f, 1f } } }),
+        }));
+        Require(dome.Vertices.All(v => MathF.Abs(new Vector3(v.Tangent.X, v.Tangent.Y, v.Tangent.Z).Length() - 1) < 1e-6f && MathF.Abs(Vector3.Dot(new(v.Tangent.X, v.Tangent.Y, v.Tangent.Z), v.Normal)) < 1e-6f
+            && v.Tangent.W == 1 && v.Tangent == v.SecondaryTangent), "a surface without tangents does not receive a unit tangent across its normal");
         Console.WriteLine("PASS: split geometry retains both texture mappings, signed frames, colours, alpha, area and winding");
     }
 

@@ -75,25 +75,27 @@ internal static class FirelinkBuild
         // First pass: classify each model's surfaces and collect texture names; geometry is read again when its model is built.
         var renderer = SourceRendererSettings.Read(source);
         var environmentSettings = SourceEnvironmentSettings.Read(source, toolchain);
-        var models = new List<(string Name, Dictionary<int, (float R, float G, float B)> Surfaces, string[] Textures)>();
+        var models = new List<(string Name, Dictionary<int, (float R, float G, float B, bool Unlit)> Surfaces, string[] Textures)>();
         foreach (string name in reader.Models)
         {
             using var model = JsonDocument.Parse(reader.ReadModel(name));
-            var ground = new Dictionary<int, (float, float, float)>(); var textures = new List<string>();
+            var ground = new Dictionary<int, (float, float, float, bool)>(); var textures = new List<string>();
             foreach (var surface in model.RootElement.GetProperty("surfaces").EnumerateArray())
             {
                 var material = surface.GetProperty("material");
                 string definition = material.GetProperty("definition").GetString()!;
                 if (LayerMaterial.Layers(material) == 0) { unbuilt[definition] = unbuilt.GetValueOrDefault(definition) + 1; continue; }
                 var parameters = material.GetProperty("parameters");
-                // The source applies its environment light only to materials in the renderer's environment mode.
-                if (parameters.GetProperty("g_LightingType").GetInt32() != environmentSettings.LightingType)
+                // The source applies its environment light only to materials in the renderer's environment mode; type zero is unlit.
+                int lightingType = parameters.GetProperty("g_LightingType").GetInt32();
+                if (lightingType != 0 && lightingType != environmentSettings.LightingType)
                     throw new InvalidDataException("Opaque material uses an unclassified lighting type: " + name);
                 float power = parameters.GetProperty("g_DiffuseMapColorPower").GetSingle();
                 var tint = parameters.GetProperty("g_DiffuseMapColor").EnumerateArray().Select(v => MathF.Pow(v.GetSingle() * power, 2.2f)).ToArray();
                 if (tint.Length != 3) throw new InvalidDataException("Unsupported diffuse multiplier: " + name);
-                ground.Add(surface.GetProperty("index").GetInt32(), (tint[0], tint[1], tint[2]));
-                textures.AddRange(material.GetProperty("textures").EnumerateArray().Select(t => t.GetProperty("texture").GetString()!).Where(n => n != ""));
+                ground.Add(surface.GetProperty("index").GetInt32(), (tint[0], tint[1], tint[2], lightingType == 0));
+                var layers = LayerMaterial.Read(material);
+                textures.AddRange(new[] { layers.First, layers.Second }.SelectMany(l => new[] { l.Colour, l.Normal, l.Packed }));
             }
             if (ground.Count != 0) models.Add((name, ground, textures.ToArray()));
         }
@@ -135,7 +137,7 @@ internal static class FirelinkBuild
         // Lighting, air and the diffuse multiplier are compiled into the programs, so each combination has its own shader family and material.
         var airRows = SourceAirReader.Read(source);
         var keys = models.SelectMany(m => m.Surfaces.Values.Select(d => (Rows: rowOf[m.Name], Diffuse: d))).Distinct().Order().ToArray();
-        string Family((int Light, int Fog, int Scattering) rows, (float, float, float) diffuse) =>
+        string Family((int Light, int Fog, int Scattering) rows, (float, float, float, bool) diffuse) =>
             $"{GroundFamily}_{rows.Light}_{rows.Fog}_{rows.Scattering}_{Array.IndexOf(keys.Where(k => k.Rows == rows).Select(k => k.Diffuse).ToArray(), diffuse)}";
         var families = new SortedDictionary<string, (PixelShader.GroundLighting Lighting, SourceAir.Values? Air)>(StringComparer.Ordinal);
         foreach (var (rows, diffuse) in keys)
@@ -146,8 +148,10 @@ internal static class FirelinkBuild
             SourceAir.Values? air = airRows.Fog.TryGetValue(rows.Fog, out var fog) && airRows.Scattering.TryGetValue(rows.Scattering, out var scattering)
                 ? SourceAir.Constants(scattering, fog) : rows.Fog == 255 && rows.Scattering == 255 ? null
                 : throw new InvalidDataException("Scenery selects a missing fog or scattering row");
-            families.Add(Family(rows, diffuse), (new(Rgb("gFC_EnvDifMapMulCol").Select(v => v * environmentSettings.Strength).ToArray(),
-                Rgb("gFC_HemAmbCol_u"), Rgb("gFC_HemAmbCol_d"), [diffuse.Item1, diffuse.Item2, diffuse.Item3]), air));
+            // An unlit surface shows its own colour: no environment light and a uniform unit hemisphere.
+            float[] tint = [diffuse.Item1, diffuse.Item2, diffuse.Item3];
+            families.Add(Family(rows, diffuse), (diffuse.Item4 ? new([0, 0, 0], [1, 1, 1], [1, 1, 1], tint)
+                : new(Rgb("gFC_EnvDifMapMulCol").Select(v => v * environmentSettings.Strength).ToArray(), Rgb("gFC_HemAmbCol_u"), Rgb("gFC_HemAmbCol_d"), tint), air));
         }
         var environments = models.ToDictionary(m => m.Name, m =>
         {
@@ -164,7 +168,8 @@ internal static class FirelinkBuild
         // Texture packages are stored compressed like the host's other loose map files.
         DCX.Decompress(archive.Read($"map/m10/{Map}/{Map}_000000.mapbnd.dcx"), out var packageCompression);
         var textureWriter = new TextureWriter(textureTemplate, packageCompression);
-        var raw = TextureReader.Read(source, required).ToDictionary(t => t.Name, t => t.Bytes, StringComparer.Ordinal);
+        var raw = TextureReader.Read(source, required.Where(n => !NeutralTextures.Is(n))).ToDictionary(t => t.Name, t => t.Bytes, StringComparer.Ordinal);
+        foreach (string neutral in required.Where(NeutralTextures.Is)) raw.Add(neutral, NeutralTextures.Bytes(neutral));
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
         if (required.Length > 1000) throw new InvalidDataException("Texture namespace exhausted");
         for (int i = 0; i < required.Length; i++)

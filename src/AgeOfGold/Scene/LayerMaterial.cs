@@ -15,6 +15,8 @@ internal sealed record LayerMaterial(LayerMaterial.Layer First, LayerMaterial.La
         return (shader, material.GetProperty("blendMode").GetInt32()) switch
         {
             ("FRPG_Phn_ColDifSpcBmp", 0 or 1 or 2) => 1, ("FRPG_Phn_ColDifSpcBmpMul", 0) => 2,
+            // The sky dome: colour only, drawn behind everything in the source.
+            ("FRPG_Phn_ColDif", 32) => 1,
             // lazy: foliage and ivy are lit as plain surfaces; their wind sway needs the vertex stage and their extra coordinate sets.
             ("FRPG_Foliage_ColDifSpcBmp" or "FRPG_Ivy_ColDifSpcBmp", 0 or 1) => 1,
             _ => 0,
@@ -24,6 +26,10 @@ internal sealed record LayerMaterial(LayerMaterial.Layer First, LayerMaterial.La
     /// <summary>Whether a one-layer material's vertices carry wind coordinate sets after the texture mapping.</summary>
     internal static bool Sways(JsonElement material) => Path.GetFileNameWithoutExtension(material.GetProperty("shader").GetString()!.Replace('\\', '/'))
         is "FRPG_Foliage_ColDifSpcBmp" or "FRPG_Ivy_ColDifSpcBmp";
+
+    /// <summary>Whether a one-layer material has a colour texture only, with no normal or packed texture.</summary>
+    internal static bool ColourOnly(JsonElement material) => Path.GetFileNameWithoutExtension(material.GetProperty("shader").GetString()!.Replace('\\', '/'))
+        is "FRPG_Phn_ColDif";
 
     /// <summary>Whether the surface's alpha removes pixels.</summary>
     // lazy: blended surfaces are cut out too, as in the accepted playtest, until forward blending is translated.
@@ -38,7 +44,8 @@ internal sealed record LayerMaterial(LayerMaterial.Layer First, LayerMaterial.La
     internal static LayerMaterial Read(JsonElement material)
     {
         bool single = Single(material);
-        string[] inputs = single ? ["g_Diffuse", "g_Bumpmap", "g_Specular"]
+        bool colourOnly = ColourOnly(material);
+        string[] inputs = colourOnly ? ["g_Diffuse"] : single ? ["g_Diffuse", "g_Bumpmap", "g_Specular"]
             : ["g_Diffuse", "g_Bumpmap", "g_Specular", "g_Diffuse_2", "g_Bumpmap_2", "g_Specular_2"];
         // Some definitions omit the unused detail input altogether.
         if (material.GetProperty("textures").EnumerateArray().Any(t => t.GetProperty("input").GetString() == "g_DetailBumpmap"))
@@ -61,7 +68,8 @@ internal sealed record LayerMaterial(LayerMaterial.Layer First, LayerMaterial.La
                 throw new InvalidDataException($"Unsupported layered texture binding: {input}");
             names.Add(input, name);
         }
-        var first = new Layer(names["g_Diffuse"], names["g_Bumpmap"], names["g_Specular"]);
+        var first = colourOnly ? new Layer(names["g_Diffuse"], NeutralTextures.FlatNormal, NeutralTextures.Neutral)
+            : new Layer(names["g_Diffuse"], names["g_Bumpmap"], names["g_Specular"]);
         return new(first, single ? first : new(names["g_Diffuse_2"], names["g_Bumpmap_2"], names["g_Specular_2"]));
     }
 }
