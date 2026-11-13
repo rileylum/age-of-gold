@@ -11,9 +11,11 @@ internal sealed class TextureWriter
     private readonly DCX.CompressionInfo? compression;
     private readonly byte? environmentFormat;
 
-    internal TextureWriter(byte[] template)
+    /// <summary>Follows the template's container settings; <paramref name="compression"/> overrides the template's own.</summary>
+    internal TextureWriter(byte[] template, DCX.CompressionInfo? compression = null)
     {
-        var bytes = DCX.Is(template) ? DCX.Decompress(template, out compression) : template;
+        var bytes = DCX.Is(template) ? DCX.Decompress(template, out this.compression) : template;
+        if (compression is not null) this.compression = compression;
         if (bytes.Length < 16 || bytes[12] != 0)
             throw new InvalidDataException("Host texture template must be a PC container");
         var textures = TextureReader.ReadPackage(bytes).ToArray();

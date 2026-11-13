@@ -143,7 +143,9 @@ internal static class FirelinkBuild
         var textureTemplate = environmentBinder.Files.Select(f => DCX.Is(f.Bytes) ? DCX.Decompress(f.Bytes) : f.Bytes)
             .FirstOrDefault(b => b.Length > 36 && b[25] == 1 && new DDS(TextureReader.ReadPackage(b).First().Bytes).GetDXGIFormat() == DDS.DXGI_FORMAT.BC6H_UF16)
             ?? throw new InvalidDataException("Host install lacks an HDR cube texture template");
-        var textureWriter = new TextureWriter(textureTemplate);
+        // Texture packages are stored compressed like the host's other loose map files.
+        DCX.Decompress(archive.Read($"map/m10/{Map}/{Map}_000000.mapbnd.dcx"), out var packageCompression);
+        var textureWriter = new TextureWriter(textureTemplate, packageCompression);
         var raw = TextureReader.Read(source, required).ToDictionary(t => t.Name, t => t.Bytes, StringComparer.Ordinal);
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
         if (required.Length > 1000) throw new InvalidDataException("Texture namespace exhausted");

@@ -17,10 +17,14 @@ internal static class TextureWriterCheck
             else { dds.ddspf.dwFourCC = "DX10"; dds.header10 = new() { dxgiFormat = format }; }
             var source = dds.Write(payload);
             var template = Fixture(source);
+            var packed = new TextureWriter(template, new DCX.DcxDfltCompressionInfo(DCX.DfltCompressionPreset.DCX_DFLT_10000_24_9));
             var writer = new TextureWriter(template);
             var output = writer.Write("AUTHORED_test_a", source, false);
             if (!output.SequenceEqual(writer.Write("AUTHORED_test_a", source, false))) throw new Exception("Texture packaging repeat differs");
             Check(output, payload, packageFormat, format);
+            var compressed = packed.Write("AUTHORED_test_a", source, false);
+            if (!DCX.Is(compressed) || DCX.Is(output) || !DCX.Decompress(compressed).SequenceEqual(output))
+                throw new Exception("Explicit package compression was not applied to the same package bytes");
             if (format == DDS.DXGI_FORMAT.BC5_UNORM)
                 Reject(() => writer.Write("AUTHORED_test_a", source, true), "sRGB normal format");
             else

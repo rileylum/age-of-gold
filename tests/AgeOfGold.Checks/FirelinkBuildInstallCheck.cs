@@ -38,6 +38,13 @@ internal static class FirelinkBuildInstallCheck
         foreach (var (path, hash) in recorded)
             if (Hash(File.ReadAllBytes(Path.Combine(first, path))) != hash) throw new Exception("Manifest fingerprint differs: " + path);
 
+        // The host waits indefinitely on a file named as compressed that is not.
+        foreach (var file in files.Where(f => f.EndsWith(".dcx", StringComparison.Ordinal)))
+        {
+            using var stream = File.OpenRead(Path.Combine(first, file));
+            var magic = new byte[4]; stream.ReadExactly(magic);
+            if (!magic.AsSpan().SequenceEqual("DCX\0"u8)) throw new Exception("Built file is named compressed but is not: " + file);
+        }
         string mod = Path.Combine(first, "mod");
         var layout = MSBE.Read(Path.Combine(mod, "map/mapstudio/m10_01_00_00.msb.dcx"));
         var pieces = layout.Parts.MapPieces.Where(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable).ToArray();
