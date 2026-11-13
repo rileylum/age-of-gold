@@ -12,9 +12,15 @@ internal sealed record LayerMaterial(LayerMaterial.Layer First, LayerMaterial.La
         // The source shader, not the definition's name, decides how its inputs are shaded.
         string shader = Path.GetFileNameWithoutExtension(material.GetProperty("shader").GetString()!.Replace('\\', '/'));
         // lazy: the opaque lit families only; cutout, blended, lightmapped and foliage shaders need their own translations.
-        if (material.GetProperty("blendMode").GetInt32() != 0) return 0;
-        return shader switch { "FRPG_Phn_ColDifSpcBmp" => 1, "FRPG_Phn_ColDifSpcBmpMul" => 2, _ => 0 };
+        return (shader, material.GetProperty("blendMode").GetInt32()) switch
+        {
+            ("FRPG_Phn_ColDifSpcBmp", 0 or 1 or 2) => 1, ("FRPG_Phn_ColDifSpcBmpMul", 0) => 2, _ => 0,
+        };
     }
+
+    /// <summary>Whether the surface's alpha removes pixels.</summary>
+    // lazy: blended surfaces are cut out too, as in the accepted playtest, until forward blending is translated.
+    internal static bool Cutout(JsonElement material) => material.GetProperty("blendMode").GetInt32() is 1 or 2;
 
     /// <summary>Whether an opaque source material has one layer; two-layer materials return false and others are rejected.</summary>
     internal static bool Single(JsonElement material) => Layers(material) switch

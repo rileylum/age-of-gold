@@ -191,9 +191,17 @@ internal static class FirelinkBuild
                 var bound = MaterialWriter.BindLayers(hostDefinition.Bytes, metadata, donorDefinition, donorMetadata,
                     LayerMaterial.Read(s.GetProperty("material")), names, names[environments[model.Name]]);
                 var definition = MATBIN.Read(bound.Definition);
-                definition.SourcePath = Rename(definition.SourcePath, family); definition.ShaderPath = Rename(definition.ShaderPath, family);
+                // A cutout shares its family's programs; only its definition asks the host for the alpha-tested stages.
+                bool cutout = LayerMaterial.Cutout(s.GetProperty("material"));
+                string identity = cutout ? family + "_cutout" : family;
+                definition.SourcePath = Rename(definition.SourcePath, identity); definition.ShaderPath = Rename(definition.ShaderPath, family);
+                var alpha = definition.Params.Single(p => p.Name == "g_AlphaRef");
+                if (alpha.Value is not int[] { Length: 2 } reference || reference[0] != 0) throw new InvalidDataException("Unsupported host alpha reference parameter");
+                // lazy: the source's fixed half-coverage threshold, as in the accepted playtest; no source material overrides it here.
+                if (cutout) alpha.Value = new[] { 128, reference[1] };
                 bound = bound with { Definition = definition.Write() };
                 groundMetadata ??= bound.Metadata;
+                family = identity;
                 if (!groundDefinitions.TryAdd(family, bound.Definition) && !bound.Definition.AsSpan().SequenceEqual(groundDefinitions[family])
                     || !bound.Metadata.AsSpan().SequenceEqual(groundMetadata))
                     throw new InvalidDataException("Opaque surfaces need more than one material definition per shader family");
@@ -240,7 +248,7 @@ internal static class FirelinkBuild
                         vertexStages.Add(suffix, stage = compiler.Assemble(VertexShader.AddLayerFrames(compiler.Disassemble(bytes), outputRow), bytes));
                     return stage;
                 }
-                if (suffix == "_Gbuf.ppo")
+                if (suffix is "_Gbuf.ppo" or "_Gbuf_[A].ppo")
                     return compiler.Assemble(PixelShader.ComposeLayeredGround(compiler.Disassemble(bytes), forwarding, slots, HostTargets, family.Value), bytes);
                 return bytes;
             }))).ToArray()));

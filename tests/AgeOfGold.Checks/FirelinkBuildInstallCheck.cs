@@ -55,7 +55,7 @@ internal static class FirelinkBuildInstallCheck
         var materials = BND4.Read(Path.Combine(mod, "material/allmaterial.matbinbnd.dcx")).Files
             .ToLookup(f => string.Join('/', f.Name.Replace('\\', '/').Split('/')[^3..]).ToLowerInvariant(), f => f.Bytes);
         var shaders = File.ReadAllBytes(Path.Combine(mod, "shader/shaderbdle.shaderbdlebnd.dcx"));
-        int surfaces = 0; var families = new HashSet<string>(StringComparer.Ordinal);
+        int surfaces = 0, cutouts = 0; var families = new HashSet<string>(StringComparer.Ordinal);
         foreach (var model in pieces.Select(p => p.ModelName).Distinct())
         {
             var binder = BND4.Read(Path.Combine(mod, $"map/m10/m10_01_00_00/m10_01_00_00_{model[1..]}.mapbnd.dcx"));
@@ -69,6 +69,9 @@ internal static class FirelinkBuildInstallCheck
                 if (matches.Length != 1) throw new Exception("Built model material does not resolve to one definition: " + material.MTD);
                 var definition = MATBIN.Read(matches[0]);
                 string family = Path.GetFileNameWithoutExtension(definition.ShaderPath.Replace('\\', '/'));
+                bool cut = definition.Params.Single(p => p.Name == "g_AlphaRef").Value is int[] { Length: 2 } alpha && alpha[0] != 0;
+                if (cut != material.MTD.EndsWith("_cutout.mtd", StringComparison.Ordinal)) throw new Exception("Cutout material identity and alpha reference disagree");
+                cutouts += cut ? 1 : 0;
                 families.Add(family);
                 using var bundle = new BND4Reader(ShaderArchive.ReadFamily(shaders, family + ".shaderbdle"));
                 var metadata = METAPARAM.Read(bundle.ReadFile(bundle.Files.Single(f => f.Name.EndsWith(".metaparam", StringComparison.Ordinal))));
@@ -86,7 +89,7 @@ internal static class FirelinkBuildInstallCheck
                 surfaces++;
             }
         }
-        if (surfaces != 206) throw new Exception("Built opaque surface inventory differs");
+        if (surfaces != 244 || cutouts != 38) throw new Exception("Built opaque and cutout surface inventory differs");
         var lit = manifest.RootElement.GetProperty("groundFamilies").EnumerateObject().Select(f => f.Name).Order(StringComparer.Ordinal).ToArray();
         if (!lit.SequenceEqual(families.Order(StringComparer.Ordinal))) throw new Exception("Built models do not use exactly the recorded lit ground families");
         foreach (string family in families)
@@ -98,7 +101,9 @@ internal static class FirelinkBuildInstallCheck
                 var signatures = new ShaderSignatures(compiler.Disassemble(bundle.ReadFile(stage)));
                 rows.Add(string.Join(",", new[] { 2, 4, 6 }.Select(index => signatures.Require(true, "TANGENT", index, 9).Row)));
             }
-            var pixel = compiler.Disassemble(bundle.ReadFile(bundle.Files.Single(f => f.Name.EndsWith(family + "_Gbuf.ppo", StringComparison.Ordinal))));
+            foreach (string variant in new[] { "_Gbuf.ppo", "_Gbuf_[A].ppo" })
+            {
+            var pixel = compiler.Disassemble(bundle.ReadFile(bundle.Files.Single(f => f.Name.EndsWith(family + variant, StringComparison.Ordinal))));
             var inputs = new ShaderSignatures(pixel, "ps");
             // Every vertex variant feeds the one pixel stage, so they must agree on the added registers.
             rows.Add(string.Join(",", new[] { 4, 6 }.Select(index => inputs.Find(false, "TANGENT", index).Row).Prepend(inputs.Find(false, "TANGENT", 4).Row - 1)));
@@ -106,6 +111,8 @@ internal static class FirelinkBuildInstallCheck
             var declared = METAPARAM.Read(bundle.ReadFile(bundle.Files.Single(f => f.Name.EndsWith(".metaparam", StringComparison.Ordinal))));
             if (!pixel.Contains("TextureCube", StringComparison.Ordinal) || (declared.ShaderId & 0x800) == 0)
                 throw new Exception("Built ground pixel stage lacks its environment cube or emission writes");
+            rows.RemoveAt(rows.Count - 1);
+            }
         }
         if (!File.ReadAllText(Path.Combine(first, "age-of-gold.me3")).Contains("start_online = false", StringComparison.Ordinal))
             throw new Exception("Mod loader profile does not keep the game offline");

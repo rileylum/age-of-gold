@@ -32,10 +32,10 @@ internal static class LayerMaterialCheck
         var ambiguous = ShaderMetadataCheck.Fixture(7, "unused", labels, groups, types);
         Reject(() => MaterialWriter.BindLayers(Definition(5), metadata, Definition(7), ambiguous, material, paths, "AUTHORED_env.tif"));
         // A one-layer source surface fills both host layers with the same inputs; a two-layer shader never does so silently.
-        JsonElement Single(string shader, string detail = "", string extra = "g_DetailBumpmap")
+        JsonElement Single(string shader, string detail = "", string extra = "g_DetailBumpmap", int blend = 0)
         {
             var fields = new[] { ("g_Diffuse", "colour-a"), ("g_Bumpmap", "normal-a"), ("g_Specular", "packed-a"), (extra, detail) };
-            return JsonSerializer.SerializeToElement(new { definition = "authored", shader, blendMode = 0,
+            return JsonSerializer.SerializeToElement(new { definition = "authored", shader, blendMode = blend,
                 textures = fields.Select(f => new { input = f.Item1, texture = f.Item2, scale = new[] { 1f, 1f } }),
                 coordinates = fields.Select(f => new { input = f.Item1, channel = 0 }) });
         }
@@ -46,6 +46,12 @@ internal static class LayerMaterialCheck
         Reject(() => LayerMaterial.Read(Single(@"N:\authored\FRPG_Phn_ColDifSpcBmp.spx", detail: "unexpected-detail")));
         Reject(() => LayerMaterial.Read(Single(@"N:\authored\FRPG_Phn_ColDifSpcBmp.spx", extra: "g_Lightmap")));
         Reject(() => LayerMaterial.Read(Single(@"N:\authored\FRPG_Other.spx")));
+        // Alpha-tested and blended one-layer surfaces keep their alpha as a cutout; two-layer shaders have no such variant.
+        const string phong = @"N:\authored\FRPG_Phn_ColDifSpcBmp.spx";
+        if (LayerMaterial.Cutout(Single(phong)) || !LayerMaterial.Cutout(Single(phong, blend: 1)) || !LayerMaterial.Cutout(Single(phong, blend: 2))
+            || LayerMaterial.Read(Single(phong, blend: 1)) != single || LayerMaterial.Layers(Single(phong, blend: 4)) != 0
+            || LayerMaterial.Layers(Single(@"N:\authored\FRPG_Phn_ColDifSpcBmpMul.spx", blend: 1)) != 0)
+            throw new Exception("Cutout classification of one-layer surfaces differs");
         Console.WriteLine("PASS: ground colour, normal, packed and environment roles bind by layer and semantic; unsupported mappings fail");
     }
 
