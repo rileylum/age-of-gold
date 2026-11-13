@@ -214,6 +214,12 @@ internal sealed class SourceTagfile
             return new Value(file, field.Type, offset + field.Offset);
         }
 
+        /// <summary>Where the value's bytes lie in the file, for same-size edits made before a rewrite.</summary>
+        internal int Position => offset;
+
+        /// <summary>The size in bytes of one element of a stored array.</summary>
+        internal int ElementSize => type.Kind == HavokType.TypeKind.Array && type.SubType is { Size: > 0 } element ? element.Size : throw new InvalidDataException($"Expected an array: {type.Identity}");
+
         /// <summary>The item an array's elements are stored in, or zero for an empty array.</summary>
         internal int Item => type.Kind == HavokType.TypeKind.Array && type.Name == "hkArray"
             ? checked((int)BinaryPrimitives.ReadUInt64LittleEndian(file.Data(offset, 8))) : throw new InvalidDataException($"Expected a stored array: {type.Identity}");

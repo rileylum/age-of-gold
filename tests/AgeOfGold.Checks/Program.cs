@@ -28,6 +28,11 @@ try
         EffectShaderCheck.Run();
         return;
     }
+    if (args.SequenceEqual(new[] { "navigation-installs" }))
+    {
+        NavigationInstallCheck.Run();
+        return;
+    }
     if (args.SequenceEqual(new[] { "source-pose-installs" }))
     {
         SourcePoseCheck.Installs();
