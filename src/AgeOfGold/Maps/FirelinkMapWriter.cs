@@ -124,6 +124,17 @@ internal static class FirelinkMapWriter
         arrival[0].Position = spawn; arrival[0].Rotation = spawnRotation;
     }
 
+    /// <summary>Places an effect at a point, through a copy of an installed effect region.</summary>
+    internal static void AddEffect(MSBE layout, MSBE.Region.SFX template, string name, int effect, Vector3 position, Vector3 rotation)
+    {
+        if (layout.Regions.GetEntries().Any(r => r.Name == name)) throw new InvalidDataException("Effect region identity is already occupied: " + name);
+        var region = (MSBE.Region.SFX)template.DeepCopy();
+        region.Name = name; region.EffectID = effect; region.StartDisabled = 0;
+        region.Shape = new MSB.Shape.Point(); region.Position = position; region.Rotation = rotation;
+        region.EntityID = 0; region.ActivationPartName = null;
+        layout.Regions.SFX.Add(region);
+    }
+
     internal static Scenery AddScenery(MSBE layout, IReadOnlyList<SceneryPlacement> placements, Vector3 offset)
     {
         var template = layout.Parts.MapPieces.FirstOrDefault(p => p.ModelName == "m000000")

@@ -69,6 +69,41 @@ internal sealed class SceneReader
 
     internal (string Name, byte[] Bytes)[] ReadObjectTextures(string name) => ObjectFile(name, ".tpf").SelectMany(TextureReader.ReadPackage).ToArray();
 
+    /// <summary>A character's model at the first frame of one of its animations, in the same shape as a map piece's.</summary>
+    internal byte[] ReadCharacter(string name, string animation)
+    {
+        byte[] Member(string binder, string leaf) => BND3.Read(source.Read($"chr/{Install.Relative(name)}.{binder}.dcx")).Files
+            .SingleOrDefault(f => f.Name.Replace('\\', '/').EndsWith("/" + leaf, StringComparison.OrdinalIgnoreCase))?.Bytes
+            ?? throw new InvalidDataException($"Source character {name} has no {leaf}");
+        var skeleton = Animation.SourcePoseReader.ReadSkeleton(Member("anibnd", "Skeleton.hkx"));
+        var pose = Animation.SourcePoseReader.ReadFirstFrame(Member("anibnd", animation + ".hkx"), skeleton);
+        return JsonSerializer.SerializeToUtf8Bytes(Model(name, Member("chrbnd", name + ".flver"), model => PosedGeometry.Skin(model, skeleton, pose)));
+    }
+
+    /// <summary>A character's textures: its own packages and the body textures all characters share.</summary>
+    internal (string Name, byte[] Bytes)[] ReadCharacterTextures(string name)
+    {
+        var header = BND3.Read(source.Read($"chr/{Install.Relative(name)}.chrbnd.dcx")).Files.Where(f => f.Name.EndsWith(".chrtpfbhd", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (header.Length != 1) throw new InvalidDataException($"Source character {name} does not have one texture package");
+        var packages = BXF3.Read(header[0].Bytes, source.Read($"chr/{Install.Relative(name)}.chrtpfbdt"));
+        return packages.Files.SelectMany(f => TextureReader.ReadPackage(f.Bytes)).Concat(TextureReader.ReadPackage(source.Read("parts/Common_Body.tpf"))).ToArray();
+    }
+
+    /// <summary>Character placements in the shape of <see cref="ReadPlacements"/>.</summary>
+    internal byte[] ReadCharacterPlacements() => JsonSerializer.SerializeToUtf8Bytes(Placements(layout.Parts.Enemies));
+
+    /// <summary>Where effects attach to an object, in the object's own space.</summary>
+    internal Vector3 ReadObjectAttachment(string name)
+    {
+        var (model, _) = ModelReader.Read(ObjectFile(name, ".flver").Single());
+        // lazy: one attachment point on an unturned node; several points need the reference each effect asks for.
+        if (model.Dummies.Count != 1 || model.Dummies[0].ParentBoneIndex < 0 || model.Dummies[0].ParentBoneIndex >= model.Nodes.Count)
+            throw new InvalidDataException($"Source object {name} does not have exactly one attachment point");
+        var node = model.Nodes[model.Dummies[0].ParentBoneIndex];
+        if (node.ParentIndex != -1 || node.Rotation != Vector3.Zero) throw new InvalidDataException($"Source object {name} attaches effects to a turned or nested node");
+        return model.Dummies[0].Position * node.Scale + node.Translation;
+    }
+
     // An object keeps its model and textures together in one binder.
     private byte[][] ObjectFile(string name, string extension)
     {
@@ -83,9 +118,10 @@ internal sealed class SceneReader
         return Model(name, source.Read(Path.GetRelativePath(source.Root, candidates[0])));
     }
 
-    private object Model(string name, byte[] bytes)
+    private object Model(string name, byte[] bytes, Func<FLVER2, Matrix4x4[]>? pose = null)
     {
         var (model, repaired) = ModelReader.Read(bytes);
+        var skin = pose?.Invoke(model);
         var surfaces = new List<object>();
         for (int index = 0; index < model.Meshes.Count; index++)
         {
@@ -107,13 +143,17 @@ internal sealed class SceneReader
                 .Any(member => member.Semantic == FLVER.LayoutSemantic.Bitangent);
             var vertices = mesh.Vertices.Select(vertex =>
             {
-                var geometry = FirelinkRigidGeometry.Bake(model, mesh, vertex);
+                // Scenery vertices follow one fixed node; a posed character's follow the blend of their nodes' posed transforms.
+                var blend = skin is null ? default : PosedGeometry.Blend(skin, mesh, vertex);
+                Vector3 Direction(Vector3 v) { var turned = Vector3.TransformNormal(v, blend); return turned.LengthSquared() == 0 ? turned : Vector3.Normalize(turned); }
+                Vector4 Tangent(Vector4 t) => skin is null ? FirelinkRigidGeometry.BakeTangent(model, mesh, vertex, t) : new(Direction(new(t.X, t.Y, t.Z)), t.W);
+                var geometry = skin is null ? FirelinkRigidGeometry.Bake(model, mesh, vertex) : (Position: Vector3.Transform(vertex.Position, blend), Normal: Direction(vertex.Normal));
                 return new
                 {
                     position = Vector(geometry.Position), normal = Vector(geometry.Normal),
                     uvs = vertex.UVs.Select(Vector).ToArray(),
-                    tangents = vertex.Tangents.Select(t => Vector(FirelinkRigidGeometry.BakeTangent(model, mesh, vertex, t))).ToArray(),
-                    secondaryTangent = hasSecondaryTangent ? Vector(FirelinkRigidGeometry.BakeTangent(model, mesh, vertex, vertex.Bitangent)) : null,
+                    tangents = vertex.Tangents.Select(t => Vector(Tangent(t))).ToArray(),
+                    secondaryTangent = hasSecondaryTangent ? Vector(Tangent(vertex.Bitangent)) : null,
                     colours = vertex.Colors.Select(c => new[] { c.R, c.G, c.B, c.A }).ToArray(),
                 };
             }).ToArray();

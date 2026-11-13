@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using AgeOfGold.Archives;
 using AgeOfGold.Collision;
+using AgeOfGold.Effects;
 using AgeOfGold.Maps;
 using AgeOfGold.Params;
 using AgeOfGold.Scene;
@@ -24,6 +25,9 @@ internal static class FirelinkBuild
     private static readonly PixelShader.Blended HostForward = new(0, 1);
     // The host's visual-effect row for the leaves that drift around the player everywhere outdoors.
     private const int HostDriftingLeaves = 200000;
+    // The source's effect for a lit, unkindled bonfire, and the host identities reserved for its translation and textures.
+    // lazy: the lit state only; unlit and kindled bonfires use neighbouring source effects and need the resting point's state.
+    private const int SourceBonfireFire = 90001, BonfireFire = 990100300, BonfireFireTextures = 990300;
 
     internal static void Run(string sourcePath, string hostPath, string outputPath, ShaderCompiler compiler, string toolchain)
     {
@@ -120,6 +124,7 @@ internal static class FirelinkBuild
         }
 
         var layout = MSBE.Read(archive.Read($"map/mapstudio/{Map}.msb.dcx"));
+        var effectRegion = layout.Regions.SFX.FirstOrDefault() ?? throw new InvalidDataException("Host map lacks an effect region to place effects through");
         FirelinkMapWriter.IsolateWorld(layout);
         var hostSpawn = layout.Parts.Players.Single(p => p.Name == "c0000_0000").Position;
         var terrain = FirelinkMapWriter.AddTerrain(layout, collision);
@@ -155,6 +160,18 @@ internal static class FirelinkBuild
         uint restingEntity = Enumerable.Range(10011950, 50).Select(id => (uint)id).First(id => !taken.Contains(id) && !taken.Contains(id - 1000) && !taken.Contains(id + 1000));
         int restingFlag = 10010000 + (int)(restingEntity - 10011950);
         var resting = new FirelinkBonfire.Placement("aog_bonfire", restingEntity, restingFlag, bonfires[0].Position + terrain.Offset, bonfires[0].Rotation);
+        // The bonfire's fire burns at the object's attachment point, turned with the object.
+        var sourceEffects = BND3.Read(source.Read("sfx/FRPG_SfxBnd_CommonEffects.ffxbnd.dcx"));
+        byte[] SourceEffectFile(string leaf) => sourceEffects.Files.Single(f => f.Name.Replace('\\', '/').EndsWith("/" + leaf, StringComparison.OrdinalIgnoreCase)).Bytes;
+        var fire = SourceEffectReader.Read(SourceEffectFile($"f{SourceBonfireFire:D7}.ffx"));
+        if (fire.Clusters.Length == 0) throw new InvalidDataException("Source bonfire effect has no translatable flames");
+        const string hostEffects = "sfx/sfxbnd_commoneffects.ffxbnd.dcx";
+        var addedFire = EffectBundle.Add(archive.Read(hostEffects), BonfireFire, BonfireFireTextures, fire.Clusters,
+            id => TextureReader.ReadPackage(SourceEffectFile($"s{id:D5}.tpf")).Single().Bytes);
+        files.Add("mod/" + hostEffects, addedFire.Bundle);
+        if (bonfires[0].Rotation.X != 0 || bonfires[0].Rotation.Z != 0) throw new InvalidDataException("Source bonfire is tilted");
+        var fireAt = resting.Position + Vector3.Transform(reader.ReadObjectAttachment("o0200"), Matrix4x4.CreateRotationY(bonfires[0].Rotation.Y * MathF.PI / 180));
+        FirelinkMapWriter.AddEffect(layout, effectRegion, "aog_bonfire_fire", BonfireFire, fireAt, bonfires[0].Rotation);
         var (restingMapBytes, restingEvents) = FirelinkBonfire.Apply(layout.Write(), archive.Read($"event/{Map}.emevd.dcx"), restingTemplate, resting);
         files.Add($"mod/map/mapstudio/{Map}.msb.dcx", restingMapBytes);
         files.Add($"mod/event/{Map}.emevd.dcx", restingEvents);
@@ -187,6 +204,16 @@ internal static class FirelinkBuild
         }, StringComparer.Ordinal);
         // Lighting, air and the diffuse multiplier are compiled into the programs, so each combination has its own shader family and material.
         var airRows = SourceAirReader.Read(source);
+        // Translated particles carry a marker; the host's particle stage gives those the source's colour response and fogged opacity.
+        // lazy: the frame-blending textured stage only, and the fog of the bonfire's own row; other particle stages and rows follow with their effects.
+        if (!airRows.Fog.TryGetValue(bonfires[0].FogID, out var fireFog) || !airRows.Scattering.TryGetValue(bonfires[0].ScatterID, out var fireScattering))
+            throw new InvalidDataException("Source bonfire selects a missing fog or scattering row");
+        var fireAir = SourceAir.Constants(fireScattering, fireFog);
+        const string effectShaders = "shader/GXFfxShader.shaderbnd.dcx", particleStage = "GXFfxtessellateBlendTexture.ppo";
+        var effectArchive = archive.Read(effectShaders);
+        var particleProgram = ShaderArchive.Read(effectArchive, particleStage);
+        files.Add("mod/" + effectShaders, ShaderArchive.Replace(effectArchive, [particleStage], compiler.Assemble(EffectShader.RespondLikeSource(
+            compiler.Disassemble(particleProgram), HostEffectWriter.ResponseMarker, new(fireAir.FogBegin, fireAir.FogScale, fireAir.FogLimit)), particleProgram)));
         var keys = models.SelectMany(m => m.Surfaces.Values.Select(d => (Rows: rowOf[m.Name], Diffuse: d))).Distinct().Order().ToArray();
         string Family((int Light, int Fog, int Scattering) rows, (float, float, float, bool, float, float, float, float) diffuse) =>
             $"{GroundFamily}_{rows.Light}_{rows.Fog}_{rows.Scattering}_{Array.IndexOf(keys.Where(k => k.Rows == rows).Select(k => k.Diffuse).ToArray(), diffuse)}";
@@ -416,6 +443,11 @@ internal static class FirelinkBuild
             arrival = new { collision = terrain.Arrival, selection = arrival, focus = arrivalFocus, tone = arrivalTone, exposure = arrivalTone.BrightExposure, correction = arrivalCorrection },
             unbuiltSurfaces = unbuilt,
             unbuiltObjects,
+            effects = new
+            {
+                bonfire = new { effect = BonfireFire, source = SourceBonfireFire, position = new[] { fireAt.X, fireAt.Y, fireAt.Z }, clusters = fire.Clusters.Length,
+                    textures = addedFire.Textures, template = addedFire.Template, unbuilt = fire.Unbuilt },
+            },
             excludedCollision = terrain.Excluded.Select(p => new { p.Name, p.Role, p.Disabled }),
             files = files.Files.Select(f => new { path = f.Key, size = f.Value.Size, sha256 = f.Value.Hash }).ToArray(),
         };

@@ -36,6 +36,17 @@ internal static class MapSceneryCheck
         isolated.Regions.WindSFX.Add(new() { Name = "authored-wind" });
         if (!isolated.Write().SequenceEqual(native)) throw new Exception("World isolation changed unrelated map fields");
 
+        // A translated effect is placed through a copy of an installed effect region, enabled and unowned.
+        var placed = MSBE.Read(native);
+        var effectTemplate = new MSBE.Region.SFX { Name = "authored-template", EffectID = 5, StartDisabled = 1, EntityID = 77, ActivationPartName = "authored-part", Position = new(9, 9, 9) };
+        FirelinkMapWriter.AddEffect(placed, effectTemplate, "aog_authored_fire", 990100300, new(1, 2, 3), new(0, 10, 0));
+        var fire = MSBE.Read(placed.Write()).Regions.SFX.Single(r => r.Name == "aog_authored_fire");
+        if (fire.EffectID != 990100300 || fire.Position != new Vector3(1, 2, 3) || fire.Rotation != new Vector3(0, 10, 0) || fire.StartDisabled != 0 || fire.EntityID != 0
+            || fire.ActivationPartName is not null || fire.Shape is not MSB.Shape.Point || effectTemplate.EffectID != 5)
+            throw new Exception("Placed effect region differs or changed its template");
+        try { FirelinkMapWriter.AddEffect(placed, effectTemplate, "aog_authored_fire", 1, default, default); throw new Exception("Duplicate effect region was accepted"); }
+        catch (InvalidDataException) { }
+
         // Host environment lighting follows the scenery: probes and the one enclosing outdoor volume move, rooms stay.
         var lit = MSBE.Read(native);
         FirelinkMapWriter.MoveEnvironment(lit, new(0, 200, 0), new(-3, 240, 7), new(0, 145, 0));

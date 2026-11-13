@@ -152,6 +152,32 @@ internal sealed class SourceTagfile
             return new Value(file, field.Type, offset + field.Offset);
         }
 
+        /// <summary>The names of a record's fields, for readers that must reject layouts they do not know.</summary>
+        internal string[] FieldNames => Dereference().type.Fields.Select(f => f.Name).ToArray();
+
+        /// <summary>A string held by reference; empty when absent.</summary>
+        internal string Text()
+        {
+            if (type.Kind != HavokType.TypeKind.String || type.Size != 8) throw new InvalidDataException($"Expected a referenced string: {type.Identity}");
+            ulong index = BinaryPrimitives.ReadUInt64LittleEndian(file.Data(offset, 8));
+            if (index == 0) return "";
+            if (index >= (ulong)file.items.Length || file.items[(int)index] is not { Kind: 2, Type.Size: 1 } item) throw new InvalidDataException("String reference is not a character array");
+            var characters = file.Data(item.Offset, item.Count);
+            int end = characters.IndexOf((byte)0);
+            return Encoding.UTF8.GetString(end < 0 ? characters : characters[..end]);
+        }
+
+        /// <summary>A byte array's contents.</summary>
+        internal byte[] Bytes()
+        {
+            if (type.Kind != HavokType.TypeKind.Array || type.Name != "hkArray" || type.SubType is not { Size: 1 } || type.Size != 16)
+                throw new InvalidDataException($"Expected a byte array: {type.Identity}");
+            ulong index = BinaryPrimitives.ReadUInt64LittleEndian(file.Data(offset, 8));
+            if (index == 0) return [];
+            if (index >= (ulong)file.items.Length || file.items[(int)index] is not { Kind: 2, Type.Size: 1 } item) throw new InvalidDataException("Byte array reference is invalid");
+            return file.Data(item.Offset, item.Count).ToArray();
+        }
+
         internal Value[] Elements()
         {
             if (type.Kind != HavokType.TypeKind.Array || type.SubType is null)

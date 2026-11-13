@@ -62,6 +62,8 @@ internal static class SceneCheck
                 Colors = [new(0.25f, 0.5f, 0.75f, 1f)],
             });
         model.Meshes.Add(mesh);
+        // An attachment point for effects, held by the node it follows.
+        model.Dummies.Add(new() { ReferenceID = 100, Position = new(0.5f, 0.25f, 0.125f), ParentBoneIndex = 0, AttachBoneIndex = -1, Forward = Vector3.UnitZ, Upward = Vector3.UnitY });
         Write("map/m10_02_00_00/m0000A10.flver.dcx", model.Write());
         // An object's model and textures sit together in its own binder; the same reader shapes its surfaces.
         Write("obj/o9999.objbnd.dcx", new BND3 { Files = [new BinderFile(Binder.FileFlags.Flag1, 0, @"N:\authored\o9999.flver", model.Write()),
@@ -72,6 +74,7 @@ internal static class SceneCheck
             Require(placed.RootElement.GetProperty("name").GetString() == "o9999"
                 && placed.RootElement.GetProperty("surfaces").GetRawText() == piece.RootElement.GetProperty("surfaces").GetRawText(), "object model surfaces");
         Require(objects.ReadObjectTextures("o9999").Select(t => t.Name).SequenceEqual(new[] { "authored-colour" }), "object textures");
+        if (objects.ReadObjectAttachment("o9999") != new Vector3(1.5f, 2.25f, 3.125f)) throw new Exception("Object attachment point is not carried through its node");
         // Objects are placed like map pieces and select the same drawing rows.
         using (var placedObjects = JsonDocument.Parse(objects.ReadObjectPlacements()))
         {

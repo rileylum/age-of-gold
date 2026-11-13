@@ -23,6 +23,26 @@ try
         FirelinkReferenceCheck.Run(args[1], args[2]);
         return;
     }
+    if (args.SequenceEqual(new[] { "effect-shader" }))
+    {
+        EffectShaderCheck.Run();
+        return;
+    }
+    if (args.SequenceEqual(new[] { "source-pose-installs" }))
+    {
+        SourcePoseCheck.Installs();
+        return;
+    }
+    if (args.SequenceEqual(new[] { "source-pose" }))
+    {
+        SourcePoseCheck.Run();
+        return;
+    }
+    if (args.SequenceEqual(new[] { "effect" }))
+    {
+        EffectCheck.Run();
+        return;
+    }
     if (args.SequenceEqual(new[] { "pixel-shader" }))
     {
         PixelShaderCheck.Run();
@@ -364,6 +384,8 @@ try
     Console.WriteLine("PASS: authored installs prepare through the CLI, decrypt ranges, repeat exactly and refuse overwrite");
     Console.WriteLine("PASS: missing inputs, install writes, symlink escapes and failed preparation leave no output");
     SceneCheck.Run(root);
+    EffectCheck.Run();
+    SourcePoseCheck.Run();
     TextureCheck.Run(root);
     TextureWriterCheck.Run();
     EnvironmentTextureCheck.Run();

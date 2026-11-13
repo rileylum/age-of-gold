@@ -66,6 +66,27 @@ internal static class FirelinkBuildInstallCheck
         if (pieces.Count(p => p.Position == restMarker.Position) != 1
             || manifest.RootElement.GetProperty("unbuiltObjects").EnumerateObject().Any(o => o.Name == "o0200" || o.Value.GetInt32() < 1))
             throw new Exception("Built map lacks the source bonfire model at its resting point");
+        // The bonfire's fire: a translated effect in the host's bundle with its textures, placed just above the model.
+        var burning = manifest.RootElement.GetProperty("effects").GetProperty("bonfire");
+        int fireId = burning.GetProperty("effect").GetInt32();
+        var fireRegion = layout.Regions.SFX.Single();
+        var effectBundle = BND4.Read(Path.Combine(mod, "sfx/sfxbnd_commoneffects.ffxbnd.dcx"));
+        var fireEffect = FXR3.Read(effectBundle.Files.Single(f => f.Name.EndsWith($"f{fireId:D9}.fxr", StringComparison.Ordinal)).Bytes);
+        var fireTextures = fireEffect.RootContainer.Containers.Select(c => (int)((FXR3.Field.FieldFloat)c.Effects.Single().Actions[9].Properties1[0].Fields[0]).Value).Distinct().Order().ToArray();
+        if (fireRegion.EffectID != fireId || fireEffect.Id != fireId || fireEffect.RootContainer.Containers.Count != burning.GetProperty("clusters").GetInt32()
+            || fireEffect.RootContainer.Containers.Count < 2 || System.Numerics.Vector3.Distance(fireRegion.Position, restMarker.Position) is not (> 0.05f and < 0.5f)
+            || fireRegion.Position.Y <= restMarker.Position.Y
+            || !fireTextures.SequenceEqual(burning.GetProperty("textures").EnumerateObject().Select(t => t.Value.GetInt32()).Order())
+            || fireTextures.Any(id => effectBundle.Files.Count(f => f.Name.EndsWith($"\\s{id}_a.tpf", StringComparison.Ordinal)) != 1)
+            || System.Text.Encoding.ASCII.GetString(effectBundle.Files.Single(f => f.Name.EndsWith($"f{fireId:D9}.ffxreslist", StringComparison.Ordinal)).Bytes)
+                != string.Concat(fireTextures.Select(id => $"s{id}_a.tif\r\n")))
+            throw new Exception("Built bonfire fire lacks its effect, textures, texture list or placement");
+        // Its particles are marked, and the host particle stage answers the marker with the source's response.
+        var particleStage = compiler.Disassemble(ShaderArchive.Read(File.ReadAllBytes(Path.Combine(mod, "shader/GXFfxShader.shaderbnd.dcx")), "GXFfxtessellateBlendTexture.ppo"));
+        if (!particleStage.Contains("%aog_marked = fcmp oeq float %aog_bias, 3.276900e+04", StringComparison.Ordinal)
+            || fireEffect.RootContainer.Containers.Any(c => BitConverter.SingleToInt32Bits(32769f * 255) != (c.Effects.Single().Actions[9].Properties1[10].Fields[0] is FXR3.Field.FieldInt whole
+                ? whole.Value : BitConverter.SingleToInt32Bits(((FXR3.Field.FieldFloat)c.Effects.Single().Actions[9].Properties1[10].Fields[0]).Value))))
+            throw new Exception("Built fire particles are not marked for, or the particle stage lacks, the source's colour response");
         var materials = BND4.Read(Path.Combine(mod, "material/allmaterial.matbinbnd.dcx")).Files
             .ToLookup(f => string.Join('/', f.Name.Replace('\\', '/').Split('/')[^3..]).ToLowerInvariant(), f => f.Bytes);
         var shaders = File.ReadAllBytes(Path.Combine(mod, "shader/shaderbdle.shaderbdlebnd.dcx"));
