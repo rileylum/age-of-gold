@@ -61,6 +61,15 @@ internal static class SceneCheck
             });
         model.Meshes.Add(mesh);
         Write("map/m10_02_00_00/m0000A10.flver.dcx", model.Write());
+        // An object's model and textures sit together in its own binder; the same reader shapes its surfaces.
+        Write("obj/o9999.objbnd.dcx", new BND3 { Files = [new BinderFile(Binder.FileFlags.Flag1, 0, @"N:\authored\o9999.flver", model.Write()),
+            new BinderFile(Binder.FileFlags.Flag1, 1, @"N:\authored\o9999.tpf", AuthoredPackage("authored-colour"))] }.Write());
+        var objects = new SceneReader(new Install(source, "DarkSoulsRemastered.exe"));
+        using (var placed = JsonDocument.Parse(objects.ReadObject("o9999")))
+        using (var piece = JsonDocument.Parse(objects.ReadModel("m0000")))
+            Require(placed.RootElement.GetProperty("name").GetString() == "o9999"
+                && placed.RootElement.GetProperty("surfaces").GetRawText() == piece.RootElement.GetProperty("surfaces").GetRawText(), "object model surfaces");
+        Require(objects.ReadObjectTextures("o9999").Select(t => t.Name).SequenceEqual(new[] { "authored-colour" }), "object textures");
         var first = SceneReader.Read(new Install(source, "DarkSoulsRemastered.exe"));
         var second = SceneReader.Read(new Install(source, "DarkSoulsRemastered.exe"));
         if (!first.SequenceEqual(second)) throw new Exception("Repeated scene reads differ");
@@ -87,7 +96,20 @@ internal static class SceneCheck
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllBytes(path, bytes);
         }
-        static void Require(bool condition, string field)
+        // A one-texture PC package holding a DDS header with no pixels, enough for name listing.
+    static byte[] AuthoredPackage(string name)
+    {
+        var dds = new DDS { dwWidth = 4, dwHeight = 4, dwMipMapCount = 1, ddspf = new DDS.PIXELFORMAT { dwFourCC = "DXT1", dwFlags = DDS.DDPF.FOURCC } }.Write(new byte[8]);
+        var label = System.Text.Encoding.ASCII.GetBytes(name + '\0');
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream);
+        writer.Write("TPF\0"u8); writer.Write(dds.Length); writer.Write(1); writer.Write(new byte[] { 0, 3, 0, 0 });
+        writer.Write(36 + label.Length); writer.Write(dds.Length); writer.Write(new byte[] { 0, 0, 1, 0 }); writer.Write(36); writer.Write(0);
+        writer.Write(label); writer.Write(dds);
+        return stream.ToArray();
+    }
+
+    static void Require(bool condition, string field)
         {
             if (!condition) throw new Exception("Source scene lost " + field);
         }

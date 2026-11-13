@@ -59,11 +59,28 @@ internal sealed class SceneReader
         return definitions[name] = MTD.Read(chosen);
     }
 
+    /// <summary>An object's model in the same shape as a map piece's; its textures come from <see cref="ReadObjectTextures"/>.</summary>
+    internal byte[] ReadObject(string name) => JsonSerializer.SerializeToUtf8Bytes(Model(name, ObjectFile(name, ".flver").Single()));
+
+    internal (string Name, byte[] Bytes)[] ReadObjectTextures(string name) => ObjectFile(name, ".tpf").SelectMany(TextureReader.ReadPackage).ToArray();
+
+    // An object keeps its model and textures together in one binder.
+    private byte[][] ObjectFile(string name, string extension)
+    {
+        var files = BND3.Read(source.Read($"obj/{Install.Relative(name)}.objbnd.dcx")).Files.Where(f => f.Name.EndsWith(extension, StringComparison.OrdinalIgnoreCase)).ToArray();
+        return files.Length != 0 ? files.Select(f => f.Bytes).ToArray() : throw new InvalidDataException($"Source object {name} has no {extension} member");
+    }
+
     private object Model(string name)
     {
         var candidates = paths.Where(p => Path.GetFileName(p).StartsWith(name + "A", StringComparison.OrdinalIgnoreCase)).ToArray();
         if (candidates.Length != 1) throw new InvalidDataException($"Expected exactly one source model for {name}, found {candidates.Length}");
-        var (model, repaired) = ModelReader.Read(source.Read(Path.GetRelativePath(source.Root, candidates[0])));
+        return Model(name, source.Read(Path.GetRelativePath(source.Root, candidates[0])));
+    }
+
+    private object Model(string name, byte[] bytes)
+    {
+        var (model, repaired) = ModelReader.Read(bytes);
         var surfaces = new List<object>();
         for (int index = 0; index < model.Meshes.Count; index++)
         {
