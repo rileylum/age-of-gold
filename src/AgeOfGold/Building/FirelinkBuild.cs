@@ -100,7 +100,10 @@ internal static class FirelinkBuild
 
         var layout = MSBE.Read(archive.Read($"map/mapstudio/{Map}.msb.dcx"));
         FirelinkMapWriter.IsolateWorld(layout);
+        var hostSpawn = layout.Parts.Players.Single(p => p.Name == "c0000_0000").Position;
         var terrain = FirelinkMapWriter.AddTerrain(layout, collision);
+        FirelinkMapWriter.MoveEnvironment(layout, terrain.Spawn - hostSpawn, terrain.Spawn,
+            new(collision.Spawn.Rotation[0], collision.Spawn.Rotation[1], collision.Spawn.Rotation[2]));
         foreach (string detail in new[] { "h", "l" })
         {
             string stem = $"map/m10/{Map}/{detail}{Map[1..]}";

@@ -14,6 +14,13 @@ internal static class MapSceneryCheck
         layout.Models.Enemies.Add(new() { Name = "c1000" });
         layout.Parts.Enemies.Add(new() { Name = "c1000_0000", ModelName = "c1000" });
         layout.Regions.SFX.Add(new() { Name = "authored-effect", EffectID = 5 });
+        layout.Regions.WindSFX.Add(new() { Name = "authored-wind" });
+        layout.Regions.EnvironmentMapPoints.Add(new() { Name = "authored-probe", Position = new(1, 5, 2) });
+        MSBE.Region.EnvironmentMapEffectBox Box(string name, Vector3 at, float size) => new()
+            { Name = name, Position = at, Shape = new MSB.Shape.Box { Width = size, Height = size, Depth = size }, PointLightMult = 1.5f };
+        layout.Regions.EnvironmentMapEffectBoxes.Add(Box("authored-outdoors", new(0, -50, 0), 100));
+        layout.Regions.EnvironmentMapEffectBoxes.Add(Box("authored-room", new(3, 0, 3), 4));
+        layout.Regions.SpawnPoints.Add(new() { Name = "authored-spawn", Position = new(9, 9, 9) });
         var native = layout.Write();
 
         FirelinkMapWriter.IsolateWorld(layout);
@@ -21,11 +28,26 @@ internal static class MapSceneryCheck
         if (isolated.Parts.MapPieces.Single().GameEditionDisable != MSBE.Part.GameEditionDisableType.DisableInRelease
             || isolated.Parts.Enemies.Single().GameEditionDisable != MSBE.Part.GameEditionDisableType.DisableInRelease
             || isolated.Parts.Players.Single().GameEditionDisable != MSBE.Part.GameEditionDisableType.NeverDisable
-            || isolated.Regions.SFX.Single().StartDisabled != 1)
-            throw new Exception("Host placements or effects stayed enabled, or the player was disabled");
+            || isolated.Regions.SFX.Count != 0 || isolated.Regions.WindSFX.Count != 0)
+            throw new Exception("Host placements or effect regions remain, or the player was disabled");
         isolated.Parts.MapPieces.Single().GameEditionDisable = isolated.Parts.Enemies.Single().GameEditionDisable = MSBE.Part.GameEditionDisableType.NeverDisable;
-        isolated.Regions.SFX.Single().StartDisabled = 0;
+        isolated.Regions.SFX.Add(new() { Name = "authored-effect", EffectID = 5 });
+        isolated.Regions.WindSFX.Add(new() { Name = "authored-wind" });
         if (!isolated.Write().SequenceEqual(native)) throw new Exception("World isolation changed unrelated map fields");
+
+        // Host environment lighting follows the scenery: probes and the one enclosing outdoor volume move, rooms stay.
+        var lit = MSBE.Read(native);
+        FirelinkMapWriter.MoveEnvironment(lit, new(0, 200, 0), new(-3, 240, 7), new(0, 145, 0));
+        lit = MSBE.Read(lit.Write());
+        if (lit.Regions.EnvironmentMapPoints.Single().Position != new Vector3(1, 205, 2)
+            || lit.Regions.EnvironmentMapEffectBoxes.Single(b => b.Name == "authored-outdoors").Position != new Vector3(0, 150, 0)
+            || lit.Regions.EnvironmentMapEffectBoxes.Single(b => b.Name == "authored-room").Position != new Vector3(3, 0, 3)
+            || lit.Regions.EnvironmentMapEffectBoxes.Any(b => b.PointLightMult != 3)
+            || lit.Regions.SpawnPoints.Single().Position != new Vector3(-3, 240, 7) || lit.Regions.SpawnPoints.Single().Rotation != new Vector3(0, 145, 0))
+            throw new Exception("Environment regions or the spawn region did not follow the scenery");
+        var ambiguous = MSBE.Read(native);
+        ambiguous.Regions.EnvironmentMapEffectBoxes.Add(Box("authored-second-outdoors", new(0, -50, 0), 100));
+        Reject(() => FirelinkMapWriter.MoveEnvironment(ambiguous, new(0, 200, 0), Vector3.Zero, Vector3.Zero));
 
         FirelinkMapWriter.SceneryPlacement[] placements = [
             new("wall-b", "wall", new(10, 0, 0), new(0, 90, 0), new(1, 1, 1)),
@@ -55,7 +77,7 @@ internal static class MapSceneryCheck
         check.Parts.MapPieces.RemoveAll(p => p.Name.StartsWith("m81", StringComparison.Ordinal));
         check.Models.MapPieces.RemoveAll(m => m.Name.StartsWith("m81", StringComparison.Ordinal));
         if (!before.SequenceEqual(check.Write())) throw new Exception("Scenery changed unrelated map fields");
-        Console.WriteLine("PASS: host world isolation keeps the player; source scenery placements are ordered, transformed, enabled and reject occupied or duplicate identities");
+        Console.WriteLine("PASS: host world isolation keeps the player and removes effect regions; environment lighting follows the scenery; source scenery placements are ordered, transformed, enabled and reject occupied or duplicate identities");
     }
 
     private static void Reject(Action action)

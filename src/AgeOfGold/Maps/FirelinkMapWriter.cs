@@ -74,7 +74,43 @@ internal static class FirelinkMapWriter
                 throw new InvalidDataException("Unclassified host placement: " + part.Name);
             part.GameEditionDisable = MSBE.Part.GameEditionDisableType.DisableInRelease;
         }
-        foreach (var effect in layout.Regions.SFX) effect.StartDisabled = 1;
+        // Host map effects and wind belong to the host's scenery; a start-disabled effect can still be switched on by host scripts.
+        layout.Regions.SFX.Clear();
+        layout.Regions.WindSFX.Clear();
+    }
+
+    /// <summary>
+    /// Raises the host's environment lighting to the scenery: every probe and the one outdoor volume enclosing the
+    /// others move by <paramref name="displacement"/>; room volumes stay below. The host spawn region moves to the spawn.
+    /// </summary>
+    internal static void MoveEnvironment(MSBE layout, Vector3 displacement, Vector3 spawn, Vector3 spawnRotation)
+    {
+        var boxes = layout.Regions.EnvironmentMapEffectBoxes;
+        foreach (var box in boxes)
+            if (box.Shape is not MSB.Shape.Box s || !(s.Width > 0 && s.Height > 0 && s.Depth > 0) || box.Rotation.X != 0 || box.Rotation.Z != 0)
+                throw new InvalidDataException("Expected upright environment boxes");
+        // A box's origin is the centre of its floor.
+        Vector3[] Corners(MSBE.Region.EnvironmentMapEffectBox box)
+        {
+            var s = (MSB.Shape.Box)box.Shape;
+            var rotation = Matrix4x4.CreateRotationY(box.Rotation.Y * MathF.PI / 180);
+            return (from x in new[] { -s.Width / 2, s.Width / 2 } from y in new[] { 0f, s.Height } from z in new[] { -s.Depth / 2, s.Depth / 2 }
+                    select Vector3.Transform(new(x, y, z), rotation) + box.Position).ToArray();
+        }
+        bool Contains(MSBE.Region.EnvironmentMapEffectBox box, Vector3 point)
+        {
+            var s = (MSB.Shape.Box)box.Shape;
+            var p = Vector3.Transform(point - box.Position, Matrix4x4.CreateRotationY(-box.Rotation.Y * MathF.PI / 180));
+            return Math.Abs(p.X) <= s.Width / 2 + .001f && Math.Abs(p.Z) <= s.Depth / 2 + .001f && p.Y >= -.001f && p.Y <= s.Height + .001f;
+        }
+        var outdoors = boxes.Where(b => boxes.Where(other => other != b).SelectMany(Corners).All(p => Contains(b, p))).ToArray();
+        if (boxes.Count < 2 || outdoors.Length != 1) throw new InvalidDataException("Expected one outdoor environment volume enclosing the others");
+        outdoors[0].Position += displacement;
+        // lazy: the accepted playtest's doubled fill for host-lit characters; source environment light for characters is not translated yet.
+        foreach (var box in boxes) box.PointLightMult *= 2;
+        foreach (var point in layout.Regions.EnvironmentMapPoints) point.Position += displacement;
+        if (layout.Regions.SpawnPoints.Count != 1) throw new InvalidDataException("Expected one host spawn region");
+        layout.Regions.SpawnPoints[0].Position = spawn; layout.Regions.SpawnPoints[0].Rotation = spawnRotation;
     }
 
     internal static Scenery AddScenery(MSBE layout, IReadOnlyList<SceneryPlacement> placements, Vector3 offset)
