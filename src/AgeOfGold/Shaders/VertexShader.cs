@@ -44,18 +44,15 @@ internal static class VertexShader
     }
 
     /// <summary>
-    /// Forwards the vertex's view-space position (TANGENT8) and the given world direction in view space (TANGENT10).
-    /// Both come from the rows whose products with the world position give the clip position: a row's length is its
-    /// projection scale, and the depth row is the view axis.
+    /// Forwards the world-space vector from the vertex to the camera, with the view depth as its fourth component (TANGENT8).
+    /// The installed programs compute that vector themselves to output its length; this finds it there.
     /// </summary>
-    internal static string AddView(string module, float[] direction, int outputRow)
+    internal static string AddView(string module, int outputRow)
     {
-        if (direction.Length != 3 || !direction.All(float.IsFinite)) throw new InvalidDataException("View forwarding needs a finite direction");
         if (module.Contains("%aog_view", StringComparison.Ordinal)) throw new InvalidDataException("View vector is already forwarded");
         var signatures = new ShaderSignatures(module);
         int position = signatures.Find(true, "SV_Position", 0).Id;
-        var template = signatures.Require(true, "TANGENT", 0, 9);
-        int view = signatures.Append(true, template, 8, null, outputRow), sun = signatures.Append(true, template, 10, null, outputRow + 1);
+        int view = signatures.Append(true, signatures.Require(true, "TANGENT", 0, 9), 8, null, outputRow);
         var lines = signatures.Lines;
         int start = Array.FindIndex(lines, l => l == $"define void @{signatures.Entry}() {{");
         int end = Array.FindIndex(lines, start + 1, l => l == "}");
@@ -66,60 +63,43 @@ internal static class VertexShader
             var match = Regex.Match(lines[i].Split(';')[0].Trim(), @"^(%[\w.$-]+) = (.+)$");
             if (match.Success) instructions[match.Groups[1].Value] = new(i, match.Groups[2].Value, Operands(match.Groups[2].Value));
         }
-        var closures = new Dictionary<string, HashSet<string>>();
-        HashSet<string> Closure(string name)
+        HashSet<string> Closure(string name, HashSet<string>? seen = null)
         {
-            if (closures.TryGetValue(name, out var known)) return known;
-            var result = new HashSet<string> { name };
-            if (instructions.TryGetValue(name, out var instruction)) foreach (var operand in instruction.Operands) result.UnionWith(Closure(operand));
-            return closures[name] = result;
+            seen ??= [];
+            if (seen.Add(name) && instructions.TryGetValue(name, out var instruction)) foreach (var operand in instruction.Operands) Closure(operand, seen);
+            return seen;
         }
-        var stores = new Dictionary<int, (int Line, string Value)>();
+        // A length written to an output: the root of three squares, each of a constant-buffer value minus a computed position.
+        var vectors = new List<string[]>(); (int Line, string Value)? depth = null; int last = -1;
         for (int i = start + 1; i < end; i++)
         {
-            var store = Store(lines[i].Split(';')[0].Trim(), position);
-            if (store.Success && instructions.ContainsKey(store.Groups["value"].Value))
-                stores[store.Groups["column"].Value[0] - '0'] = (i, store.Groups["value"].Value);
+            var store = Regex.Match(lines[i].Split(';')[0].Trim(), @"^call void @dx\.op\.storeOutput\.f32\(i32 5, i32 (\d+), i32 0, i8 ([0-3]), float (%[\w.$-]+)\)$");
+            if (!store.Success || !instructions.TryGetValue(store.Groups[3].Value, out var stored)) continue;
+            last = i;
+            if (int.Parse(store.Groups[1].Value) == position && store.Groups[2].Value == "3") depth = (i, store.Groups[3].Value);
+            var root = Regex.Match(stored.Text, @"^call float @dx\.op\.unary\.f32\(i32 24, float (%[\w.$-]+)\)$");
+            if (!root.Success) continue;
+            var squares = Closure(root.Groups[1].Value).Select(n => instructions.TryGetValue(n, out var square)
+                ? Regex.Match(square.Text, @"^fmul(?: fast)? float (%[\w.$-]+), \1$") : Match.Empty).Where(m => m.Success).Select(m => m.Groups[1].Value).Distinct().ToArray();
+            var axes = new string?[3];
+            foreach (string component in squares)
+            {
+                if (!instructions.TryGetValue(component, out var difference)) continue;
+                var parts = Regex.Match(difference.Text, @"^fsub(?: fast)? float (%[\w.$-]+), (%[\w.$-]+)$");
+                if (!parts.Success || !instructions.TryGetValue(parts.Groups[1].Value, out var constant)) continue;
+                var axis = Regex.Match(constant.Text, @"^extractvalue %dx\.types\.CBufRet\.f32 %[\w.$-]+, ([0-2])$");
+                if (axis.Success) axes[axis.Groups[1].Value[0] - '0'] = component;
+            }
+            if (squares.Length == 3 && axes.All(a => a is not null)) vectors.Add(axes!);
         }
-        if (!new[] { 0, 1, 3 }.All(stores.ContainsKey)) throw new InvalidDataException("Clip position is not computed by the vertex program");
-        var product = new Regex(@"^call float @dx\.op\.dot4\.f32\(i32 56, float (\S+), float (\S+), float (\S+), float (\S+), float (\S+), float (\S+), float (\S+), float (\S+)\)$");
-        string[] Products(int column) => Closure(stores[column].Value).Where(n => instructions.TryGetValue(n, out var i) && product.IsMatch(i.Text)).ToArray();
-        var depth = Products(3);
-        string One(string[] candidates) => candidates.Length == 1 ? candidates[0] : throw new InvalidDataException("Clip position rows are ambiguous");
-        // A jittered clip x or y also reads the depth row.
-        string[] rows = [One(Products(0).Except(depth).ToArray()), One(Products(1).Except(depth).ToArray()), One(depth)];
-        var operands = rows.Select(r => product.Match(instructions[r].Text).Groups.Cast<Group>().Skip(1).Select(g => g.Value).ToArray()).ToArray();
-        // The world position is the vector all three products share; the other is each row.
-        bool second = operands.All(o => o.Skip(4).SequenceEqual(operands[0].Skip(4))), first = operands.All(o => o.Take(4).SequenceEqual(operands[0].Take(4)));
-        if (first == second) throw new InvalidDataException("Clip position rows do not share one world position");
-        var axes = operands.Select(o => (second ? o.Take(3) : o.Skip(4).Take(3)).ToArray()).ToArray();
-        int at = stores.Values.Min(v => v.Line);
-        if (rows.Any(r => instructions[r].Line > at)) throw new InvalidDataException("Clip position rows follow their stores");
-        string Number(float value) => "0x" + BitConverter.DoubleToInt64Bits(value).ToString("X16", System.Globalization.CultureInfo.InvariantCulture);
-        var body = new List<string>();
-        string Emit(string label, string expression) { body.Add($"  %aog_view_{label} = {expression}"); return "%aog_view_" + label; }
-        var values = new string[2][] { new string[3], new string[3] };
-        for (int axis = 0; axis < 3; axis++)
-        {
-            string[] r = axes[axis];
-            string along = Emit("sun" + axis, $"call float @dx.op.dot3.f32(i32 55, float {r[0]}, float {r[1]}, float {r[2]}, float {Number(direction[0])}, float {Number(direction[1])}, float {Number(direction[2])})");
-            if (axis == 2) { values[0][axis] = rows[axis]; values[1][axis] = along; continue; }
-            string length = Emit("length" + axis, "call float @dx.op.unary.f32(i32 24, float "
-                + Emit("square" + axis, $"call float @dx.op.dot3.f32(i32 55, float {r[0]}, float {r[1]}, float {r[2]}, float {r[0]}, float {r[1]}, float {r[2]})") + ")");
-            values[0][axis] = Emit("position" + axis, $"fdiv fast float {rows[axis]}, {length}");
-            values[1][axis] = Emit("direction" + axis, $"fdiv fast float {along}, {length}");
-        }
-        foreach (var (id, vector) in new[] { (view, values[0]), (sun, values[1]) })
-            for (int column = 0; column < 4; column++)
-                body.Add($"  call void @dx.op.storeOutput.f32(i32 5, i32 {id}, i32 0, i8 {column}, float {(column < 3 ? vector[column] : "0.000000e+00")})");
-        // Every path writes the new outputs, as the installed programs do for their own.
-        var zeros = new[] { view, sun }.SelectMany(id => Enumerable.Range(0, 4).Select(column =>
-            $"  call void @dx.op.storeOutput.f32(i32 5, i32 {id}, i32 0, i8 {column}, float 0.000000e+00)"));
-        var result = lines.SelectMany((line, i) => i == start ? [line, .. zeros] : i == at ? [.. body, line] : new[] { line }).ToList();
-        foreach (var (function, declaration) in new[] { ("unary.f32", "declare float @dx.op.unary.f32(i32, float)"),
-            ("dot3.f32", "declare float @dx.op.dot3.f32(i32, float, float, float, float, float, float)") })
-            if (!lines.Any(l => l.StartsWith("declare ", StringComparison.Ordinal) && l.Contains($"@dx.op.{function}(", StringComparison.Ordinal))) result.Add(declaration);
-        return string.Join('\n', result) + "\n";
+        var distinct = vectors.Select(v => string.Join(",", v)).Distinct().ToArray();
+        if (distinct.Length != 1 || depth is null) throw new InvalidDataException("Vertex program does not compute one camera vector and view depth");
+        var vector = distinct[0].Split(',');
+        if (vector.Append(depth.Value.Value).Any(v => instructions[v].Line > last)) throw new InvalidDataException("Camera vector follows the program's outputs");
+        var body = vector.Append(depth.Value.Value).Select((value, column) => $"  call void @dx.op.storeOutput.f32(i32 5, i32 {view}, i32 0, i8 {column}, float {value})");
+        // Every path writes the new output, as the installed programs do for their own.
+        var zeros = Enumerable.Range(0, 4).Select(column => $"  call void @dx.op.storeOutput.f32(i32 5, i32 {view}, i32 0, i8 {column}, float 0.000000e+00)");
+        return string.Join('\n', lines.SelectMany((line, i) => i == start ? [line, .. zeros] : i == last ? [line, .. body] : new[] { line })) + "\n";
     }
 
     private static string AddDirection(string module, int index, bool packed, int? outputRow)

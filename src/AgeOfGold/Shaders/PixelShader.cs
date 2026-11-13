@@ -65,12 +65,11 @@ internal static class PixelShader
             signatures.Link(produced.Find(true, "TANGENT", 4 + 2 * layer));
             bitangents[layer] = "xyz".Select((axis, i) => Load("TANGENT", 4 + 2 * layer, i, $"b{layer}{axis}")).ToArray();
         }
-        string[] view = [], sun = [];
+        string[] view = [];
         if (air is not null)
         {
-            signatures.Link(produced.Find(true, "TANGENT", 8)); signatures.Link(produced.Find(true, "TANGENT", 10));
-            view = "xyz".Select((axis, i) => Load("TANGENT", 8, i, "view" + axis)).ToArray();
-            sun = "xyz".Select((axis, i) => Load("TANGENT", 10, i, "sun" + axis)).ToArray();
+            signatures.Link(produced.Find(true, "TANGENT", 8));
+            view = "xyzw".Select((axis, i) => Load("TANGENT", 8, i, "view" + axis)).ToArray();
         }
         foreach (var (id, mask) in used) signatures.Use(false, id, mask);
         int Target(int index) => signatures.Find(true, "SV_Target", index).Id;
@@ -290,10 +289,11 @@ internal static class PixelShader
         {
             // The source fogs and scatters its gamma-encoded colour, then returns to linear light.
             string distance = Unary("airdistance", 24, Dot3("airsquare", view));
-            string cosine = Emit("aircosine", $"fdiv fast float " + Emit("airalong", "fsub fast float -0.000000e+00, "
-                + Emit("airdot", $"call float @dx.op.dot3.f32(i32 55, float {view[0]}, float {view[1]}, float {view[2]}, float {sun[0]}, float {sun[1]}, float {sun[2]})")) + $", {distance}");
+            // The view vector points from the surface to the camera, as the source's does.
+            string cosine = Emit("aircosine", "fdiv fast float " + Emit("airdot", $"call float @dx.op.dot3.f32(i32 55, float {view[0]}, float {view[1]}, float {view[2]}, "
+                + $"float {Float(air.SunDirection[0])}, float {Float(air.SunDirection[1])}, float {Float(air.SunDirection[2])})") + $", {distance}");
             string fog = Unary("fog", 7, Emit("fogscaled", "fmul fast float " + Unary("fogdepth", 7, Emit("fogramp", "fmul fast float "
-                + Emit("fogoffset", $"fsub fast float {view[2]}, {Float(air.FogBegin)}") + ", " + Float(air.FogScale))) + ", " + Float(air.FogLimit)));
+                + Emit("fogoffset", $"fsub fast float {view[3]}, {Float(air.FogBegin)}") + ", " + Float(air.FogScale))) + ", " + Float(air.FogLimit)));
             string rayleigh = Mad("airrayleigh", cosine, cosine, "1.000000e+00");
             string lobe = Emit("airlobe", $"fsub fast float {Float(air.Phase[1])}, " + Emit("airlobescaled", $"fmul fast float {cosine}, {Float(air.Phase[2])}"));
             // The forward-scattering lobe: its strength over the lobe term to the power one and a half.

@@ -74,7 +74,7 @@ internal static class SourceAir
         if (!(Math.Abs(scattering.Anisotropy) < 1) || scattering.Rayleigh < 0 || scattering.Mie < 0 || scattering.Rayleigh + scattering.Mie <= 0
             || scattering.SunStrength < 0 || scattering.Distance < 0 || scattering.Sun.Concat(scattering.Reflectance).Any(c => c is < 0 or > 1))
             throw new InvalidDataException("Invalid source scattering row");
-        if (!(fog.End > fog.Begin) || fog.Limit is < 0 or > 1 || fog.ColourStrength < 0 || fog.Colour.Any(c => c is < 0 or > 1))
+        if (!(fog.End > fog.Begin) || fog.Limit < 0 || fog.ColourStrength < 0 || fog.Colour.Any(c => c is < 0 or > 1))
             throw new InvalidDataException("Invalid source fog row");
         // The model's reference atmosphere: refractive index, molecular density, depolarisation, turbidity two and three wavelengths.
         const double index = 1.0003, density = 2.545e25, depolarisation = 0.035, concentration = (6.544 * 2 - 6.51) * 1e-17;

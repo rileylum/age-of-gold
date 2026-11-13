@@ -34,7 +34,7 @@ internal static class FirelinkReferenceCheck
         const string shaders = "shader/shaderbdle.shaderbdlebnd.dcx";
         string Program(string root, string family) => compiler.Disassemble(
             ShaderArchive.Read(File.ReadAllBytes(Path.Combine(root, shaders)), family + ".shaderbdle", family + "_Gbuf.ppo"));
-        string maintained = Program(build, "aog_ground_20_1"), accepted = Program(reference, "aog_source_environment_trial");
+        string maintained = Program(build, "aog_ground_20_20_20_1"), accepted = Program(reference, "aog_source_environment_trial");
         double worst = 0; var random = new Random(20261114);
         for (int trial = 0; trial < 64; trial++)
         {

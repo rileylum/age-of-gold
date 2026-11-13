@@ -125,26 +125,33 @@ internal static class FirelinkBuild
         string graphics = $"param/drawparam/{Map[..6]}_{Map[7..9]}00.gparam.dcx";
         files.Add("mod/" + graphics, HostAtmosphere.RemoveHostEffects(archive.Read(graphics)));
 
-        // Each model samples the diffuse environment of the one lighting row its placements select.
+        // Each model is lit, fogged and scattered by the rows its placements select.
         var rowOf = models.ToDictionary(m => m.Name, m =>
         {
-            var rows = placements.Where(p => p.GetProperty("model").GetString() == m.Name).Select(p => p.GetProperty("lighting").GetInt32()).Distinct().ToArray();
-            return rows.Length == 1 ? rows[0] : throw new InvalidDataException("Scenery model is placed under several lighting rows: " + m.Name);
+            var rows = placements.Where(p => p.GetProperty("model").GetString() == m.Name)
+                .Select(p => (Light: p.GetProperty("lighting").GetInt32(), Fog: p.GetProperty("fog").GetInt32(), Scattering: p.GetProperty("scattering").GetInt32())).Distinct().ToArray();
+            return rows.Length == 1 ? rows[0] : throw new InvalidDataException("Scenery model is placed under several lighting or air rows: " + m.Name);
         }, StringComparer.Ordinal);
-        // The source lighting and diffuse multiplier are compiled into the pixel program, so each pair has its own shader family and material.
-        var keys = models.SelectMany(m => m.Surfaces.Values.Select(d => (Row: rowOf[m.Name], Diffuse: d))).Distinct().Order().ToArray();
-        string Family(int row, (float, float, float) diffuse) => $"{GroundFamily}_{row}_{Array.IndexOf(keys.Where(k => k.Row == row).Select(k => k.Diffuse).ToArray(), diffuse)}";
-        var families = new SortedDictionary<string, PixelShader.GroundLighting>(StringComparer.Ordinal);
-        foreach (var (row, diffuse) in keys)
+        // Lighting, air and the diffuse multiplier are compiled into the programs, so each combination has its own shader family and material.
+        var airRows = SourceAirReader.Read(source);
+        var keys = models.SelectMany(m => m.Surfaces.Values.Select(d => (Rows: rowOf[m.Name], Diffuse: d))).Distinct().Order().ToArray();
+        string Family((int Light, int Fog, int Scattering) rows, (float, float, float) diffuse) =>
+            $"{GroundFamily}_{rows.Light}_{rows.Fog}_{rows.Scattering}_{Array.IndexOf(keys.Where(k => k.Rows == rows).Select(k => k.Diffuse).ToArray(), diffuse)}";
+        var families = new SortedDictionary<string, (PixelShader.GroundLighting Lighting, SourceAir.Values? Air)>(StringComparer.Ordinal);
+        foreach (var (rows, diffuse) in keys)
         {
-            var values = SourceLightingParameters.Values(lighting[row], renderer);
+            var values = SourceLightingParameters.Values(lighting[rows.Light], renderer);
             float[] Rgb(string field) => ((float[])values[("$Globals", field)])[..3];
-            families.Add(Family(row, diffuse), new(Rgb("gFC_EnvDifMapMulCol").Select(v => v * environmentSettings.Strength).ToArray(),
-                Rgb("gFC_HemAmbCol_u"), Rgb("gFC_HemAmbCol_d"), [diffuse.Item1, diffuse.Item2, diffuse.Item3]));
+            // lazy: a placement selecting no fog or scattering row (255) is left clear; such rows are not seen on lit surfaces here.
+            SourceAir.Values? air = airRows.Fog.TryGetValue(rows.Fog, out var fog) && airRows.Scattering.TryGetValue(rows.Scattering, out var scattering)
+                ? SourceAir.Constants(scattering, fog) : rows.Fog == 255 && rows.Scattering == 255 ? null
+                : throw new InvalidDataException("Scenery selects a missing fog or scattering row");
+            families.Add(Family(rows, diffuse), (new(Rgb("gFC_EnvDifMapMulCol").Select(v => v * environmentSettings.Strength).ToArray(),
+                Rgb("gFC_HemAmbCol_u"), Rgb("gFC_HemAmbCol_d"), [diffuse.Item1, diffuse.Item2, diffuse.Item3]), air));
         }
         var environments = models.ToDictionary(m => m.Name, m =>
         {
-            var textures = lighting[rowOf[m.Name]].DiffuseEnvironment.Textures;
+            var textures = lighting[rowOf[m.Name].Light].DiffuseEnvironment.Textures;
             if (textures.Length != 1) throw new InvalidDataException("Lighting row lacks one diffuse environment texture");
             return $"EnvDif_m10_{textures[0]:D3}";
         }, StringComparer.Ordinal);
@@ -192,7 +199,7 @@ internal static class FirelinkBuild
         var cutouts = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var model in models)
         {
-            int row = rowOf[model.Name];
+            var row = rowOf[model.Name];
             using var document = JsonDocument.Parse(reader.ReadModel(model.Name));
             var selected = document.RootElement.GetProperty("surfaces").EnumerateArray()
                 .Where(s => model.Surfaces.ContainsKey(s.GetProperty("index").GetInt32())).ToArray();
@@ -246,23 +253,30 @@ internal static class FirelinkBuild
         using (var family = new BND4Reader(ShaderArchive.ReadFamily(shaders, HostFamily + ".shaderbdle")))
             outputRow = family.Files.Where(f => Regex.IsMatch(f.Name, @"_Gbuf[^\\/]*\.vpo$"))
                 .Max(f => VertexShader.FreeOutputRow(compiler.Disassemble(family.ReadFile(f))));
-        string forwarding = VertexShader.AddLayerFrames(compiler.Disassemble(
-            ShaderArchive.Read(shaders, HostFamily + ".shaderbdle", HostFamily + "_Gbuf.vpo")), outputRow);
+        // With air, the vertex stage also forwards the vector to the camera and the view depth.
+        string Forward(string module, SourceAir.Values? air)
+        {
+            string frames = VertexShader.AddLayerFrames(module, outputRow);
+            return air is null ? frames : VertexShader.AddView(frames, outputRow + 3);
+        }
+        var plain = compiler.Disassemble(ShaderArchive.Read(shaders, HostFamily + ".shaderbdle", HostFamily + "_Gbuf.vpo"));
         files.Add("mod/shader/shaderbdle.shaderbdlebnd.dcx", ShaderArchive.AddFamilies(shaders, HostFamily,
             families.Concat(cutouts.Select(name => KeyValuePair.Create(name, families[name[..^"_cutout".Length]])))
                 .OrderBy(family => family.Key, StringComparer.Ordinal).Select(family => (family.Key, (Func<string, byte[], byte[]>)((suffix, bytes) =>
             {
+                var (light, air) = family.Value;
                 if (suffix == ".metaparam") return emitting;
                 if (Regex.IsMatch(suffix, @"^_Gbuf.*\.vpo$"))
                 {
-                    if (!vertexStages.TryGetValue(suffix, out var stage))
-                        vertexStages.Add(suffix, stage = compiler.Assemble(VertexShader.AddLayerFrames(compiler.Disassemble(bytes), outputRow), bytes));
+                    string stageKey = suffix + "|" + (air is null ? "plain" : "view");
+                    if (!vertexStages.TryGetValue(stageKey, out var stage))
+                        vertexStages.Add(stageKey, stage = compiler.Assemble(Forward(compiler.Disassemble(bytes), air), bytes));
                     return stage;
                 }
                 if (suffix is "_Gbuf.ppo" or "_Gbuf_[A].ppo")
                     // lazy: the source's half-coverage threshold, as in the accepted playtest; no material here overrides it.
-                    return compiler.Assemble(PixelShader.ComposeLayeredGround(compiler.Disassemble(bytes), forwarding, slots, HostTargets, family.Value,
-                        cutouts.Contains(family.Key) ? 128 / 255f : null), bytes);
+                    return compiler.Assemble(PixelShader.ComposeLayeredGround(compiler.Disassemble(bytes), Forward(plain, air), slots, HostTargets, light,
+                        cutouts.Contains(family.Key) ? 128 / 255f : null, air), bytes);
                 return bytes;
             }))).ToArray()));
 
@@ -279,7 +293,7 @@ internal static class FirelinkBuild
             inputs = new { source = source.Fingerprints, host = host.Fingerprints },
             scenery = new { models = scenery.Models, placements = scenery.Placements },
             textures = names,
-            groundFamilies = families,
+            groundFamilies = families.ToDictionary(f => f.Key, f => new { lighting = f.Value.Lighting, air = f.Value.Air }),
             cutoutFamilies = cutouts,
             arrival = new { collision = terrain.Arrival, selection = arrival, focus = arrivalFocus },
             unbuiltSurfaces = unbuilt,
