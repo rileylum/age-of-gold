@@ -36,7 +36,12 @@ internal sealed class SceneReader
 
     internal byte[] ReadPlacements() => JsonSerializer.SerializeToUtf8Bytes(Placements());
 
-    private object Placements() => layout.Parts.MapPieces.OrderBy(p => p.Name, StringComparer.Ordinal).Select(p => new
+    /// <summary>Object placements in the shape of <see cref="ReadPlacements"/>.</summary>
+    internal byte[] ReadObjectPlacements() => JsonSerializer.SerializeToUtf8Bytes(Placements(layout.Parts.Objects));
+
+    private object Placements() => Placements(layout.Parts.MapPieces);
+
+    private static object Placements(IEnumerable<MSB1.Part> parts) => parts.OrderBy(p => p.Name, StringComparer.Ordinal).Select(p => new
             {
                 name = p.Name, model = p.ModelName, position = Vector(p.Position), rotation = Vector(p.Rotation), scale = Vector(p.Scale),
                 lighting = p.LightID, fog = p.FogID, scattering = p.ScatterID, playerLight = p.LanternID, disablePointLights = p.DisablePointLightEffect,

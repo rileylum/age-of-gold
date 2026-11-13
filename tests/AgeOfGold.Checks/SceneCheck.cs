@@ -16,6 +16,8 @@ internal static class SceneCheck
         layout.Parts.MapPieces.Add(new() { Name = "authored-placement", ModelName = "m0000", Position = new(5, 6, 7),
             LightID = 13, LanternID = 7, DisablePointLightEffect = 1 });
         new uint[] { 1, 4, 16, 64 }.CopyTo(layout.Parts.MapPieces[0].DrawGroups, 0);
+        layout.Models.Objects.Add(new() { Name = "o9999" });
+        layout.Parts.Objects.Add(new() { Name = "authored-object", ModelName = "o9999", Position = new(8, 9, 10), Rotation = new(0, 45, 0), LightID = 14, FogID = 15, ScatterID = 16 });
         Write("map/MapStudio/m10_02_00_00.msb", layout.Write());
         var definition = new MTD
         {
@@ -70,6 +72,14 @@ internal static class SceneCheck
             Require(placed.RootElement.GetProperty("name").GetString() == "o9999"
                 && placed.RootElement.GetProperty("surfaces").GetRawText() == piece.RootElement.GetProperty("surfaces").GetRawText(), "object model surfaces");
         Require(objects.ReadObjectTextures("o9999").Select(t => t.Name).SequenceEqual(new[] { "authored-colour" }), "object textures");
+        // Objects are placed like map pieces and select the same drawing rows.
+        using (var placedObjects = JsonDocument.Parse(objects.ReadObjectPlacements()))
+        {
+            var only = placedObjects.RootElement.EnumerateArray().Single();
+            Require(only.GetProperty("name").GetString() == "authored-object" && only.GetProperty("model").GetString() == "o9999"
+                && only.GetProperty("position")[2].GetSingle() == 10 && only.GetProperty("rotation")[1].GetSingle() == 45
+                && only.GetProperty("lighting").GetInt32() == 14 && only.GetProperty("fog").GetInt32() == 15 && only.GetProperty("scattering").GetInt32() == 16, "object placements");
+        }
         var first = SceneReader.Read(new Install(source, "DarkSoulsRemastered.exe"));
         var second = SceneReader.Read(new Install(source, "DarkSoulsRemastered.exe"));
         if (!first.SequenceEqual(second)) throw new Exception("Repeated scene reads differ");
