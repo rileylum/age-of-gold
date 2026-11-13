@@ -178,6 +178,7 @@ internal static class FirelinkBuild
         if (exemplar < 0) throw new InvalidDataException("Host install lacks the two-layer ground exemplar");
 
         var groundDefinitions = new SortedDictionary<string, byte[]>(StringComparer.Ordinal); byte[]? groundMetadata = null;
+        var cutouts = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var model in models)
         {
             int row = rowOf[model.Name];
@@ -191,17 +192,15 @@ internal static class FirelinkBuild
                 var bound = MaterialWriter.BindLayers(hostDefinition.Bytes, metadata, donorDefinition, donorMetadata,
                     LayerMaterial.Read(s.GetProperty("material")), names, names[environments[model.Name]]);
                 var definition = MATBIN.Read(bound.Definition);
-                // A cutout shares its family's programs; only its definition asks the host for the alpha-tested stages.
-                bool cutout = LayerMaterial.Cutout(s.GetProperty("material"));
-                string identity = cutout ? family + "_cutout" : family;
-                definition.SourcePath = Rename(definition.SourcePath, identity); definition.ShaderPath = Rename(definition.ShaderPath, family);
-                var alpha = definition.Params.Single(p => p.Name == "g_AlphaRef");
-                if (alpha.Value is not int[] { Length: 2 } reference || reference[0] != 0) throw new InvalidDataException("Unsupported host alpha reference parameter");
-                // lazy: the source's fixed half-coverage threshold, as in the accepted playtest; no source material overrides it here.
-                if (cutout) alpha.Value = new[] { 128, reference[1] };
+                // The coverage test is compiled into the pixel stage, so a cutout has its own family beside the opaque one.
+                if (LayerMaterial.Cutout(s.GetProperty("material")))
+                {
+                    family += "_cutout";
+                    cutouts.Add(family);
+                }
+                definition.SourcePath = Rename(definition.SourcePath, family); definition.ShaderPath = Rename(definition.ShaderPath, family);
                 bound = bound with { Definition = definition.Write() };
                 groundMetadata ??= bound.Metadata;
-                family = identity;
                 if (!groundDefinitions.TryAdd(family, bound.Definition) && !bound.Definition.AsSpan().SequenceEqual(groundDefinitions[family])
                     || !bound.Metadata.AsSpan().SequenceEqual(groundMetadata))
                     throw new InvalidDataException("Opaque surfaces need more than one material definition per shader family");
@@ -239,7 +238,8 @@ internal static class FirelinkBuild
         string forwarding = VertexShader.AddLayerFrames(compiler.Disassemble(
             ShaderArchive.Read(shaders, HostFamily + ".shaderbdle", HostFamily + "_Gbuf.vpo")), outputRow);
         files.Add("mod/shader/shaderbdle.shaderbdlebnd.dcx", ShaderArchive.AddFamilies(shaders, HostFamily,
-            families.Select(family => (family.Key, (Func<string, byte[], byte[]>)((suffix, bytes) =>
+            families.Concat(cutouts.Select(name => KeyValuePair.Create(name, families[name[..^"_cutout".Length]])))
+                .OrderBy(family => family.Key, StringComparer.Ordinal).Select(family => (family.Key, (Func<string, byte[], byte[]>)((suffix, bytes) =>
             {
                 if (suffix == ".metaparam") return emitting;
                 if (Regex.IsMatch(suffix, @"^_Gbuf.*\.vpo$"))
@@ -249,7 +249,9 @@ internal static class FirelinkBuild
                     return stage;
                 }
                 if (suffix is "_Gbuf.ppo" or "_Gbuf_[A].ppo")
-                    return compiler.Assemble(PixelShader.ComposeLayeredGround(compiler.Disassemble(bytes), forwarding, slots, HostTargets, family.Value), bytes);
+                    // lazy: the source's half-coverage threshold, as in the accepted playtest; no material here overrides it.
+                    return compiler.Assemble(PixelShader.ComposeLayeredGround(compiler.Disassemble(bytes), forwarding, slots, HostTargets, family.Value,
+                        cutouts.Contains(family.Key) ? 128 / 255f : null), bytes);
                 return bytes;
             }))).ToArray()));
 
@@ -267,6 +269,7 @@ internal static class FirelinkBuild
             scenery = new { models = scenery.Models, placements = scenery.Placements },
             textures = names,
             groundFamilies = families,
+            cutoutFamilies = cutouts,
             unbuiltSurfaces = unbuilt,
             excludedCollision = terrain.Excluded.Select(p => new { p.Name, p.Role, p.Disabled }),
             files = files.Files.Select(f => new { path = f.Key, size = f.Value.Size, sha256 = f.Value.Hash }).ToArray(),

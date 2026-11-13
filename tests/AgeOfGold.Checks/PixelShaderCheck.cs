@@ -143,6 +143,25 @@ internal static class PixelShaderCheck
             System.Text.RegularExpressions.RegexOptions.RightToLeft | System.Text.RegularExpressions.RegexOptions.Multiline).Replace(module,
             "  br i1 undef, label %authored_side, label %authored_join\n\nauthored_side:\n$1\n  br label %authored_join\n\nauthored_join:", 1);
         Reject(() => PixelShader.ComposeLayeredGround(guarded, vertex, Slots, Targets, Lighting), "conditional");
+        // A cutout discards where the blended coverage of its two colour samples falls below the reference.
+        var covered = compiler.Disassemble(compiler.Assemble(PixelShader.ComposeLayeredGround(module, vertex, Slots, Targets, Lighting, 0.5f), original));
+        int kept = 0, removed = 0;
+        foreach (float alpha in new[] { 0f, 0.25f, 0.5f, 0.75f, 1f })
+        {
+            var inputs = new Dictionary<(string, int), float[]>
+            {
+                [("NORMAL", 0)] = [0.3f, 0.9f, -0.2f, 0], [("TANGENT", 0)] = [0.8f, -0.1f, 0.5f, 1], [("TEXCOORD", 0)] = [0.9f, 0.8f, 0.7f, alpha],
+                [("TEXCOORD", 4)] = [0.37f], [("TEXCOORD", 5)] = [1.21f], [("TEXCOORD", 7)] = [-0.6f, 0.45f, 0, 0.25f],
+                [("TANGENT", 4)] = [0.1f, 0.3f, 0.9f, 0], [("TANGENT", 6)] = [-0.7f, 0.2f, 0.6f, 0],
+            };
+            var shaded = Evaluate(covered, inputs, true, cube: true, out bool discarded);
+            float coverage = Coverage(1, Tile(new(0.37f, 1.21f), 1)) * (1 - alpha) + Coverage(4, Tile(new(-0.6f, 0.45f), 4)) * alpha;
+            if (discarded != (coverage < 0.5f) || !shaded.OrderBy(p => p.Key).SequenceEqual(Evaluate(text, inputs, true, cube: true).OrderBy(p => p.Key)))
+                throw new Exception("Cutout coverage test or shading differs");
+            if (discarded) removed++; else kept++;
+        }
+        if (kept == 0 || removed == 0) throw new Exception("Cutout fixture does not exercise both outcomes");
+        Reject(() => PixelShader.ComposeLayeredGround(module, vertex, Slots, Targets, Lighting, 1.5f), "reference");
         Reject(() => PixelShader.ComposeLayeredGround(composed, vertex, Slots, Targets, Lighting), "already");
         Reject(() => PixelShader.ComposeLayeredGround(module, compiler.Disassemble(compiler.Compile(Vertex, "Main", "vs_6_0")), Slots, Targets, Lighting), "semantic");
         Reject(() => PixelShader.ComposeLayeredGround(module, vertex, Slots with { Colour = [1, 1] }, Targets, Lighting), "distinct");
@@ -161,6 +180,8 @@ internal static class PixelShaderCheck
     private static Vector3 Tint(int layer) => layer == 0 ? new(0.9f, 0.85f, 0.8f) : new(0.7f, 0.95f, 0.6f);
     // Smooth authored texture contents, distinct per slot.
     private static Vector3 Colour(int slot, Vector2 uv) => new(0.2f + 0.05f * slot + 0.1f * MathF.Sin(uv.X), 0.3f + 0.04f * slot + 0.1f * MathF.Cos(uv.Y), 0.6f - 0.05f * slot + 0.05f * MathF.Sin(uv.X + uv.Y));
+
+    private static float Coverage(int slot, Vector2 uv) => slot == 1 ? 0.2f : slot == 4 ? 0.9f : 1;
 
     private static Dictionary<(int, int), float> Evaluate(string module, Dictionary<(string, int), float[]> inputs, bool front, bool cube) =>
         Evaluate(module, inputs, front, cube, out _);
@@ -187,7 +208,7 @@ internal static class PixelShaderCheck
             if (at.Length == 3 != (cube && slot == 0)) throw new Exception("Texture sampled with the wrong dimension");
             if (at.Length == 3) return [0.5f + 0.25f * at[0], 0.5f + 0.25f * at[1], 0.5f + 0.25f * at[2], 1];
             var c = Colour(slot, new(at[0], at[1]));
-            return [c.X, c.Y, c.Z, 1];
+            return [c.X, c.Y, c.Z, Coverage(slot, new(at[0], at[1]))];
         };
         evaluator.Run(module);
         discarded = evaluator.Discarded;

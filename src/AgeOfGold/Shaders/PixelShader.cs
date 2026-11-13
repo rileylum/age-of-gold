@@ -22,8 +22,10 @@ internal static class PixelShader
     /// Gives the second layer its own coordinates and frame, blends the layers by vertex alpha, and writes the
     /// source's environment and hemisphere lighting of the blended colour to the emission target.
     /// </summary>
-    internal static string ComposeLayeredGround(string module, string vertex, LayerSlots slots, Targets targets, GroundLighting lighting)
+    /// <param name="cutout">When set, pixels whose blended colour alpha is below this reference are discarded.</param>
+    internal static string ComposeLayeredGround(string module, string vertex, LayerSlots slots, Targets targets, GroundLighting lighting, float? cutout = null)
     {
+        if (cutout is { } reference && !(reference > 0 && reference <= 1)) throw new InvalidDataException("Cutout reference must be within (0, 1]");
         foreach (var factor in new[] { lighting.Environment, lighting.Upper, lighting.Lower, lighting.Diffuse })
             if (factor.Length != 3 || !factor.All(float.IsFinite)) throw new InvalidDataException("Ground lighting factors must be three finite values");
         int[] textures = [slots.Environment, .. slots.Colour, .. slots.Normal];
@@ -274,6 +276,14 @@ internal static class PixelShader
                 Mad("hemi" + c, hemisphere, Float(lighting.Upper[i] - lighting.Lower[i]), Float(lighting.Lower[i])));
             lit[i] = Emit("sourcelit" + c, $"fmul fast float {light}, " + Emit("sourcealbedo" + c, $"fmul fast float {colour}, {Float(lighting.Diffuse[i])}"));
         }
+        if (cutout is { } threshold)
+        {
+            // The same blend as the colour: the second layer's coverage replaces the first's by vertex alpha.
+            string lower = Emit("cover0", $"extractvalue %dx.types.ResRet.f32 {samples[slots.Colour[0]].Result}, 3");
+            string upper = Emit("cover1", $"extractvalue %dx.types.ResRet.f32 {samples[slots.Colour[1]].Result}, 3");
+            string coverage = Mad("coverage", Emit("coverdelta", $"fsub fast float {upper}, {lower}"), alpha, lower);
+            body.Add($"  call void @dx.op.discard(i32 82, i1 {Emit("uncovered", $"fcmp fast olt float {coverage}, {Float(threshold)}")})");
+        }
         Insert(litLine, body);
         var replaced = new HashSet<(int, int)>();
         for (int i = litLine; i < end; i++)
@@ -345,7 +355,8 @@ internal static class PixelShader
             ("dot2.f32", "declare float @dx.op.dot2.f32(i32, float, float, float, float)"),
             ("dot3.f32", "declare float @dx.op.dot3.f32(i32, float, float, float, float, float, float)"),
             ("sampleLevel.f32", "declare %dx.types.ResRet.f32 @dx.op.sampleLevel.f32(i32, %dx.types.Handle, %dx.types.Handle, float, float, float, float, i32, i32, i32, float)"),
-        })
+            ("discard", "declare void @dx.op.discard(i32, i1)"),
+        }.Where(d => d.Item1 != "discard" || cutout is not null))
             if (!lines.Any(l => l.StartsWith("declare ", StringComparison.Ordinal) && l.Contains($"@dx.op.{function}(", StringComparison.Ordinal)))
                 result.Add(declaration);
         return string.Join('\n', result) + "\n";

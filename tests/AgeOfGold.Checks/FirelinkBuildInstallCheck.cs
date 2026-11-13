@@ -69,8 +69,7 @@ internal static class FirelinkBuildInstallCheck
                 if (matches.Length != 1) throw new Exception("Built model material does not resolve to one definition: " + material.MTD);
                 var definition = MATBIN.Read(matches[0]);
                 string family = Path.GetFileNameWithoutExtension(definition.ShaderPath.Replace('\\', '/'));
-                bool cut = definition.Params.Single(p => p.Name == "g_AlphaRef").Value is int[] { Length: 2 } alpha && alpha[0] != 0;
-                if (cut != material.MTD.EndsWith("_cutout.mtd", StringComparison.Ordinal)) throw new Exception("Cutout material identity and alpha reference disagree");
+                bool cut = family.EndsWith("_cutout", StringComparison.Ordinal);
                 cutouts += cut ? 1 : 0;
                 families.Add(family);
                 using var bundle = new BND4Reader(ShaderArchive.ReadFamily(shaders, family + ".shaderbdle"));
@@ -91,6 +90,7 @@ internal static class FirelinkBuildInstallCheck
         }
         if (surfaces != 244 || cutouts != 38) throw new Exception("Built opaque and cutout surface inventory differs");
         var lit = manifest.RootElement.GetProperty("groundFamilies").EnumerateObject().Select(f => f.Name).Order(StringComparer.Ordinal).ToArray();
+        lit = lit.Concat(manifest.RootElement.GetProperty("cutoutFamilies").EnumerateArray().Select(f => f.GetString()!)).Order(StringComparer.Ordinal).ToArray();
         if (!lit.SequenceEqual(families.Order(StringComparer.Ordinal))) throw new Exception("Built models do not use exactly the recorded lit ground families");
         foreach (string family in families)
         {
@@ -109,6 +109,8 @@ internal static class FirelinkBuildInstallCheck
             rows.Add(string.Join(",", new[] { 4, 6 }.Select(index => inputs.Find(false, "TANGENT", index).Row).Prepend(inputs.Find(false, "TANGENT", 4).Row - 1)));
             if (rows.Count < 2 || rows.Distinct().Count() != 1) throw new Exception("Built vertex variants and pixel stage disagree on tangent registers: " + string.Join(" | ", rows));
             var declared = METAPARAM.Read(bundle.ReadFile(bundle.Files.Single(f => f.Name.EndsWith(".metaparam", StringComparison.Ordinal))));
+            if (pixel.Contains("@dx.op.discard(i32 82, i1 %aog_uncovered)", StringComparison.Ordinal) != family.EndsWith("_cutout", StringComparison.Ordinal))
+                throw new Exception("Cutout coverage test is missing or misplaced: " + family);
             if (!pixel.Contains("TextureCube", StringComparison.Ordinal) || (declared.ShaderId & 0x800) == 0)
                 throw new Exception("Built ground pixel stage lacks its environment cube or emission writes");
             rows.RemoveAt(rows.Count - 1);
