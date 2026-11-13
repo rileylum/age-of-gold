@@ -21,6 +21,8 @@ if it exists. It says where the last session stopped and lists Riley's standing 
   game was committed, stop and tell Riley before anything is pushed.
 - **Installs are read-only.** Never write into, patch or "fix" a game install, and never run a
   game online with a build loaded.
+- **Capture scratch:** use `/var/tmp/aog/bonfire-captures/`, never `/dev/shm` or `/tmp`.
+  Set `TMPDIR` and explicit capture output paths there before starting capture work.
 - **Research:** `docs/research/` holds dated snapshots of what was learnt about formats, tools and
   prior art; they are inputs, not specs. Record each source's licence. Never copy code from a
   community tool without a logged decision that its licence allows it.
