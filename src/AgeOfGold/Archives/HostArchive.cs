@@ -38,12 +38,19 @@ internal sealed class HostArchive
         }
     }
 
+    internal bool Contains(string relative) => entries.ContainsKey(Hash(Install.Relative(relative).ToLowerInvariant()));
+
+    private static ulong Hash(string name)
+    {
+        ulong hash = 0;
+        foreach (char c in "/" + name) hash = unchecked(hash * 133 + c);
+        return hash;
+    }
+
     internal byte[] Read(string relative)
     {
         var name = Install.Relative(relative).ToLowerInvariant();
-        ulong hash = 0;
-        foreach (char c in "/" + name) hash = unchecked(hash * 133 + c);
-        if (!entries.TryGetValue(hash, out var matches)) throw new FileNotFoundException($"Host archive entry not found: {name}");
+        if (!entries.TryGetValue(Hash(name), out var matches)) throw new FileNotFoundException($"Host archive entry not found: {name}");
         var bytes = Read(matches[0]);
         foreach (var other in matches.Skip(1))
             if (!bytes.AsSpan().SequenceEqual(Read(other)))

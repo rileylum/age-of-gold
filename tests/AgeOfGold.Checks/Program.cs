@@ -13,6 +13,16 @@ try
         SourceRendererSettingsCheck.Installs(args[1], true);
         return;
     }
+    if (args.Length == 2 && args[0] == "firelink-build-installs")
+    {
+        FirelinkBuildInstallCheck.Run(args[1]);
+        return;
+    }
+    if (args.Length == 3 && args[0] == "firelink-build-reference")
+    {
+        FirelinkReferenceCheck.Run(args[1], args[2]);
+        return;
+    }
     if (args.SequenceEqual(new[] { "map-scenery" }))
     {
         MapSceneryCheck.Run();
