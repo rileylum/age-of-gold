@@ -124,6 +124,17 @@ internal static class FirelinkBuild
         var focus = SourceAtmosphereReader.DepthOfField(source);
         if (!focus.TryGetValue(arrival.DepthOfField, out var arrivalFocus)) throw new InvalidDataException("Arrival selects a missing depth-of-field row");
         files.Add("mod/param/drawparam/mapbase.gparam.dcx", HostAtmosphere.FocusLikeSource(archive.Read("param/drawparam/mapbase.gparam.dcx"), arrivalFocus));
+        // The display stage shows the scene as the source does, at the arrival row's exposure.
+        // lazy: the exposure of an eye adapted to a bright scene; the source adapts between this and about twice it.
+        var tones = SourceAtmosphereReader.ToneMap(source);
+        if (!tones.TryGetValue(arrival.ToneMap, out var arrivalTone)) throw new InvalidDataException("Arrival selects a missing tone-map row");
+        if (!SourceAtmosphereReader.ToneCorrection(source).TryGetValue(arrival.ToneCorrection, out var arrivalCorrection))
+            throw new InvalidDataException("Arrival selects a missing tone-correction row");
+        const string post = "shader/GXPostEffect.shaderbnd.dcx", toneStage = "ToneMap_TabledToneMapLUTPS.ppo";
+        var postArchive = archive.Read(post);
+        var toneProgram = ShaderArchive.Read(postArchive, toneStage);
+        files.Add("mod/" + post, ShaderArchive.Replace(postArchive, [toneStage],
+            compiler.Assemble(DisplayShader.DisplayLikeSource(compiler.Disassemble(toneProgram), arrivalTone.BrightExposure, arrivalCorrection), toneProgram)));
         string graphics = $"param/drawparam/{Map[..6]}_{Map[7..9]}00.gparam.dcx";
         files.Add("mod/" + graphics, HostAtmosphere.RemoveHostEffects(archive.Read(graphics)));
 
@@ -300,7 +311,7 @@ internal static class FirelinkBuild
             textures = names,
             groundFamilies = families.ToDictionary(f => f.Key, f => new { lighting = f.Value.Lighting, air = f.Value.Air }),
             cutoutFamilies = cutouts,
-            arrival = new { collision = terrain.Arrival, selection = arrival, focus = arrivalFocus },
+            arrival = new { collision = terrain.Arrival, selection = arrival, focus = arrivalFocus, tone = arrivalTone, exposure = arrivalTone.BrightExposure, correction = arrivalCorrection },
             unbuiltSurfaces = unbuilt,
             excludedCollision = terrain.Excluded.Select(p => new { p.Name, p.Role, p.Disabled }),
             files = files.Files.Select(f => new { path = f.Key, size = f.Value.Size, sha256 = f.Value.Hash }).ToArray(),

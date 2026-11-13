@@ -16,32 +16,61 @@ internal static class SourceAtmosphereReader
         MSB1.Read(source.Read("map/MapStudio/m10_02_00_00.msb")).Parts.Collisions.ToDictionary(p => p.Name,
             p => new Selection(p.LightID, p.FogID, p.ScatterID, p.DofID, p.ToneMapID, p.ToneCorrectID), StringComparer.Ordinal);
 
-    internal static SortedDictionary<int, Focus> DepthOfField(Install source)
+    /// <summary>A tone-map row: the exposure key and the luminance range the eye adapts within; bloom and shaft settings.</summary>
+    internal sealed record Tone(float Key, float MinLuminance, float MaxLuminance, float AdaptSpeed, float BloomBegin, float BloomStrength,
+        float BloomBeginFar, float BloomStrengthFar, float BloomNear, float BloomFar, float ShaftBegin, float ShaftPower, float ShaftFalloff, float InverseScale)
+    {
+        /// <summary>The exposure once the eye has adapted to a scene at least as bright as the row's upper luminance.</summary>
+        internal float BrightExposure => Key / (MaxLuminance + 0.001f);
+    }
+
+    /// <summary>A tone-correction row: per-channel brightness and contrast, saturation, and hue rotation in degrees.</summary>
+    internal sealed record Correction(float[] Brightness, float[] Contrast, float Saturation, float Hue);
+
+    internal static SortedDictionary<int, Correction> ToneCorrection(Install source) => Rows(source, "m10_ToneCorrectBank.param", "TONE_CORRECT_BANK", v =>
+    {
+        // lazy: the effect multiplier scales effect brightness, which no translated stage uses yet.
+        _ = v("sfxMultiplier");
+        return new Correction([v("brightnessR"), v("brightnessG"), v("brightnessB")], [v("contrastR"), v("contrastG"), v("contrastB")], v("saturation"), v("hue"));
+    });
+
+    internal static SortedDictionary<int, Focus> DepthOfField(Install source) => Rows(source, "m10_DofBank.param", "DOF_BANK",
+        v => new Focus(v("farDofBegin"), v("farDofEnd"), v("farDofMul"), v("nearDofBegin"), v("nearDofEnd"), v("nearDofMul"), v("dispersionSq")));
+
+    internal static SortedDictionary<int, Tone> ToneMap(Install source) => Rows(source, "m10_ToneMapBank.param", "TONE_MAP_BANK", v =>
+    {
+        var tone = new Tone(v("grayKeyValue"), v("minAdaptedLum"), v("maxAdapredLum"), v("adaptSpeed"), v("bloomBegin") / 100, v("bloomMul") / 100,
+            v("bloomBeginFar") / 100, v("bloomMulFar") / 100, v("bloomNearDist"), v("bloomFarDist"), v("lightShaftBegin") / 100, v("lightShaftPower") / 100,
+            v("lightShaftAttenRate"), v("inverseToneMapMul"));
+        return tone.Key > 0 && tone.MinLuminance > 0 && tone.MaxLuminance >= tone.MinLuminance ? tone : throw new InvalidDataException("Invalid source tone-map row");
+    });
+
+    private static SortedDictionary<int, T> Rows<T>(Install source, string name, string type, Func<Func<string, float>, T> read)
     {
         var definitions = BND3.Read(source.Read("paramdef/paramdef.paramdefbnd.dcx")).Files.Select(f => PARAMDEF.Read(f.Bytes)).ToArray();
         var tables = BND3.Read(source.Read("param/DrawParam/a10_DrawParam.parambnd.dcx"));
-        var entries = tables.Files.Where(f => Path.GetFileName(f.Name.Replace('\\', '/')) == "m10_DofBank.param").ToArray();
-        if (entries.Length != 1) throw new InvalidDataException("Expected one source depth-of-field table");
+        var entries = tables.Files.Where(f => Path.GetFileName(f.Name.Replace('\\', '/')) == name).ToArray();
+        if (entries.Length != 1) throw new InvalidDataException("Expected one source table " + name);
         var table = PARAM.Read(entries[0].Bytes);
-        var matches = definitions.Where(d => d.ParamType == "DOF_BANK" && d.DataVersion == table.ParamdefDataVersion).ToArray();
-        if (table.ParamType != "DOF_BANK" || matches.Length != 1 || !table.ApplyParamdefCarefully(matches[0])
+        var matches = definitions.Where(d => d.ParamType == type && d.DataVersion == table.ParamdefDataVersion).ToArray();
+        if (table.ParamType != type || matches.Length != 1 || !table.ApplyParamdefCarefully(matches[0])
             || table.Rows.Select(r => r.ID).Distinct().Count() != table.Rows.Count)
-            throw new InvalidDataException("Unsupported or ambiguous source depth-of-field table");
-        var result = new SortedDictionary<int, Focus>();
+            throw new InvalidDataException("Unsupported or ambiguous source table " + name);
+        var result = new SortedDictionary<int, T>();
         foreach (var row in table.Rows)
         {
-            var read = new HashSet<string>(StringComparer.Ordinal);
-            float Value(string name)
+            var used = new HashSet<string>(StringComparer.Ordinal);
+            float Value(string field)
             {
-                var cells = row.Cells.Where(c => c.Def.InternalName == name).ToArray();
-                if (cells.Length != 1) throw new InvalidDataException($"Missing or ambiguous depth-of-field field {name}");
-                read.Add(name);
+                var cells = row.Cells.Where(c => c.Def.InternalName == field).ToArray();
+                if (cells.Length != 1) throw new InvalidDataException($"Missing or ambiguous field {field} in {name}");
+                used.Add(field);
                 float value = Convert.ToSingle(cells[0].Value, CultureInfo.InvariantCulture);
-                return float.IsFinite(value) ? value : throw new InvalidDataException($"Non-finite depth-of-field field {name} in row {row.ID}");
+                return float.IsFinite(value) ? value : throw new InvalidDataException($"Non-finite field {field} in row {row.ID} of {name}");
             }
-            result.Add(row.ID, new(Value("farDofBegin"), Value("farDofEnd"), Value("farDofMul"), Value("nearDofBegin"), Value("nearDofEnd"), Value("nearDofMul"), Value("dispersionSq")));
-            var unknown = row.Cells.FirstOrDefault(c => c.Def.DisplayType != PARAMDEF.DefType.dummy8 && !read.Contains(c.Def.InternalName));
-            if (unknown is not null) throw new InvalidDataException($"Unclassified depth-of-field field {unknown.Def.InternalName}");
+            result.Add(row.ID, read(Value));
+            var unknown = row.Cells.FirstOrDefault(c => c.Def.DisplayType != PARAMDEF.DefType.dummy8 && !used.Contains(c.Def.InternalName));
+            if (unknown is not null) throw new InvalidDataException($"Unclassified field {unknown.Def.InternalName} in {name}");
         }
         return result;
     }
