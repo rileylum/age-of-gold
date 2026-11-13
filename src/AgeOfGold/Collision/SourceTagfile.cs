@@ -10,6 +10,8 @@ internal sealed class SourceTagfile
     private readonly byte[] bytes;
     private readonly Section data;
     private readonly Item[] items;
+    private readonly Section[] parts;
+    private readonly Section[] indexParts;
     private sealed record Section(string Name, int Start, int End)
     {
         internal int Content => Start + 8;
@@ -28,6 +30,7 @@ internal sealed class SourceTagfile
         if (version is not ("20150100" or "20180100") || Encoding.ASCII.GetString(bytes[sections[0].Content..sections[0].End]) != version)
             throw new InvalidDataException("Tagged file is not of the expected Havok release");
         data = sections[1];
+        parts = sections;
         var type = sections[2];
         // Both versions serialize type descriptions in this form; no generated 2015 classes are needed.
         var wrapper = new byte[24 + type.End - type.Start];
@@ -47,6 +50,7 @@ internal sealed class SourceTagfile
         var index = Sections(sections[3].Content, sections[3].End);
         if (!index.Select(s => s.Name).SequenceEqual(new[] { "ITEM", "PTCH" }))
             throw new InvalidDataException("Unsupported source collision index");
+        indexParts = index;
         var entries = index[0];
         if ((entries.End - entries.Content) % 12 != 0) throw new InvalidDataException("Truncated collision item table");
         items = new Item[(entries.End - entries.Content) / 12];
@@ -88,6 +92,63 @@ internal sealed class SourceTagfile
     }
 
     internal Value Root => new(this, items[1].Type, items[1].Offset);
+
+    /// <summary>Writes the file again with some arrays' contents replaced.</summary>
+    // lazy: only arrays that hold no references can be replaced; replacing records that point elsewhere needs their
+    // pointer positions regenerated from the type descriptions.
+    internal byte[] Rewrite(IReadOnlyDictionary<int, (byte[] Bytes, int Count)> arrays)
+    {
+        foreach (var (index, (content, count)) in arrays)
+            if (index <= 1 || index >= items.Length || items[index].Kind != 2 || count < 0 || content.Length != (long)count * items[index].Type.Size)
+                throw new InvalidDataException("Invalid array replacement in a tagged file");
+        // Items keep their order in the data, each starting on its type's alignment.
+        var order = Enumerable.Range(1, items.Length - 1).OrderBy(i => items[i].Offset).ThenBy(i => i).ToArray();
+        var placed = new int[items.Length];
+        var body = new List<byte>();
+        foreach (int i in order)
+        {
+            while (body.Count % items[i].Type.Alignment != 0) body.Add(0);
+            placed[i] = body.Count;
+            body.AddRange(arrays.TryGetValue(i, out var replaced) ? replaced.Bytes : bytes.AsSpan(items[i].Offset, items[i].Count * items[i].Type.Size).ToArray());
+        }
+        while (body.Count % 8 != 0) body.Add(0);
+
+        var table = bytes.AsSpan(indexParts[0].Content, indexParts[0].End - indexParts[0].Content).ToArray();
+        for (int i = 1; i < items.Length; i++)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(table.AsSpan(12 * i + 4), placed[i]);
+            BinaryPrimitives.WriteInt32LittleEndian(table.AsSpan(12 * i + 8), arrays.TryGetValue(i, out var replaced) ? replaced.Count : items[i].Count);
+        }
+        // Each recorded pointer position moves with the item that contains it.
+        var patches = bytes.AsSpan(indexParts[1].Content, indexParts[1].End - indexParts[1].Content).ToArray();
+        for (int at = 0; at < patches.Length;)
+        {
+            int count = BinaryPrimitives.ReadInt32LittleEndian(patches.AsSpan(at + 4));
+            at += 8;
+            for (int i = 0; i < count; i++, at += 4)
+            {
+                int position = data.Content + BinaryPrimitives.ReadInt32LittleEndian(patches.AsSpan(at));
+                int holder = order.LastOrDefault(item => items[item].Offset <= position, 0);
+                if (holder == 0 || position + 8 > items[holder].Offset + items[holder].Count * items[holder].Type.Size)
+                    throw new InvalidDataException("A recorded pointer position lies outside every item");
+                if (arrays.ContainsKey(holder)) throw new InvalidDataException("A replaced array holds references");
+                BinaryPrimitives.WriteInt32LittleEndian(patches.AsSpan(at), placed[holder] + position - items[holder].Offset);
+            }
+        }
+        byte[] Chunk(Section original, params byte[][] contents)
+        {
+            var result = new byte[8 + contents.Sum(c => c.Length)];
+            // A section's header keeps its kind bits and name; only its length changes.
+            BinaryPrimitives.WriteUInt32BigEndian(result, BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(original.Start)) & 0xF0000000 | (uint)result.Length);
+            bytes.AsSpan(original.Start + 4, 4).CopyTo(result.AsSpan(4));
+            int offset = 8;
+            foreach (var content in contents) { content.CopyTo(result, offset); offset += content.Length; }
+            return result;
+        }
+        byte[] Whole(Section original) => bytes.AsSpan(original.Start, original.End - original.Start).ToArray();
+        return Chunk(new Section("TAG0", 0, bytes.Length), Whole(parts[0]), Chunk(parts[1], body.ToArray()), Whole(parts[2]),
+            Chunk(parts[3], Chunk(indexParts[0], table), Chunk(indexParts[1], patches)));
+    }
 
     private Section[] Sections(int start, int end)
     {
@@ -152,6 +213,10 @@ internal sealed class SourceTagfile
                 throw new InvalidDataException($"Invalid collision field {type.Identity}.{name}");
             return new Value(file, field.Type, offset + field.Offset);
         }
+
+        /// <summary>The item an array's elements are stored in, or zero for an empty array.</summary>
+        internal int Item => type.Kind == HavokType.TypeKind.Array && type.Name == "hkArray"
+            ? checked((int)BinaryPrimitives.ReadUInt64LittleEndian(file.Data(offset, 8))) : throw new InvalidDataException($"Expected a stored array: {type.Identity}");
 
         /// <summary>The value's own bytes as stored, for records whose packed layout the caller knows.</summary>
         internal byte[] Raw()

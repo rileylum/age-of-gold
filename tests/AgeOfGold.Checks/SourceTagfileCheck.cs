@@ -26,7 +26,31 @@ internal static class SourceTagfileCheck
             }
             catch (InvalidDataException) { }
         }
-        Console.WriteLine("PASS: source tagfile reads authored metadata, inline values and item arrays; invalid references fail");
+        // Rewriting: an array's contents are replaced, the data is laid out again, and the recorded pointer positions follow
+        // their items. This authored file keeps its root after its array, so the root moves when the array grows.
+        var movable = Fixture("root-last");
+        var before = new SourceTagfile(movable);
+        int item = before.Root.Field("values").Item;
+        var longer = new uint[] { 3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5 };
+        var bytes = new byte[longer.Length * 4];
+        for (int i = 0; i < longer.Length; i++) BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(i * 4), longer[i]);
+        var rewritten = before.Rewrite(new Dictionary<int, (byte[], int)> { [item] = (bytes, longer.Length) });
+        Require(rewritten.SequenceEqual(before.Rewrite(new Dictionary<int, (byte[], int)> { [item] = (bytes, longer.Length) })), "tagfile rewrite does not repeat");
+        var after = new SourceTagfile(rewritten).Root;
+        Require(after.Field("values").Elements().Select(v => (uint)v.Integer()).SequenceEqual(longer), "rewritten array differs");
+        Require(after.Field("count").Integer() == 6 && after.Field("vector").Floats().SequenceEqual(new float[] { -2.5f, 3, 7.25f, 1 }), "rewriting an array changed other values");
+        // The one recorded pointer position is the root's array field, sixteen bytes into the root, wherever the root now lies.
+        var (dataStart, patch) = Patch(rewritten);
+        Require(BinaryPrimitives.ReadUInt64LittleEndian(rewritten.AsSpan(dataStart + patch)) == (ulong)item && patch % 8 == 0 && patch >= longer.Length * 4 + 16,
+            "pointer position did not follow its item");
+        Require(BinaryPrimitives.ReadInt32BigEndian(rewritten) == rewritten.Length, "rewritten file states the wrong length");
+        Require(before.Rewrite(new Dictionary<int, (byte[], int)>()).AsSpan().SequenceEqual(movable), "an empty rewrite changed the file");
+        foreach (var bad in new Dictionary<int, (byte[], int)>[] { new() { [item] = (bytes, 7) }, new() { [1] = (new byte[48], 1) }, new() { [9] = (bytes, 11) } })
+        {
+            try { before.Rewrite(bad); throw new Exception("Accepted an invalid array replacement"); }
+            catch (InvalidDataException) { }
+        }
+        Console.WriteLine("PASS: source tagfile reads authored metadata, inline values and item arrays; arrays rewrite with pointer positions following; invalid references fail");
     }
 
     private static byte[] Fixture(string? mutation = null)
@@ -59,23 +83,39 @@ internal static class SourceTagfileCheck
             if (name == "TBDY") "TBOD"u8.CopyTo(type.AsSpan(at + 4));
             at += BinaryPrimitives.ReadInt32BigEndian(type.AsSpan(at)) & 0x0fffffff;
         }
+        // The root record (48 bytes) and its array (24 bytes): the root first, or last for the rewriting check.
+        bool rootLast = mutation == "root-last";
+        int rootAt = rootLast ? 24 : 0, arrayAt = rootLast ? 0 : 48;
         var data = new byte[72];
-        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(4), 6);
-        BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(16), mutation == "pointer" ? 99UL : 2UL);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(rootAt + 4), 6);
+        BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(rootAt + 16), mutation == "pointer" ? 99UL : 2UL);
         float[] values = [-2.5f, 3, 7.25f, 1];
-        for (int i = 0; i < values.Length; i++) BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(32 + i * 4), values[i]);
+        for (int i = 0; i < values.Length; i++) BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(rootAt + 32 + i * 4), values[i]);
         int[] numbers = [2, 5, 8, 13, 21, 34];
-        for (int i = 0; i < numbers.Length; i++) BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(48 + i * 4), numbers[i]);
+        for (int i = 0; i < numbers.Length; i++) BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(arrayAt + i * 4), numbers[i]);
         var items = new byte[36];
         BinaryPrimitives.WriteUInt32LittleEndian(items.AsSpan(12), 0x10000005);
+        BinaryPrimitives.WriteInt32LittleEndian(items.AsSpan(16), rootAt);
         BinaryPrimitives.WriteInt32LittleEndian(items.AsSpan(20), 1);
         BinaryPrimitives.WriteUInt32LittleEndian(items.AsSpan(24), mutation == "type" ? 0x20000002u : 0x20000001u);
-        BinaryPrimitives.WriteInt32LittleEndian(items.AsSpan(28), mutation == "range" ? 68 : 48);
+        BinaryPrimitives.WriteInt32LittleEndian(items.AsSpan(28), mutation == "range" ? 68 : arrayAt);
         BinaryPrimitives.WriteInt32LittleEndian(items.AsSpan(32), 6);
+        // One recorded pointer position, listed under the array field's type: the root's array field.
+        var patches = new byte[12];
+        BinaryPrimitives.WriteInt32LittleEndian(patches, 4); BinaryPrimitives.WriteInt32LittleEndian(patches.AsSpan(4), 1); BinaryPrimitives.WriteInt32LittleEndian(patches.AsSpan(8), rootAt + 16);
         return Chunk("TAG0", false,
             Chunk("SDKV", true, Encoding.ASCII.GetBytes(mutation == "version" ? "20990100" : "20150100")),
             Chunk("DATA", true, data), type,
-            Chunk("INDX", false, Chunk("ITEM", true, items), Chunk("PTCH", true, [])));
+            Chunk("INDX", false, Chunk("ITEM", true, items), Chunk("PTCH", true, patches)));
+    }
+
+    // Where a file's data begins, and its one recorded pointer position within the data.
+    private static (int DataStart, int Patch) Patch(byte[] file)
+    {
+        int data = 8 + 16, at = 8;
+        while (Encoding.ASCII.GetString(file, at + 4, 4) != "INDX") at += BinaryPrimitives.ReadInt32BigEndian(file.AsSpan(at)) & 0x0fffffff;
+        int item = at + 8, patch = item + (BinaryPrimitives.ReadInt32BigEndian(file.AsSpan(item)) & 0x0fffffff);
+        return (data + 8, BinaryPrimitives.ReadInt32LittleEndian(file.AsSpan(patch + 16)));
     }
 
     internal static byte[] Chunk(string name, bool leaf, params byte[][] contents)
