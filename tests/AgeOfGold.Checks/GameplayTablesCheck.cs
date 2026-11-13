@@ -61,6 +61,17 @@ internal static class GameplayTablesCheck
         Reject(() => GameplayTables.AddInteraction(before, 41, 73, "authored", -1), "missing prompt reference");
         source.ParamdefDataVersion++;
         Reject(() => GameplayTables.AddInteraction(source.Write(), 41, 73, "authored", 187), "unknown row revision");
+        // A host ambient effect is silenced by clearing its effect reference; the row stays for whatever applies it.
+        var effects = Fixture("SP_EFFECT_VFX_PARAM_ST", 1, 164);
+        var effectBytes = effects.Write();
+        int ambient = effects.Rows[1].ID;
+        var silenced = Read(GameplayTables.SilenceEffect(effectBytes, ambient), 164);
+        Require(BitConverter.ToInt32(Payload(silenced.Rows[1]), 0) == -1 && Payload(silenced.Rows[1]).AsSpan(4).SequenceEqual(Payload(effects.Rows[1]).AsSpan(4))
+            && Payload(silenced.Rows[0]).SequenceEqual(Payload(effects.Rows[0])) && silenced.Rows.Count == effects.Rows.Count, "ambient effect row was not silenced exactly");
+        Require(GameplayTables.SilenceEffect(effectBytes, ambient).SequenceEqual(GameplayTables.SilenceEffect(effectBytes, ambient)), "effect table rewrite differs across runs");
+        Reject(() => GameplayTables.SilenceEffect(effectBytes, 987654), "missing ambient effect row");
+        Reject(() => GameplayTables.SilenceEffect(GameplayTables.SilenceEffect(effectBytes, ambient), ambient), "an effect row with no effect to silence");
+        Reject(() => GameplayTables.SilenceEffect(Fixture("SP_EFFECT_VFX_PARAM_ST", 1, 168).Write(), ambient), "unsupported effect row size");
         var wider = Fixture("ACTIONBUTTON_PARAM_ST", 2, 104);
         Reject(() => GameplayTables.AddInteraction(wider.Write(), 41, 73, "authored", 187), "unexpected row length");
         wider = Fixture("ACTIONBUTTON_PARAM_ST", 2, 100);

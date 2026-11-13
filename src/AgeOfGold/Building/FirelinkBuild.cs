@@ -20,6 +20,8 @@ internal static class FirelinkBuild
     // The host's deferred targets as its installed opaque programs write them: encoded normal, surface colour, emitted light.
     // lazy: zero emission weight keeps the host from adding glow; the source local lights need the light-composition stage and its marker.
     private static readonly PixelShader.Targets HostTargets = new(0, 2, 4, 0);
+    // The host's visual-effect row for the leaves that drift around the player everywhere outdoors.
+    private const int HostDriftingLeaves = 200000;
 
     internal static void Run(string sourcePath, string hostPath, string outputPath, ShaderCompiler compiler, string toolchain)
     {
@@ -299,6 +301,12 @@ internal static class FirelinkBuild
                         cut ? 128 / 255f : null, air, cut ? fade : null), bytes);
                 return bytes;
             }))).ToArray()));
+
+        // Host table edits are written back with the regulation's own encryption.
+        var regulation = Regulation.Read(host.Read("eldenring.exe"), host.Read("regulation.bin"));
+        var effectTable = regulation.Tables.Files.Single(f => Path.GetFileName(f.Name.Replace('\\', '/')) == "SpEffectVfxParam.param");
+        effectTable.Bytes = GameplayTables.SilenceEffect(effectTable.Bytes, HostDriftingLeaves);
+        files.Add("mod/regulation.bin", regulation.Write());
 
         files.Add("age-of-gold.me3", System.Text.Encoding.UTF8.GetBytes(
             "profileVersion = \"v1\"\nsavefile = \"AgeOfGold.sl2\"\nstart_online = false\n\n[[supports]]\ngame = \"eldenring\"\n\n[[packages]]\npath = 'mod'\n"));

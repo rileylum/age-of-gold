@@ -120,6 +120,11 @@ internal static class FirelinkBuildInstallCheck
         if (graphics["VolumetricFog Enable"].Single().Values.Any(v => (bool)v) || graphics["GS Presents - Vignetting Power"].Single().Values.Any(v => (float)v != 0)
             || graphics["GS Presents - Chromatic Aberration Enable"].Single().Values.Any(v => (int)v != 0))
             throw new Exception("Built graphics parameters keep host effects the source lacks");
+        var tables = AgeOfGold.Archives.Regulation.Read(File.ReadAllBytes(Path.Combine(host, "eldenring.exe")), File.ReadAllBytes(Path.Combine(mod, "regulation.bin"))).Tables;
+        var effectRows = tables.Files.Single(f => f.Name.EndsWith("SpEffectVfxParam.param", StringComparison.Ordinal)).Bytes;
+        int rowCount = BitConverter.ToUInt16(effectRows, 0x0A);
+        var leaves = Enumerable.Range(0, rowCount).Select(i => (Id: BitConverter.ToInt32(effectRows, 0x40 + 24 * i), At: BitConverter.ToInt64(effectRows, 0x40 + 24 * i + 8))).Single(r => r.Id == 200000);
+        if (BitConverter.ToInt32(effectRows, (int)leaves.At) != -1) throw new Exception("Built regulation still plays the host's drifting leaves");
         if (!File.ReadAllText(Path.Combine(first, "age-of-gold.me3")).Contains("start_online = false", StringComparison.Ordinal))
             throw new Exception("Mod loader profile does not keep the game offline");
         foreach (var (name, root) in new[] { ("source", source), ("host", host) })

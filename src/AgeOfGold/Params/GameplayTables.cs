@@ -47,10 +47,21 @@ internal static class GameplayTables
         return rows.Write();
     }
 
+    /// <summary>Clears the effect a host visual-effect row plays, so whatever applies the row shows nothing.</summary>
+    internal static byte[] SilenceEffect(byte[] table, int rowId)
+    {
+        var rows = Read(table, "SP_EFFECT_VFX_PARAM_ST", 1, 164);
+        var row = rows.Rows.SingleOrDefault(r => r.ID == rowId) ?? throw new InvalidDataException($"Host visual-effect row {rowId} is absent");
+        // The row begins with the effect it plays for as long as it applies.
+        if (BinaryPrimitives.ReadInt32LittleEndian(Payload(row)) <= 0) throw new InvalidDataException($"Host visual-effect row {rowId} plays no effect");
+        BinaryPrimitives.WriteInt32LittleEndian(Payload(row), -1);
+        return rows.Write();
+    }
+
     private static PARAM Read(byte[] bytes, string type, short version, int size)
     {
         var table = PARAM.Read(bytes);
-        // lazy: these two observed revisions; classify another host layout before enabling it.
+        // lazy: only the observed revisions; classify another host layout before enabling it.
         if (table.ParamType != type || table.ParamdefDataVersion != version || table.DetectedSize != size
             || table.BigEndian || (byte)table.Format2D != 0x85 || (byte)table.Format2E != 7
             || table.ParamdefFormatVersion != 0 || table.UnnamedRows || table.HeaderlessRows
