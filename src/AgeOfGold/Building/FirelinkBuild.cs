@@ -116,6 +116,8 @@ internal static class FirelinkBuild
             .Select(p => new FirelinkMapWriter.SceneryPlacement(p.GetProperty("name").GetString()!, p.GetProperty("model").GetString()!,
                 V(p.GetProperty("position")), V(p.GetProperty("rotation")), V(p.GetProperty("scale")))).ToArray(), terrain.Offset);
         files.Add($"mod/map/mapstudio/{Map}.msb.dcx", layout.Write());
+        string graphics = $"param/drawparam/{Map[..6]}_{Map[7..9]}00.gparam.dcx";
+        files.Add("mod/" + graphics, HostAtmosphere.RemoveHostEffects(archive.Read(graphics)));
 
         // Each model samples the diffuse environment of the one lighting row its placements select.
         var rowOf = models.ToDictionary(m => m.Name, m =>

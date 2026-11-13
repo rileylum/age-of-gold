@@ -116,6 +116,10 @@ internal static class FirelinkBuildInstallCheck
             rows.RemoveAt(rows.Count - 1);
             }
         }
+        var graphics = GPARAM.Read(Path.Combine(mod, "param/drawparam/m10_01_0000.gparam.dcx")).Groups.SelectMany(g => g.Params).ToLookup(p => p.Name1);
+        if (graphics["VolumetricFog Enable"].Single().Values.Any(v => (bool)v) || graphics["GS Presents - Vignetting Power"].Single().Values.Any(v => (float)v != 0)
+            || graphics["GS Presents - Chromatic Aberration Enable"].Single().Values.Any(v => (int)v != 0))
+            throw new Exception("Built graphics parameters keep host effects the source lacks");
         if (!File.ReadAllText(Path.Combine(first, "age-of-gold.me3")).Contains("start_online = false", StringComparison.Ordinal))
             throw new Exception("Mod loader profile does not keep the game offline");
         foreach (var (name, root) in new[] { ("source", source), ("host", host) })

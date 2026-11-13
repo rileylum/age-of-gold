@@ -28,6 +28,11 @@ try
         PixelShaderCheck.Run();
         return;
     }
+    if (args.SequenceEqual(new[] { "host-atmosphere" }))
+    {
+        HostAtmosphereCheck.Run();
+        return;
+    }
     if (args.SequenceEqual(new[] { "map-scenery" }))
     {
         MapSceneryCheck.Run();
@@ -349,6 +354,7 @@ try
     TerrainGeometryCheck.Run();
     MapTerrainCheck.Run();
     MapSceneryCheck.Run();
+    HostAtmosphereCheck.Run();
     RegulationCheck.Run();
     GameplayTablesCheck.Run();
     ShaderArchiveCheck.Run();
