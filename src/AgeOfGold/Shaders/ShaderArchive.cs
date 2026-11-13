@@ -42,6 +42,33 @@ internal static class ShaderArchive
         }
     }
 
+    /// <summary>Adds a family cloned from an installed one; <paramref name="edit"/> receives each member's name after the family prefix.</summary>
+    internal static byte[] AddFamily(byte[] archive, string template, string name, Func<string, byte[], byte[]> edit)
+    {
+        CheckPath([template, name]);
+        var outer = Open(archive);
+        if (outer.Files.Any(f => Leaf(f.Name).Equals(name + ".shaderbdle", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidDataException("Shader family already exists: " + name);
+        var original = Entry(outer, template + ".shaderbdle");
+        var inner = Open(original.Bytes);
+        foreach (var file in inner.Files)
+        {
+            int start = file.Name.LastIndexOfAny(['/', '\\']) + 1;
+            if (!file.Name.AsSpan(start).StartsWith(template, StringComparison.Ordinal))
+                throw new InvalidDataException("Shader family member lacks its family prefix: " + Leaf(file.Name));
+            string suffix = file.Name[(start + template.Length)..];
+            file.Bytes = edit(suffix, file.Bytes);
+            file.Name = file.Name[..start] + name + suffix;
+        }
+        int at = original.Name.LastIndexOfAny(['/', '\\']) + 1;
+        outer.Files.Add(new BinderFile(original.Flags, outer.Files.Max(f => f.ID) + 1, original.Name[..at] + name + ".shaderbdle", Write(inner))
+            { CompressionInfo = original.CompressionInfo });
+        return Write(outer);
+    }
+
+    private static string Leaf(string name) => Path.GetFileName(name.Replace('\\', '/'));
+    private static byte[] Write(IBinder binder) => binder switch { BND3 b => b.Write(), BND4 b => b.Write(), _ => throw new InvalidOperationException() };
+
     private static IBinder Open(byte[] bytes)
     {
         DCX.CompressionInfo compression = new DCX.NoCompressionInfo();

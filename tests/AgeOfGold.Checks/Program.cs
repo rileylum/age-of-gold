@@ -13,6 +13,11 @@ try
         SourceRendererSettingsCheck.Installs(args[1], true);
         return;
     }
+    if (args.SequenceEqual(new[] { "map-scenery" }))
+    {
+        MapSceneryCheck.Run();
+        return;
+    }
     if (args.SequenceEqual(new[] { "source-environment-settings" }))
     {
         SourceEnvironmentSettingsCheck.Run(root);
@@ -328,6 +333,7 @@ try
     SourceTagfileCheck.Run();
     TerrainGeometryCheck.Run();
     MapTerrainCheck.Run();
+    MapSceneryCheck.Run();
     RegulationCheck.Run();
     GameplayTablesCheck.Run();
     ShaderArchiveCheck.Run();

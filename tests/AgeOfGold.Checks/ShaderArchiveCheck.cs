@@ -29,6 +29,22 @@ internal static class ShaderArchiveCheck
             "shader rewrite lost the original container compression");
         var source = new BND3 { Version = "AUTHORED", Files = [new(Binder.FileFlags.Flag1, 9, "flat.fpo", Program("SHEX", 53))] };
         Require(ShaderArchive.Read(source.Write(), "flat.fpo").SequenceEqual(source.Files[0].Bytes), "source stage read differs");
+        var added = ShaderArchive.AddFamily(input, "surface", "aog_surface",
+            (suffix, bytes) => suffix == ".ppo" ? replacement : suffix == ".meta" ? bytes : throw new Exception("Unexpected family member " + suffix));
+        Require(ShaderArchive.Read(added, "aog_surface.shaderbdle", "aog_surface.ppo").SequenceEqual(replacement)
+            && ShaderArchive.Read(added, path).SequenceEqual(old), "added family stage or its template differs");
+        var addedOuter = BND4.Read(added); var addedEntry = addedOuter.Files.Single(f => f.Name == @"C:\authored\aog_surface.shaderbdle");
+        var addedInner = BND4.Read(addedEntry.Bytes);
+        Require(addedEntry.ID == 75 && addedEntry.Flags == Binder.FileFlags.Flag1
+            && addedInner.Files.Select(f => (f.ID, f.Name)).SequenceEqual(new[] { (41, @"C:\authored\aog_surface.ppo"), (42, @"C:\authored\aog_surface.meta") })
+            && addedInner.Files[1].Bytes.SequenceEqual(new byte[] { 3, 1, 4, 1, 5 }), "added family identity or unedited member differs");
+        addedOuter.Files.Remove(addedEntry);
+        Require(addedOuter.Write().SequenceEqual(input), "adding a family changed existing entries");
+        Require(ShaderArchive.AddFamily(input, "surface", "aog_surface", (suffix, bytes) => suffix == ".ppo" ? replacement : bytes).SequenceEqual(added),
+            "family addition differs across runs");
+        Reject(() => ShaderArchive.AddFamily(added, "surface", "aog_surface", (_, bytes) => bytes), "occupied family");
+        Reject(() => ShaderArchive.AddFamily(input, "missing", "aog_surface", (_, bytes) => bytes), "missing template family");
+        Reject(() => ShaderArchive.AddFamily(input, "surface", "aog/../x", (_, bytes) => bytes), "invalid family name");
         Console.WriteLine("PASS: source and nested host shader stages read and rewrite deterministically, preserving unrelated bytes");
         Reject(() => ShaderArchive.Read(input), "empty path");
         Reject(() => ShaderArchive.Read(input, "../surface.shaderbdle"), "path traversal");
