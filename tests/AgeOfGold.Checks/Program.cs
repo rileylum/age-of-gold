@@ -387,6 +387,7 @@ try
     EffectCheck.Run();
     TalkScriptCheck.Run();
     MessageBundleCheck.Run();
+    NavigationTreeCheck.Run();
     SourcePoseCheck.Run();
     TextureCheck.Run(root);
     TextureWriterCheck.Run();

@@ -153,6 +153,13 @@ internal sealed class SourceTagfile
             return new Value(file, field.Type, offset + field.Offset);
         }
 
+        /// <summary>The value's own bytes as stored, for records whose packed layout the caller knows.</summary>
+        internal byte[] Raw()
+        {
+            var value = Dereference();
+            return value == this ? file.Data(offset, type.Size).ToArray() : value.Raw();
+        }
+
         /// <summary>Whether this is a reference to nothing.</summary>
         internal bool IsNull => type.Kind == HavokType.TypeKind.Pointer && BinaryPrimitives.ReadUInt64LittleEndian(file.Data(offset, 8)) == 0;
 
