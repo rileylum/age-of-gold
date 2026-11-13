@@ -15,5 +15,6 @@
     <Compile Include="../../spikes/er-collision/probe/FirelinkUvPacking.cs" Link="Scene/UvPacking.cs" />
     <Compile Include="../../spikes/er-collision/probe/FirelinkSource.cs" Link="Collision/SourceRoles.cs" />
     <Compile Include="../../spikes/er-collision/probe/Build.cs" Link="Collision/MeshWriter.cs" />
+    <Compile Include="../../spikes/er-collision/probe/FirelinkBonfire.cs" Link="Maps/RestingPoint.cs" />
   </ItemGroup>
 </Project>

@@ -121,7 +121,28 @@ internal static class FirelinkBuild
         var scenery = FirelinkMapWriter.AddScenery(layout, placements.Where(p => built.Contains(p.GetProperty("model").GetString()!))
             .Select(p => new FirelinkMapWriter.SceneryPlacement(p.GetProperty("name").GetString()!, p.GetProperty("model").GetString()!,
                 V(p.GetProperty("position")), V(p.GetProperty("rotation")), V(p.GetProperty("scale")))).ToArray(), terrain.Offset);
-        files.Add($"mod/map/mapstudio/{Map}.msb.dcx", layout.Write());
+        // The source bonfire becomes a host resting point: marker, controller and respawn region copied from the host's own
+        // first resting point, with identities and an activation flag reserved in this map's range.
+        var sourceLayout = MSB1.Read(source.Read("map/MapStudio/m10_02_00_00.msb"));
+        var bonfires = sourceLayout.Parts.Objects.Where(o => o.ModelName == "o0200").ToArray();
+        if (bonfires.Length != 1) throw new InvalidDataException("Expected one source bonfire in the area");
+        const string restingMap = "m18_00_00_00";
+        var restingLayout = MSBE.Read(archive.Read($"map/mapstudio/{restingMap}.msb.dcx"));
+        var registration = EMEVD.Read(archive.Read($"event/{restingMap}.emevd.dcx")).Events.Single(e => e.ID == 0).Instructions
+            .FirstOrDefault(i => i.Bank == 2009 && i.ID == 3 && i.ArgData.Length == 24) ?? throw new InvalidDataException("Host resting-point registration not found");
+        uint hostMarker = BitConverter.ToUInt32(registration.ArgData, 4);
+        var marker = restingLayout.Parts.Assets.Single(p => p.EntityID == hostMarker);
+        var controller = restingLayout.Parts.Enemies.Single(p => p.EntityID == hostMarker - 1000);
+        var restingTemplate = new FirelinkBonfire.Template(marker, controller, restingLayout.Regions.SpawnPoints.Single(r => r.EntityID == hostMarker + 1000),
+            restingLayout.Models.Assets.Single(m => m.Name == marker.ModelName), restingLayout.Models.Enemies.Single(m => m.Name == controller.ModelName), registration);
+        var taken = layout.Parts.GetEntries().Select(p => p.EntityID).Concat(layout.Regions.GetEntries().Select(r => r.EntityID)).ToHashSet();
+        // lazy: fifty reserved identities at the top of this map's object range; a fuller map needs an allocator.
+        uint restingEntity = Enumerable.Range(10011950, 50).Select(id => (uint)id).First(id => !taken.Contains(id) && !taken.Contains(id - 1000) && !taken.Contains(id + 1000));
+        int restingFlag = 10010000 + (int)(restingEntity - 10011950);
+        var resting = new FirelinkBonfire.Placement("aog_bonfire", restingEntity, restingFlag, bonfires[0].Position + terrain.Offset, bonfires[0].Rotation);
+        var (restingMapBytes, restingEvents) = FirelinkBonfire.Apply(layout.Write(), archive.Read($"event/{Map}.emevd.dcx"), restingTemplate, resting);
+        files.Add($"mod/map/mapstudio/{Map}.msb.dcx", restingMapBytes);
+        files.Add($"mod/event/{Map}.emevd.dcx", restingEvents);
         // The source picks its screen settings from the collision the player stands on; the build starts with the arrival's.
         // lazy: one selection for the whole map; other collisions select other rows and need the host's per-area switching.
         var arrival = SourceAtmosphereReader.Selections(source)[terrain.Arrival];
@@ -306,6 +327,12 @@ internal static class FirelinkBuild
         var regulation = Regulation.Read(host.Read("eldenring.exe"), host.Read("regulation.bin"));
         var effectTable = regulation.Tables.Files.Single(f => Path.GetFileName(f.Name.Replace('\\', '/')) == "SpEffectVfxParam.param");
         effectTable.Bytes = GameplayTables.SilenceEffect(effectTable.Bytes, HostDriftingLeaves);
+        // The resting menu lists only the translated resting point. Its row follows a host row that names one destination.
+        var destinations = regulation.Tables.Files.Single(f => Path.GetFileName(f.Name.Replace('\\', '/')) == "BonfireWarpParam.param");
+        var destinationTemplate = RestingTemplate(destinations.Bytes);
+        // lazy: the host template's place name until source text is translated.
+        destinations.Bytes = GameplayTables.ReplaceDestinations(destinations.Bytes, destinationTemplate.Entity,
+            new(restingFlag, "aog_bonfire", restingEntity, (uint)restingFlag, 10, 1, 0, resting.Position, destinationTemplate.Text));
         files.Add("mod/regulation.bin", regulation.Write());
 
         files.Add("age-of-gold.me3", System.Text.Encoding.UTF8.GetBytes(
@@ -323,6 +350,7 @@ internal static class FirelinkBuild
             textures = names,
             groundFamilies = families.ToDictionary(f => f.Key, f => new { lighting = f.Value.Lighting, air = f.Value.Air, fade = f.Value.Fade }),
             cutoutFamilies = cutouts,
+            restingPoint = new { entity = restingEntity, flag = restingFlag, position = new[] { resting.Position.X, resting.Position.Y, resting.Position.Z } },
             arrival = new { collision = terrain.Arrival, selection = arrival, focus = arrivalFocus, tone = arrivalTone, exposure = arrivalTone.BrightExposure, correction = arrivalCorrection },
             unbuiltSurfaces = unbuilt,
             excludedCollision = terrain.Excluded.Select(p => new { p.Name, p.Role, p.Disabled }),
@@ -330,6 +358,18 @@ internal static class FirelinkBuild
         };
         files.Add("manifest.json", System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }) + "\n"));
         Console.WriteLine($"Built {files.Files.Count} files. {unbuilt.Values.Sum()} source surfaces in {unbuilt.Count} material families are not built yet.");
+    }
+
+    // The first host destination whose entity appears once: a row to copy the unedited fields from.
+    private static (uint Entity, int Text) RestingTemplate(byte[] table)
+    {
+        var rows = PARAM.Read(table);
+        var definition = new PARAMDEF { ParamType = rows.ParamType, DataVersion = rows.ParamdefDataVersion };
+        definition.Fields.Add(new PARAMDEF.Field(definition, PARAMDEF.DefType.dummy8, "raw") { ArrayLength = (int)rows.DetectedSize });
+        rows.ApplyParamdef(definition);
+        uint Entity(PARAM.Row row) => BitConverter.ToUInt32((byte[])row["raw"].Value, 8);
+        var template = rows.Rows.First(r => Entity(r) > 0 && rows.Rows.Count(other => Entity(other) == Entity(r)) == 1);
+        return (Entity(template), BitConverter.ToInt32((byte[])template["raw"].Value, 48));
     }
 
     private static string Rename(string path, string family) => path.Contains(HostFamily, StringComparison.Ordinal)

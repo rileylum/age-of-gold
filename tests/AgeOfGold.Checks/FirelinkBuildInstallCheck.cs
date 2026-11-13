@@ -50,8 +50,18 @@ internal static class FirelinkBuildInstallCheck
         var pieces = layout.Parts.MapPieces.Where(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable).ToArray();
         if (pieces.Length == 0 || pieces.Any(p => !p.ModelName.StartsWith("m81", StringComparison.Ordinal))
             || layout.Parts.Collisions.Count(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable) != 39
-            || layout.Parts.Enemies.Any(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable))
+            || layout.Parts.Enemies.Count(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable) != 1)
             throw new Exception("Built map retains host placements or lacks source terrain and scenery");
+        // A resting point: marker, controller and respawn region placed together and registered with the build's flag.
+        var rest = manifest.RootElement.GetProperty("restingPoint");
+        uint restEntity = rest.GetProperty("entity").GetUInt32(); int restFlag = rest.GetProperty("flag").GetInt32();
+        var restMarker = layout.Parts.Assets.Single(p => p.EntityID == restEntity);
+        var script = EMEVD.Read(Path.Combine(mod, "event/m10_01_00_00.emevd.dcx"));
+        if (restMarker.GameEditionDisable != MSBE.Part.GameEditionDisableType.NeverDisable || layout.Parts.Enemies.Count(p => p.EntityID == restEntity - 1000) != 1
+            || layout.Regions.SpawnPoints.Count(r => r.EntityID == restEntity + 1000 && System.Numerics.Vector3.Distance(r.Position, restMarker.Position) < 5) != 1
+            || script.Events.Single(e => e.ID == 0).Instructions.Count(i => i.Bank == 2009 && i.ID == 3 && BitConverter.ToInt32(i.ArgData, 0) == restFlag
+                && BitConverter.ToUInt32(i.ArgData, 4) == restEntity) != 1)
+            throw new Exception("Built resting point lacks its marker, controller, respawn region or registration");
         var materials = BND4.Read(Path.Combine(mod, "material/allmaterial.matbinbnd.dcx")).Files
             .ToLookup(f => string.Join('/', f.Name.Replace('\\', '/').Split('/')[^3..]).ToLowerInvariant(), f => f.Bytes);
         var shaders = File.ReadAllBytes(Path.Combine(mod, "shader/shaderbdle.shaderbdlebnd.dcx"));

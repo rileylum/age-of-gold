@@ -48,6 +48,11 @@ try
         DisplayShaderCheck.Run();
         return;
     }
+    if (args.SequenceEqual(new[] { "resting-point" }))
+    {
+        FirelinkBonfire.Check();
+        return;
+    }
     if (args.SequenceEqual(new[] { "map-scenery" }))
     {
         MapSceneryCheck.Run();
@@ -369,6 +374,7 @@ try
     TerrainGeometryCheck.Run();
     MapTerrainCheck.Run();
     MapSceneryCheck.Run();
+    FirelinkBonfire.Check();
     HostAtmosphereCheck.Run();
     SourceAtmosphereCheck.Run(root);
     SourceAirCheck.Run(root);
