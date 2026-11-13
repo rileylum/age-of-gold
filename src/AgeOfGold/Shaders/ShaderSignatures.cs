@@ -104,13 +104,17 @@ internal sealed class ShaderSignatures
         Set(member.Node, fields);
     }
 
-    internal int Append(bool output, Member template, int index, int? componentType = null)
+    /// <summary>The first register after every existing member of a signature.</summary>
+    internal int FreeRow(bool output) => Members(output).Max(m => m.Row + m.Rows);
+
+    internal int Append(bool output, Member template, int index, int? componentType = null, int? register = null)
     {
         var members = Members(output);
         if (members.Any(m => m.Name.Equals(template.Name, StringComparison.OrdinalIgnoreCase) && m.Index == index))
             throw new InvalidDataException("Secondary tangent signature already exists");
         int id = checked(members.Max(m => m.Id) + 1);
-        int row = checked(members.Max(m => m.Row + m.Rows));
+        int row = register ?? FreeRow(output);
+        if (row < FreeRow(output)) throw new InvalidDataException("Requested shader signature register is occupied");
         if (row >= 32) throw new InvalidDataException("No free shader signature register");
         var fields = template.Fields.ToArray();
         fields[0] = "i32 " + id;

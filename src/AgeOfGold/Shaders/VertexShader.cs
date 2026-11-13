@@ -4,9 +4,17 @@ namespace AgeOfGold.Shaders;
 
 internal static class VertexShader
 {
-    internal static string AddLayerFrames(string module) => AddDirection(AddDirection(AddSecondaryTangent(module), 4, false), 6, false);
+    /// <summary>The first output register this vertex program leaves free.</summary>
+    internal static int FreeOutputRow(string module) => new ShaderSignatures(module).FreeRow(true);
 
-    internal static string AddSecondaryTangent(string module) => AddDirection(module, 2, true);
+    /// <summary>
+    /// Forwards a second tangent and both bitangents. Variants of one family share a pixel stage, so the caller can
+    /// name the first output register for all of them.
+    /// </summary>
+    internal static string AddLayerFrames(string module, int? outputRow = null) =>
+        AddDirection(AddDirection(AddDirection(module, 2, true, outputRow), 4, false, outputRow + 1), 6, false, outputRow + 2);
+
+    internal static string AddSecondaryTangent(string module) => AddDirection(module, 2, true, null);
 
     /// <summary>For each component of a vertex input, the output semantic and column that receives it unchanged, if any.</summary>
     internal static (string Name, int Index, int Column)?[] Forwarded(string module, string name, int index)
@@ -35,13 +43,13 @@ internal static class VertexShader
         return result;
     }
 
-    private static string AddDirection(string module, int index, bool packed)
+    private static string AddDirection(string module, int index, bool packed, int? outputRow)
     {
         var signatures = new ShaderSignatures(module);
         var input = signatures.Require(false, "TANGENT", 0, 5);
         var output = signatures.Require(true, "TANGENT", 0, 9);
         int newInput = signatures.Append(false, input, index, packed ? 5 : 9);
-        int newOutput = signatures.Append(true, output, index);
+        int newOutput = signatures.Append(true, output, index, null, outputRow);
         var lines = signatures.Lines;
         int start = Array.FindIndex(lines, l => l == $"define void @{signatures.Entry}() {{");
         int end = Array.FindIndex(lines, start + 1, l => l == "}");

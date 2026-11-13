@@ -72,6 +72,13 @@ internal static class VertexShaderCheck
         Reject(() => VertexShader.AddLayerFrames(compiler.Disassemble(asymmetric)), "matching affine decode");
         var nonlinear = compiler.Compile(Fixture.Replace("float4(packed) / 64 - 2", "1 / (float4(packed) / 64 - 2)"), "Main", "vs_6_0");
         Reject(() => VertexShader.AddLayerFrames(compiler.Disassemble(nonlinear)), "decod");
+        // Variants of one family share a pixel stage, so added outputs must be placeable on agreed registers.
+        int free = VertexShader.FreeOutputRow(text);
+        var shifted = new ShaderSignatures(compiler.Disassemble(compiler.Assemble(VertexShader.AddLayerFrames(text, free + 2), input)));
+        if (free != 2 || new[] { 2, 4, 6 }.Select(i => shifted.Require(true, "TANGENT", i, 9).Row).SequenceEqual(new[] { 4, 5, 6 }) == false
+            || new[] { 2, 4, 6 }.Select(i => signatures.Require(true, "TANGENT", i, 9).Row).SequenceEqual(new[] { 2, 3, 4 }) == false)
+            throw new Exception("Added tangent outputs do not start at the requested register");
+        Reject(() => VertexShader.AddLayerFrames(text, free - 1), "register");
         Console.WriteLine("PASS: two tangent frames transport packed tangents and floating-point bitangents deterministically");
     }
 

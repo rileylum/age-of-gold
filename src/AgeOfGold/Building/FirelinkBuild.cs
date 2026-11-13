@@ -223,8 +223,13 @@ internal static class FirelinkBuild
         var slots = MaterialWriter.LayerSlots(groundMetadata);
         var emitting = ShaderMetadata.EnableEmission(groundMetadata);
         var vertexStages = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        // The family's vertex variants differ in their outputs but feed one pixel stage: place the added outputs after all of them.
+        int outputRow;
+        using (var family = new BND4Reader(ShaderArchive.ReadFamily(shaders, HostFamily + ".shaderbdle")))
+            outputRow = family.Files.Where(f => Regex.IsMatch(f.Name, @"_Gbuf[^\\/]*\.vpo$"))
+                .Max(f => VertexShader.FreeOutputRow(compiler.Disassemble(family.ReadFile(f))));
         string forwarding = VertexShader.AddLayerFrames(compiler.Disassemble(
-            ShaderArchive.Read(shaders, HostFamily + ".shaderbdle", HostFamily + "_Gbuf.vpo")));
+            ShaderArchive.Read(shaders, HostFamily + ".shaderbdle", HostFamily + "_Gbuf.vpo")), outputRow);
         files.Add("mod/shader/shaderbdle.shaderbdlebnd.dcx", ShaderArchive.AddFamilies(shaders, HostFamily,
             families.Select(family => (family.Key, (Func<string, byte[], byte[]>)((suffix, bytes) =>
             {
@@ -232,7 +237,7 @@ internal static class FirelinkBuild
                 if (Regex.IsMatch(suffix, @"^_Gbuf.*\.vpo$"))
                 {
                     if (!vertexStages.TryGetValue(suffix, out var stage))
-                        vertexStages.Add(suffix, stage = compiler.Assemble(VertexShader.AddLayerFrames(compiler.Disassemble(bytes)), bytes));
+                        vertexStages.Add(suffix, stage = compiler.Assemble(VertexShader.AddLayerFrames(compiler.Disassemble(bytes), outputRow), bytes));
                     return stage;
                 }
                 if (suffix == "_Gbuf.ppo")

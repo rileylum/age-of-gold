@@ -92,14 +92,17 @@ internal static class FirelinkBuildInstallCheck
         foreach (string family in families)
         {
             using var bundle = new BND4Reader(ShaderArchive.ReadFamily(shaders, family + ".shaderbdle"));
+            var rows = new List<string>();
             foreach (var stage in bundle.Files.Where(f => Regex.IsMatch(f.Name, @"_Gbuf[^\\/]*\.vpo$")))
             {
                 var signatures = new ShaderSignatures(compiler.Disassemble(bundle.ReadFile(stage)));
-                foreach (int index in new[] { 2, 4, 6 }) signatures.Require(true, "TANGENT", index, 9);
+                rows.Add(string.Join(",", new[] { 2, 4, 6 }.Select(index => signatures.Require(true, "TANGENT", index, 9).Row)));
             }
             var pixel = compiler.Disassemble(bundle.ReadFile(bundle.Files.Single(f => f.Name.EndsWith(family + "_Gbuf.ppo", StringComparison.Ordinal))));
             var inputs = new ShaderSignatures(pixel, "ps");
-            foreach (int index in new[] { 4, 6 }) inputs.Find(false, "TANGENT", index);
+            // Every vertex variant feeds the one pixel stage, so they must agree on the added registers.
+            rows.Add(string.Join(",", new[] { 4, 6 }.Select(index => inputs.Find(false, "TANGENT", index).Row).Prepend(inputs.Find(false, "TANGENT", 4).Row - 1)));
+            if (rows.Count < 2 || rows.Distinct().Count() != 1) throw new Exception("Built vertex variants and pixel stage disagree on tangent registers: " + string.Join(" | ", rows));
             var declared = METAPARAM.Read(bundle.ReadFile(bundle.Files.Single(f => f.Name.EndsWith(".metaparam", StringComparison.Ordinal))));
             if (!pixel.Contains("TextureCube", StringComparison.Ordinal) || (declared.ShaderId & 0x800) == 0)
                 throw new Exception("Built ground pixel stage lacks its environment cube or emission writes");
