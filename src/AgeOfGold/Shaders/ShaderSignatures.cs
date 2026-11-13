@@ -127,7 +127,7 @@ internal sealed class ShaderSignatures
         return id;
     }
 
-    private Member[] Members(bool output) => Read(tables[output ? 1 : 0]).Select(field =>
+    internal Member[] Members(bool output) => Read(tables[output ? 1 : 0]).Select(field =>
     {
         string node = Reference(field);
         var member = Read(node);

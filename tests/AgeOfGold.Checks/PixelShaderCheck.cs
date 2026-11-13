@@ -8,9 +8,13 @@ internal static class PixelShaderCheck
             float4 shade : COLOR1; int2 uv : TEXCOORD0; float4 second : TEXCOORD1; };
         struct Output { float4 position : SV_Position; float4 normal : NORMAL; float4 tangent : TANGENT; float4 colour : TEXCOORD0;
             float u : TEXCOORD4; float v : TEXCOORD5; float4 extra : TEXCOORD7; };
+        cbuffer Camera : register(b0) { float4 Clip[4]; float4 Jitter; };
+        [RootSignature("RootFlags(ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT),CBV(b0)")]
         Output Main(Input i) {
             Output o;
-            o.position = float4(i.position, 1);
+            float4 world = float4(i.position * 2 + float3(1, 2, 3), 1);
+            float4 clip = float4(dot(Clip[0], world), dot(Clip[1], world), dot(Clip[2], world), dot(Clip[3], world));
+            o.position = float4(clip.xy + Jitter.xy * clip.w, clip.zw);
             o.normal = float4(float4(i.normal).xyz / 127 - 1, 0);
             float4 t = float4(i.tangent) / 64 - 2;
             o.tangent = float4(dot(t.xyz, float3(.5, 2, -1)), dot(t.xyz, float3(-2, .25, 1.5)), dot(t.xyz, float3(1, -3, .75)), t.w);
@@ -68,6 +72,38 @@ internal static class PixelShaderCheck
         if (forwarded.Length != 4 || forwarded[0] != ("TEXCOORD", 7, 0) || forwarded[1] != ("TEXCOORD", 7, 1) || forwarded[3] is not null
             || VertexShader.Forwarded(vertex, "COLOR", 0)[3] != ("TEXCOORD", 0, 3))
             throw new Exception("Vertex forwarding of coordinates or colour was not recognised");
+        // The view vector and sun direction reach the pixel stage in view space, taken from the rows that produce the clip position.
+        float[] sun = [0.6f, -0.64f, 0.48f];
+        var viewed = VertexShader.AddView(vertex, sun, VertexShader.FreeOutputRow(vertex));
+        var viewProgram = compiler.Disassemble(compiler.Assemble(viewed, compiler.Compile(Vertex, "Main", "vs_6_0")));
+        {
+            var signatures = new ShaderSignatures(viewProgram);
+            float[][] clip = [[1.2f, 0, 0.9f, 0.5f], [0.3f, 2.0f, -0.4f, -1], [0.1f, 0.2f, 0.3f, 0.4f], [0.6f, 0, -0.8f, 2]];
+            var evaluator = new ShaderEvaluator
+            {
+                Constants = (register, index) => register == 0 ? index < 4 ? clip[index] : [0.25f, -0.5f, 0, 0] : throw new Exception("Unexpected vertex constants"),
+                Input = (id, column) =>
+                {
+                    if (id == signatures.Find(false, "POSITION", 0).Id) return new[] { 0.5f, -1f, 2f }[column];
+                    return signatures.Members(false).Single(m => m.Id == id).ComponentType == 9 ? 0.25f : (object)100;
+                },
+            };
+            evaluator.Run(viewProgram);
+            Vector3 world = new(2, 0, 7);
+            float[] dots = clip.Select(r => r[0] * world.X + r[1] * world.Y + r[2] * world.Z + r[3]).ToArray();
+            float lengthX = new Vector3(clip[0][0], clip[0][1], clip[0][2]).Length(), lengthY = new Vector3(clip[1][0], clip[1][1], clip[1][2]).Length();
+            Vector3 expectedView = new(dots[0] / lengthX, dots[1] / lengthY, dots[3]);
+            Vector3 light = new(sun[0], sun[1], sun[2]);
+            Vector3 expectedSun = new(Vector3.Dot(new(clip[0][0], clip[0][1], clip[0][2]), light) / lengthX,
+                Vector3.Dot(new(clip[1][0], clip[1][1], clip[1][2]), light) / lengthY, Vector3.Dot(new(clip[3][0], clip[3][1], clip[3][2]), light));
+            Vector3 Output(int index) { int id = signatures.Find(true, "TANGENT", index).Id; return new(evaluator.Outputs[(id, 0)], evaluator.Outputs[(id, 1)], evaluator.Outputs[(id, 2)]); }
+            if (Vector3.Distance(Output(8), expectedView) > 1e-5f || Vector3.Distance(Output(10), expectedSun) > 1e-5f
+                || evaluator.Outputs[(signatures.Find(true, "SV_Position", 0).Id, 0)] != dots[0] + 0.25f * dots[3])
+                throw new Exception($"Forwarded view vector or sun direction differs: {Output(8)} {Output(10)}");
+            if (!viewed.Equals(VertexShader.AddView(vertex, sun, VertexShader.FreeOutputRow(vertex)), StringComparison.Ordinal)) throw new Exception("View forwarding does not repeat");
+            Reject(() => VertexShader.AddView(viewed, sun, VertexShader.FreeOutputRow(viewed)), "already");
+            Reject(() => VertexShader.AddView(vertex, [1, float.NaN, 0], VertexShader.FreeOutputRow(vertex)), "direction");
+        }
         var original = compiler.Compile(Pixel, "Main", "ps_6_0");
         var module = compiler.Disassemble(original);
         var composed = PixelShader.ComposeLayeredGround(module, vertex, Slots, Targets, Lighting);

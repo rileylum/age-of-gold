@@ -95,6 +95,7 @@ internal sealed class ShaderEvaluator
                     ("binary", 36) => MathF.Min(F(a[1]), F(a[2])),
                     ("tertiary", 46) => F(a[1]) * F(a[2]) + F(a[3]),
                     ("dot2", 54) => F(a[1]) * F(a[3]) + F(a[2]) * F(a[4]),
+                    ("dot4", 56) => F(a[1]) * F(a[5]) + F(a[2]) * F(a[6]) + F(a[3]) * F(a[7]) + F(a[4]) * F(a[8]),
                     ("dot3", 55) => F(a[1]) * F(a[4]) + F(a[2]) * F(a[5]) + F(a[3]) * F(a[6]),
                     _ => throw new Exception("Unsupported shader operation in evaluator: " + name + " " + code),
                 };
