@@ -18,8 +18,10 @@ internal sealed record LayerMaterial(LayerMaterial.Layer First, LayerMaterial.La
             ("FRPG_Phn_ColDifSpcBmp", 0 or 1 or 2) => 1, ("FRPG_Phn_ColDifSpcBmpMul", 0) => 2,
             // The sky dome: colour only, drawn behind everything in the source.
             ("FRPG_Phn_ColDif", 32) => 1,
-            // Backdrop planes whose coverage fades with the view angle. lazy: only the cutout form; blended mist and additive shafts need a blended pass.
-            ("FRPG_NormalToAlpha", 1) => 1,
+            // Planes whose coverage fades with the view angle: cut-out backdrops, blended mist and additive light shafts.
+            ("FRPG_NormalToAlpha", 1 or 2 or 4) => 1,
+            // The cloud layer: lit, blended, with no packed texture.
+            ("FRPG_Phn_ColDifBmp", 2) => 1,
             // lazy: foliage and ivy are lit as plain surfaces; their wind sway needs the vertex stage and their extra coordinate sets.
             ("FRPG_Foliage_ColDifSpcBmp" or "FRPG_Ivy_ColDifSpcBmp", 0 or 1) => 1,
             _ => 0,
@@ -47,8 +49,13 @@ internal sealed record LayerMaterial(LayerMaterial.Layer First, LayerMaterial.La
     }
 
     /// <summary>Whether the surface's alpha removes pixels.</summary>
-    // lazy: blended surfaces are cut out too, as in the accepted playtest, until forward blending is translated.
-    internal static bool Cutout(JsonElement material) => material.GetProperty("blendMode").GetInt32() is 1 or 2;
+    internal static bool Cutout(JsonElement material) => material.GetProperty("blendMode").GetInt32() == 1;
+
+    /// <summary>Whether the surface is drawn over what lies behind it, weighted by its alpha.</summary>
+    internal static bool Blended(JsonElement material) => material.GetProperty("blendMode").GetInt32() is 2 or 4;
+
+    /// <summary>Whether a blended surface adds its light to the scene instead of covering it.</summary>
+    internal static bool Additive(JsonElement material) => material.GetProperty("blendMode").GetInt32() == 4;
 
     /// <summary>Whether an opaque source material has one layer; two-layer materials return false and others are rejected.</summary>
     internal static bool Single(JsonElement material) => Layers(material) switch
@@ -60,7 +67,8 @@ internal sealed record LayerMaterial(LayerMaterial.Layer First, LayerMaterial.La
     {
         bool single = Single(material);
         bool colourOnly = ColourOnly(material);
-        string[] inputs = colourOnly ? ["g_Diffuse"] : single ? ["g_Diffuse", "g_Bumpmap", "g_Specular"]
+        bool unpacked = Path.GetFileNameWithoutExtension(material.GetProperty("shader").GetString()!.Replace('\\', '/')) == "FRPG_Phn_ColDifBmp";
+        string[] inputs = colourOnly ? ["g_Diffuse"] : unpacked ? ["g_Diffuse", "g_Bumpmap"] : single ? ["g_Diffuse", "g_Bumpmap", "g_Specular"]
             : ["g_Diffuse", "g_Bumpmap", "g_Specular", "g_Diffuse_2", "g_Bumpmap_2", "g_Specular_2"];
         // Some definitions omit the unused detail input altogether.
         if (material.GetProperty("textures").EnumerateArray().Any(t => t.GetProperty("input").GetString() == "g_DetailBumpmap"))
@@ -84,7 +92,7 @@ internal sealed record LayerMaterial(LayerMaterial.Layer First, LayerMaterial.La
             names.Add(input, name);
         }
         var first = colourOnly ? new Layer(names["g_Diffuse"], NeutralTextures.FlatNormal, NeutralTextures.Neutral)
-            : new Layer(names["g_Diffuse"], names["g_Bumpmap"], names["g_Specular"]);
+            : new Layer(names["g_Diffuse"], names["g_Bumpmap"], unpacked ? NeutralTextures.Neutral : names["g_Specular"]);
         return new(first, single ? first : new(names["g_Diffuse_2"], names["g_Bumpmap_2"], names["g_Specular_2"]));
     }
 }

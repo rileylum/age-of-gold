@@ -19,6 +19,36 @@ internal static class PixelShader
     /// <summary>Coverage falls with the angle between the view and the surface: saturate((|cos| − Offset) × Scale).</summary>
     internal sealed record ViewFade(float Offset, float Scale);
 
+    /// <summary>The host's forward targets for a blended surface: lit colour with opacity, and opacity alone.</summary>
+    internal sealed record Blended(int Colour, int Mask);
+
+    /// <summary>Where the host keeps its frame clock, in seconds: a constant buffer's register and size in bytes, and the value's row and column.</summary>
+    internal sealed record Clock(int Register, int Row, int Column, int Size);
+
+    /// <summary>Texture coordinates slide by these rates per second of the host's clock.</summary>
+    internal sealed record Scroll(float U, float V, Clock Clock);
+
+    /// <summary>Finds the frame clock an installed host program declares.</summary>
+    internal static Clock FindClock(string module)
+    {
+        // The disassembly lists each constant buffer's members with byte offsets, then the register each buffer is bound to.
+        string? buffer = null; var found = new List<(string Buffer, int Offset)>(); var sizes = new Dictionary<string, int>(); var registers = new Dictionary<string, int>();
+        foreach (string line in module.Replace("\r\n", "\n").Split('\n'))
+        {
+            var opened = Regex.Match(line, @"^; cbuffer (\w+)$");
+            if (opened.Success) buffer = opened.Groups[1].Value;
+            var member = Regex.Match(line, @"^;\s+float FC_GlobalTime;\s+; Offset:\s*(\d+)$");
+            if (member.Success && buffer is not null) found.Add((buffer, int.Parse(member.Groups[1].Value, CultureInfo.InvariantCulture)));
+            var closed = Regex.Match(line, @"^;\s+\} (\w+);\s+; Offset:\s*0 Size:\s*(\d+)$");
+            if (closed.Success) sizes[closed.Groups[1].Value] = int.Parse(closed.Groups[2].Value, CultureInfo.InvariantCulture);
+            var bound = Regex.Match(line, @"^; (\w+)\s+cbuffer\s+\S+\s+\S+\s+CB\d+\s+cb(\d+)\s+1$");
+            if (bound.Success) registers[bound.Groups[1].Value] = int.Parse(bound.Groups[2].Value, CultureInfo.InvariantCulture);
+        }
+        if (found.Count != 1 || found[0].Offset % 4 != 0 || !sizes.TryGetValue(found[0].Buffer, out int size) || !registers.TryGetValue(found[0].Buffer, out int register))
+            throw new InvalidDataException("Host program does not declare one frame clock");
+        return new(register, found[0].Offset / 16, found[0].Offset % 16 / 4, size);
+    }
+
     private const string Name = @"%[\w.$-]+";
     private sealed record Instruction(int Line, string Text, string[] Operands);
 
@@ -27,11 +57,15 @@ internal static class PixelShader
     /// source's environment and hemisphere lighting of the blended colour to the emission target.
     /// </summary>
     /// <param name="cutout">When set, pixels whose blended colour alpha is below this reference are discarded.</param>
+    /// <param name="forward">When set, the program is a blended surface's forward stage: it writes the light with the surface's opacity
+    /// (blended coverage × vertex alpha × view fade) instead of the deferred targets.</param>
     /// <param name="air">When set, the source's fog and light scattering are applied to the emitted light; the vertex stage must forward the view.</param>
     internal static string ComposeLayeredGround(string module, string vertex, LayerSlots slots, Targets targets, GroundLighting lighting,
-        float? cutout = null, SourceAir.Values? air = null, ViewFade? fade = null)
+        float? cutout = null, SourceAir.Values? air = null, ViewFade? fade = null, Blended? forward = null, Scroll? scroll = null)
     {
-        if (fade is not null && cutout is null) throw new InvalidDataException("A view fade needs a cutout reference to act on");
+        if (fade is not null && cutout is null && forward is null) throw new InvalidDataException("A view fade needs a cutout reference or a blended surface to act on");
+        if (forward is not null && (cutout is not null || forward.Colour == forward.Mask))
+            throw new InvalidDataException("A blended surface is not cut out and needs two distinct forward targets");
         if (cutout is { } reference && !(reference > 0 && reference <= 1)) throw new InvalidDataException("Cutout reference must be within (0, 1]");
         foreach (var factor in new[] { lighting.Environment, lighting.Upper, lighting.Lower, lighting.Diffuse })
             if (factor.Length != 3 || !factor.All(float.IsFinite)) throw new InvalidDataException("Ground lighting factors must be three finite values");
@@ -61,6 +95,43 @@ internal static class PixelShader
             return Load(target.Name, target.Index, target.Column - produced.Column(output), label);
         }
         string[] second = [Forwarded("TEXCOORD", 1, 0, "u1"), Forwarded("TEXCOORD", 1, 1, "v1")];
+        string? clockType = null;
+        // Declares the clock's constant buffer beside the program's own and returns its range identity.
+        int DeclareClock(List<string> clockLines)
+        {
+            if (!float.IsFinite(scroll.U) || !float.IsFinite(scroll.V) || scroll.Clock.Size % 16 != 0 || scroll.Clock.Row * 16 >= scroll.Clock.Size || scroll.Clock.Column is < 0 or > 3)
+                throw new InvalidDataException("Unsupported scroll rate or clock location");
+            int root = clockLines.FindIndex(l => Regex.IsMatch(l, @"^!dx\.resources = !\{!\d+\}$"));
+            var lists = root < 0 ? Match.Empty : Regex.Match(clockLines.Single(l => l.StartsWith(Regex.Match(clockLines[root], @"!\d+").Value + " = ", StringComparison.Ordinal)),
+                @"^!\d+ = !\{(?:!\d+|null), (?:!\d+|null), (!\d+), (?:!\d+|null)\}$");
+            if (!lists.Success) throw new InvalidDataException("Pixel program declares no constant buffers to extend");
+            int list = clockLines.FindIndex(l => l.StartsWith(lists.Groups[1].Value + " = !{", StringComparison.Ordinal));
+            var declared = Regex.Matches(clockLines[list][(clockLines[list].IndexOf('{') + 1)..], @"!\d+").Select(m =>
+                Regex.Match(clockLines.Single(l => l.StartsWith(m.Value + " = ", StringComparison.Ordinal)), @"^!\d+ = !\{i32 (\d+), \S+ undef, !""[^""]*"", i32 (\d+), i32 (\d+), i32 1, i32 \d+, null\}$")).ToArray();
+            // lazy: a program that already binds the clock's register would share its handle; no installed deferred pixel program does.
+            if (declared.Any(d => !d.Success || d.Groups[2].Value != "0") || declared.Any(d => int.Parse(d.Groups[3].Value, CultureInfo.InvariantCulture) == scroll.Clock.Register))
+                throw new InvalidDataException("Unsupported constant buffer declarations for the frame clock");
+            int range = declared.Max(d => int.Parse(d.Groups[1].Value, CultureInfo.InvariantCulture)) + 1;
+            int node = clockLines.SelectMany(l => Regex.Matches(l, @"!(\d+)").Select(m => int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture))).Max() + 1;
+            clockLines[list] = clockLines[list][..^1] + $", !{node}}}";
+            clockLines.Insert(list + 1, $"!{node} = !{{i32 {range}, %aog.clock* undef, !\"\", i32 0, i32 {scroll.Clock.Register}, i32 1, i32 {scroll.Clock.Size}, null}}");
+            return range;
+        }
+        if (scroll is not null)
+        {
+            int range = DeclareClock(signatures.Lines.ToList());
+            clockType = $"%aog.clock = type {{ [{scroll.Clock.Size / 16} x <4 x float>] }}";
+            loads.Add($"  %aog_clockbuffer = call %dx.types.Handle @dx.op.createHandle(i32 57, i8 2, i32 {range}, i32 {scroll.Clock.Register}, i1 false)");
+            loads.Add($"  %aog_clockrow = call %dx.types.CBufRet.f32 @dx.op.cbufferLoadLegacy.f32(i32 59, %dx.types.Handle %aog_clockbuffer, i32 {scroll.Clock.Row})");
+            loads.Add($"  %aog_clock = extractvalue %dx.types.CBufRet.f32 %aog_clockrow, {scroll.Clock.Column}");
+            foreach (var (axis, rate) in new[] { ("u", scroll.U), ("v", scroll.V) })
+                loads.Add($"  %aog_scroll{axis} = fmul fast float %aog_clock, {Float(rate)}");
+            for (int axis = 0; axis < 2; axis++)
+            {
+                loads.Add($"  %aog_{"uv"[axis]}1s = fadd fast float {second[axis]}, %aog_scroll{"uv"[axis]}");
+                second[axis] = $"%aog_{"uv"[axis]}1s";
+            }
+        }
         string[] tint = [Forwarded("COLOR", 0, 0, "cr"), Forwarded("COLOR", 0, 1, "cg"), Forwarded("COLOR", 0, 2, "cb")];
         string alpha = Forwarded("COLOR", 0, 3, "alpha");
         var bitangents = new string[2][];
@@ -82,6 +153,7 @@ internal static class PixelShader
         int? faceInput = TryFind(signatures, "SV_IsFrontFace");
 
         var lines = signatures.Lines.ToList();
+        if (scroll is not null) DeclareClock(lines);
         int start = lines.FindIndex(l => l == $"define void @{signatures.Entry}() {{");
         int end = lines.FindIndex(start + 1, l => l == "}");
         if (start < 0 || end < 0 || lines.Count(l => l.StartsWith("define ", StringComparison.Ordinal)) != 1)
@@ -144,6 +216,13 @@ internal static class PixelShader
             return leaves.Length == 1 ? leaves : throw new InvalidDataException("First-layer texture coordinate does not come from one input");
         }
         string[] primary = [Primary("u")[0], Primary("v")[0]];
+        if (scroll is not null)
+            for (int axis = 0; axis < 2; axis++)
+            {
+                // Every host use of the first coordinates follows the scrolled value.
+                char c = "uv"[axis];
+                edits[instructions[primary[axis]].Line] = $"  %aog_{c}0raw = {instructions[primary[axis]].Text}\n  {primary[axis]} = fadd fast float %aog_{c}0raw, %aog_scroll{c}";
+            }
         foreach (var (slot, role) in new[] { (slots.Colour[1], "colour"), (slots.Normal[1], "normal") })
         {
             var (sampled, call) = samples[slot];
@@ -318,7 +397,8 @@ internal static class PixelShader
                 lit[i] = Unary("airlit" + c, 21, Emit("airlinear" + c, "fmul fast float " + Unary("airloglit" + c, 23, Unary("airabslit" + c, 6, mixed)) + ", " + Float(2.2f)));
             }
         }
-        if (cutout is { } threshold)
+        string? opacity = null;
+        if (cutout is not null || forward is not null)
         {
             // The same blend as the colour: the second layer's coverage replaces the first's by vertex alpha.
             string lower = Emit("cover0", $"extractvalue %dx.types.ResRet.f32 {samples[slots.Colour[0]].Result}, 3");
@@ -333,7 +413,8 @@ internal static class PixelShader
                 coverage = Emit("fadedcoverage", $"fmul fast float {coverage}, " + Unary("fade", 7, Emit("fadescaled", "fmul fast float "
                     + Emit("fadeoffset", $"fsub fast float {facing}, {Float(fade.Offset)}") + ", " + Float(fade.Scale))));
             }
-            body.Add($"  call void @dx.op.discard(i32 82, i1 {Emit("uncovered", $"fcmp fast olt float {coverage}, {Float(threshold)}")})");
+            if (cutout is { } threshold) body.Add($"  call void @dx.op.discard(i32 82, i1 {Emit("uncovered", $"fcmp fast olt float {coverage}, {Float(threshold)}")})");
+            else opacity = Emit("opacity", $"fmul fast float {coverage}, {alpha}");
         }
         Insert(litLine, body);
         var replaced = new HashSet<(int, int)>();
@@ -343,12 +424,15 @@ internal static class PixelShader
             if (!store.Success) continue;
             int id = int.Parse(store.Groups["id"].Value, CultureInfo.InvariantCulture), column = store.Groups["column"].Value[0] - '0';
             // With no surface colour left, the host's own lighting adds nothing to the light emitted here.
-            string? value = id == colourTarget && column < 3 ? "0.000000e+00" : id == emissionTarget ? column < 3 ? lit[column] : Float(targets.EmissionWeight) : null;
+            string? value = forward is not null
+                ? id == Target(forward.Colour) ? column < 3 ? lit[column] : opacity : id == Target(forward.Mask) ? column < 3 ? "0.000000e+00" : opacity : null
+                : id == colourTarget && column < 3 ? "0.000000e+00" : id == emissionTarget ? column < 3 ? lit[column] : Float(targets.EmissionWeight) : null;
             if (value is null) continue;
             if (!replaced.Add((id, column))) throw new InvalidDataException("Ambiguous colour or emission target store");
             edits[i] = $"  call void @dx.op.storeOutput.f32(i32 5, i32 {id}, i32 0, i8 {column}, float {value})";
         }
-        if (replaced.Count != 7) throw new InvalidDataException("Expected final colour and emission target stores after the lighting");
+        int expectedStores = forward is null ? 7 : 8;
+        if (replaced.Count != expectedStores) throw new InvalidDataException("Expected final colour and emission target stores after the lighting");
         // Every host value read here, and both inserted blocks, must run on every path to the final stores.
         var labels = new Dictionary<string, int>();
         for (int i = start + 1; i < end; i++)
@@ -378,7 +462,7 @@ internal static class PixelShader
             .Concat(textures.Select(slot => samples[slot].Result))) Unconditional(instructions[value].Line);
         Unconditional(normalLine); Unconditional(litLine);
         int last = ordered.LastOrDefault(l => l <= end, start);
-        if (replaced.Count != 7 || edits.Keys.Where(k => k >= litLine && stored.IsMatch(Code(k))).Any(k => k < last))
+        if (replaced.Count != expectedStores || edits.Keys.Where(k => k >= litLine && stored.IsMatch(Code(k))).Any(k => k < last))
             throw new InvalidDataException("Colour and emission stores are not in the program's final block");
 
         // The environment slot becomes a cube; the host's own surface sample of it no longer applies.
@@ -394,6 +478,7 @@ internal static class PixelShader
             if (i == start && !lines.Any(l => l.StartsWith("%\"class.TextureCube<vector<float, 4> >\" = type", StringComparison.Ordinal)))
                 result.AddRange(["%\"class.TextureCube<vector<float, 4> >\" = type { <4 x float>, %\"class.TextureCube<vector<float, 4> >::mips_type\" }",
                     "%\"class.TextureCube<vector<float, 4> >::mips_type\" = type { i32 }", ""]);
+            if (i == start && clockType is not null) result.AddRange([clockType, ""]);
             if (before.TryGetValue(i, out var added)) result.AddRange(added);
             result.Add(edits.GetValueOrDefault(i, lines[i]));
             if (i == start) result.AddRange(loads);
@@ -407,6 +492,8 @@ internal static class PixelShader
             ("dot3.f32", "declare float @dx.op.dot3.f32(i32, float, float, float, float, float, float)"),
             ("sampleLevel.f32", "declare %dx.types.ResRet.f32 @dx.op.sampleLevel.f32(i32, %dx.types.Handle, %dx.types.Handle, float, float, float, float, i32, i32, i32, float)"),
             ("discard", "declare void @dx.op.discard(i32, i1)"),
+            ("createHandle", "declare %dx.types.Handle @dx.op.createHandle(i32, i8, i32, i32, i1)"),
+            ("cbufferLoadLegacy.f32", "declare %dx.types.CBufRet.f32 @dx.op.cbufferLoadLegacy.f32(i32, %dx.types.Handle, i32)"),
         }.Where(d => d.Item1 != "discard" || cutout is not null))
             if (!lines.Any(l => l.StartsWith("declare ", StringComparison.Ordinal) && l.Contains($"@dx.op.{function}(", StringComparison.Ordinal)))
                 result.Add(declaration);

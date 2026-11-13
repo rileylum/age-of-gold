@@ -20,6 +20,8 @@ internal static class FirelinkBuild
     // The host's deferred targets as its installed opaque programs write them: encoded normal, surface colour, emitted light.
     // lazy: zero emission weight keeps the host from adding glow; the source local lights need the light-composition stage and its marker.
     private static readonly PixelShader.Targets HostTargets = new(0, 2, 4, 0);
+    // The host's forward targets as its installed blended programs write them: colour with opacity, then opacity alone.
+    private static readonly PixelShader.Blended HostForward = new(0, 1);
     // The host's visual-effect row for the leaves that drift around the player everywhere outdoors.
     private const int HostDriftingLeaves = 200000;
 
@@ -71,17 +73,25 @@ internal static class FirelinkBuild
         var collision = SourceCollisionReader.ReadScene(source);
         var lighting = SourceLightingReader.Read(source).Scenery.ToDictionary(r => r.Id);
         using var placementDocument = JsonDocument.Parse(reader.ReadPlacements());
-        var placements = placementDocument.RootElement.EnumerateArray().ToArray();
+        // lazy: of the source's objects only the bonfire is built, as fixed scenery; the rest are counted in the manifest
+        // until breakable, animated and interactive objects are translated.
+        string[] sceneryObjects = ["o0200"];
+        using var objectDocument = JsonDocument.Parse(reader.ReadObjectPlacements());
+        var objectPlacements = objectDocument.RootElement.EnumerateArray().ToLookup(p => sceneryObjects.Contains(p.GetProperty("model").GetString()));
+        var unbuiltObjects = new SortedDictionary<string, int>(objectPlacements[false].GroupBy(p => p.GetProperty("model").GetString()!)
+            .ToDictionary(g => g.Key, g => g.Count()), StringComparer.Ordinal);
+        var placements = placementDocument.RootElement.EnumerateArray().Concat(objectPlacements[true]).ToArray();
+        byte[] ReadModel(string name) => sceneryObjects.Contains(name) ? reader.ReadObject(name) : reader.ReadModel(name);
 
         // lazy: only the opaque lit families are built; every other surface is counted in the manifest until its family lands.
         // First pass: classify each model's surfaces and collect texture names; geometry is read again when its model is built.
         var renderer = SourceRendererSettings.Read(source);
         var environmentSettings = SourceEnvironmentSettings.Read(source, toolchain);
-        var models = new List<(string Name, Dictionary<int, (float R, float G, float B, bool Unlit, float FadeOffset, float FadeScale)> Surfaces, string[] Textures)>();
-        foreach (string name in reader.Models)
+        var models = new List<(string Name, Dictionary<int, (float R, float G, float B, bool Unlit, float FadeOffset, float FadeScale, float ScrollU, float ScrollV)> Surfaces, string[] Textures)>();
+        foreach (string name in reader.Models.Concat(sceneryObjects))
         {
-            using var model = JsonDocument.Parse(reader.ReadModel(name));
-            var ground = new Dictionary<int, (float, float, float, bool, float, float)>(); var textures = new List<string>();
+            using var model = JsonDocument.Parse(ReadModel(name));
+            var ground = new Dictionary<int, (float, float, float, bool, float, float, float, float)>(); var textures = new List<string>();
             foreach (var surface in model.RootElement.GetProperty("surfaces").EnumerateArray())
             {
                 var material = surface.GetProperty("material");
@@ -97,7 +107,12 @@ internal static class FirelinkBuild
                 float power = parameters.GetProperty("g_DiffuseMapColorPower").GetSingle();
                 var tint = parameters.GetProperty("g_DiffuseMapColor").EnumerateArray().Select(v => MathF.Pow(v.GetSingle() * power, 2.2f)).ToArray();
                 if (tint.Length != 3) throw new InvalidDataException("Unsupported diffuse multiplier: " + name);
-                ground.Add(surface.GetProperty("index").GetInt32(), (tint[0], tint[1], tint[2], lightingType == 0, fade?.Offset ?? 0, fade?.Scale ?? 0));
+                // The source slides a material's coordinates at a fixed rate; only the first rate applies to these one-texture-set families.
+                float[] Rate(int index) => parameters.TryGetProperty("g_TexScroll_" + index, out var rate) ? rate.EnumerateArray().Select(v => v.GetSingle()).ToArray() : [0, 0];
+                int scrollType = parameters.TryGetProperty("g_TexScrollType", out var declaredScroll) ? declaredScroll.GetInt32() : 0;
+                if (scrollType is not (0 or 1) || Rate(0).Length != 2 || Rate(1).Concat(Rate(2)).Any(v => v != 0) || scrollType == 0 && Rate(0).Any(v => v != 0))
+                    throw new InvalidDataException("Material scrolls its textures in an unclassified way: " + name);
+                ground.Add(surface.GetProperty("index").GetInt32(), (tint[0], tint[1], tint[2], lightingType == 0, fade?.Offset ?? 0, fade?.Scale ?? 0, Rate(0)[0], Rate(0)[1]));
                 var layers = LayerMaterial.Read(material);
                 textures.AddRange(new[] { layers.First, layers.Second }.SelectMany(l => new[] { l.Colour, l.Normal, l.Packed }));
             }
@@ -173,9 +188,9 @@ internal static class FirelinkBuild
         // Lighting, air and the diffuse multiplier are compiled into the programs, so each combination has its own shader family and material.
         var airRows = SourceAirReader.Read(source);
         var keys = models.SelectMany(m => m.Surfaces.Values.Select(d => (Rows: rowOf[m.Name], Diffuse: d))).Distinct().Order().ToArray();
-        string Family((int Light, int Fog, int Scattering) rows, (float, float, float, bool, float, float) diffuse) =>
+        string Family((int Light, int Fog, int Scattering) rows, (float, float, float, bool, float, float, float, float) diffuse) =>
             $"{GroundFamily}_{rows.Light}_{rows.Fog}_{rows.Scattering}_{Array.IndexOf(keys.Where(k => k.Rows == rows).Select(k => k.Diffuse).ToArray(), diffuse)}";
-        var families = new SortedDictionary<string, (PixelShader.GroundLighting Lighting, SourceAir.Values? Air, PixelShader.ViewFade? Fade)>(StringComparer.Ordinal);
+        var families = new SortedDictionary<string, (PixelShader.GroundLighting Lighting, SourceAir.Values? Air, PixelShader.ViewFade? Fade, (float U, float V) Scroll)>(StringComparer.Ordinal);
         foreach (var (rows, diffuse) in keys)
         {
             var values = SourceLightingParameters.Values(lighting[rows.Light], renderer);
@@ -188,7 +203,7 @@ internal static class FirelinkBuild
             float[] tint = [diffuse.Item1, diffuse.Item2, diffuse.Item3];
             families.Add(Family(rows, diffuse), (diffuse.Item4 ? new([0, 0, 0], [1, 1, 1], [1, 1, 1], tint)
                 : new(Rgb("gFC_EnvDifMapMulCol").Select(v => v * environmentSettings.Strength).ToArray(), Rgb("gFC_HemAmbCol_u"), Rgb("gFC_HemAmbCol_d"), tint), air,
-                diffuse.Item6 == 0 ? null : new PixelShader.ViewFade(diffuse.Item5, diffuse.Item6)));
+                diffuse.Item6 == 0 ? null : new PixelShader.ViewFade(diffuse.Item5, diffuse.Item6), (diffuse.Item7, diffuse.Rest.Item1)));
         }
         var environments = models.ToDictionary(m => m.Name, m =>
         {
@@ -205,7 +220,9 @@ internal static class FirelinkBuild
         // Texture packages are stored compressed like the host's other loose map files.
         DCX.Decompress(archive.Read($"map/m10/{Map}/{Map}_000000.mapbnd.dcx"), out var packageCompression);
         var textureWriter = new TextureWriter(textureTemplate, packageCompression);
-        var raw = TextureReader.Read(source, required.Where(n => !NeutralTextures.Is(n))).ToDictionary(t => t.Name, t => t.Bytes, StringComparer.Ordinal);
+        // An object's textures come from its own binder; every other name is looked up in the map's packages.
+        var raw = sceneryObjects.SelectMany(reader.ReadObjectTextures).Where(t => required.Contains(t.Name)).ToDictionary(t => t.Name, t => t.Bytes, StringComparer.Ordinal);
+        foreach (var texture in TextureReader.Read(source, required.Where(n => !NeutralTextures.Is(n) && !raw.ContainsKey(n)).ToArray())) raw.Add(texture.Name, texture.Bytes);
         foreach (string neutral in required.Where(NeutralTextures.Is)) raw.Add(neutral, NeutralTextures.Bytes(neutral));
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
         if (required.Length > 1000) throw new InvalidDataException("Texture namespace exhausted");
@@ -238,11 +255,11 @@ internal static class FirelinkBuild
         if (exemplar < 0) throw new InvalidDataException("Host install lacks the two-layer ground exemplar");
 
         var groundDefinitions = new SortedDictionary<string, byte[]>(StringComparer.Ordinal); byte[]? groundMetadata = null;
-        var cutouts = new SortedSet<string>(StringComparer.Ordinal);
+        var cutouts = new SortedSet<string>(StringComparer.Ordinal); var blends = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var model in models)
         {
             var row = rowOf[model.Name];
-            using var document = JsonDocument.Parse(reader.ReadModel(model.Name));
+            using var document = JsonDocument.Parse(ReadModel(model.Name));
             var selected = document.RootElement.GetProperty("surfaces").EnumerateArray()
                 .Where(s => model.Surfaces.ContainsKey(s.GetProperty("index").GetInt32())).ToArray();
             var surfaces = selected.Select(s => LayerGeometry.Pack(LayerGeometry.Read(s))).ToArray();
@@ -257,6 +274,16 @@ internal static class FirelinkBuild
                 {
                     family += "_cutout";
                     cutouts.Add(family);
+                }
+                // A blended surface is drawn by the family's forward stages, over the scene and without writing depth.
+                else if (LayerMaterial.Blended(s.GetProperty("material")))
+                {
+                    // The host numbers its blend modes as the source does: two lays the surface over the scene, four adds it.
+                    bool additive = LayerMaterial.Additive(s.GetProperty("material"));
+                    family += additive ? "_add" : "_blend";
+                    blends.Add(family);
+                    definition.Params.Single(p => p.Name == "g_BlendMode").Value = additive ? 4 : 2;
+                    foreach (string flag in new[] { "g_GX_bDisableDepthWrite", "g_GX_bDisableShadowCasting" }) definition.Params.Single(p => p.Name == flag).Value = true;
                 }
                 definition.SourcePath = Rename(definition.SourcePath, family); definition.ShaderPath = Rename(definition.ShaderPath, family);
                 bound = bound with { Definition = definition.Write() };
@@ -301,15 +328,46 @@ internal static class FirelinkBuild
             string frames = VertexShader.AddLayerFrames(module, outputRow);
             return view ? VertexShader.AddView(frames, outputRow + 3) : frames;
         }
-        var plain = compiler.Disassemble(ShaderArchive.Read(shaders, HostFamily + ".shaderbdle", HostFamily + "_Gbuf.vpo"));
+        byte[] HostStage(string suffix) => ShaderArchive.Read(shaders, HostFamily + ".shaderbdle", HostFamily + suffix);
+        var forwardStages = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        string BaseFamily(string name) => cutouts.Contains(name) ? name[..^"_cutout".Length] : blends.Contains(name) ? name[..name.LastIndexOf('_')] : name;
+        var plain = compiler.Disassemble(HostStage("_Gbuf.vpo"));
+        // Scrolling surfaces follow the frame clock the host's forward programs read.
+        var clock = PixelShader.FindClock(compiler.Disassemble(HostStage("_Fwd.ppo")));
         files.Add("mod/shader/shaderbdle.shaderbdlebnd.dcx", ShaderArchive.AddFamilies(shaders, HostFamily,
             // Only families a built surface uses are written; a material may exist only as a cutout.
-            groundDefinitions.Keys.Select(name => KeyValuePair.Create(name, families[cutouts.Contains(name) ? name[..^"_cutout".Length] : name]))
+            groundDefinitions.Keys.Select(name => KeyValuePair.Create(name, families[BaseFamily(name)]))
                 .Select(family => (family.Key, (Func<string, byte[], byte[]>)((suffix, bytes) =>
             {
-                var (light, air, fade) = family.Value;
-                bool cut = cutouts.Contains(family.Key), view = air is not null || fade is not null && cut;
+                var (light, air, fade, rate) = family.Value;
+                var scroll = rate == (0, 0) ? null : new PixelShader.Scroll(rate.U, rate.V, clock);
+                bool cut = cutouts.Contains(family.Key), blend = blends.Contains(family.Key), view = air is not null || fade is not null && (cut || blend);
                 if (suffix == ".metaparam") return emitting;
+                if (blend)
+                {
+                    // The forward stages take the deferred pair's place: the same forwarded frames and lighting, written with opacity.
+                    var vertexStage = Regex.Match(suffix, @"^_Fwd(@\[cl\])?\.vpo$");
+                    if (vertexStage.Success)
+                    {
+                        string deferred = "_Gbuf" + vertexStage.Groups[1].Value + ".vpo", stageKey = deferred + "|" + (view ? "view" : "plain");
+                        if (!vertexStages.TryGetValue(stageKey, out var stage))
+                        {
+                            var host = HostStage(deferred);
+                            vertexStages.Add(stageKey, stage = compiler.Assemble(Forward(compiler.Disassemble(host), view), host));
+                        }
+                        return stage;
+                    }
+                    var pixelStage = Regex.Match(suffix, @"^_Fwd(?:Sdw|SSdw)?(_\[A\])?\.ppo$");
+                    if (!pixelStage.Success) return bytes;
+                    string deferredPixel = "_Gbuf" + pixelStage.Groups[1].Value + ".ppo", pixelKey = family.Key + "|" + deferredPixel;
+                    if (!forwardStages.TryGetValue(pixelKey, out var composed))
+                    {
+                        var host = HostStage(deferredPixel);
+                        forwardStages.Add(pixelKey, composed = compiler.Assemble(PixelShader.ComposeLayeredGround(compiler.Disassemble(host), Forward(plain, view), slots, HostTargets, light,
+                            null, air, fade, HostForward, scroll), host));
+                    }
+                    return composed;
+                }
                 if (Regex.IsMatch(suffix, @"^_Gbuf.*\.vpo$"))
                 {
                     string stageKey = suffix + "|" + (view ? "view" : "plain");
@@ -320,7 +378,7 @@ internal static class FirelinkBuild
                 if (suffix is "_Gbuf.ppo" or "_Gbuf_[A].ppo")
                     // lazy: the source's half-coverage threshold, as in the accepted playtest; no material here overrides it.
                     return compiler.Assemble(PixelShader.ComposeLayeredGround(compiler.Disassemble(bytes), Forward(plain, view), slots, HostTargets, light,
-                        cut ? 128 / 255f : null, air, cut ? fade : null), bytes);
+                        cut ? 128 / 255f : null, air, cut ? fade : null, null, scroll), bytes);
                 return bytes;
             }))).ToArray()));
 
@@ -351,12 +409,13 @@ internal static class FirelinkBuild
             textures = names,
             groundFamilies = groundDefinitions.Keys.ToDictionary(name => name, name =>
             {
-                var family = families[cutouts.Contains(name) ? name[..^"_cutout".Length] : name];
-                return new { lighting = family.Lighting, air = family.Air, fade = family.Fade, cutout = cutouts.Contains(name) };
+                var family = families[BaseFamily(name)];
+                return new { lighting = family.Lighting, air = family.Air, fade = family.Fade, scroll = new[] { family.Scroll.U, family.Scroll.V }, cutout = cutouts.Contains(name), blended = blends.Contains(name) };
             }),
             restingPoint = new { entity = restingEntity, flag = restingFlag, position = new[] { resting.Position.X, resting.Position.Y, resting.Position.Z } },
             arrival = new { collision = terrain.Arrival, selection = arrival, focus = arrivalFocus, tone = arrivalTone, exposure = arrivalTone.BrightExposure, correction = arrivalCorrection },
             unbuiltSurfaces = unbuilt,
+            unbuiltObjects,
             excludedCollision = terrain.Excluded.Select(p => new { p.Name, p.Role, p.Disabled }),
             files = files.Files.Select(f => new { path = f.Key, size = f.Value.Size, sha256 = f.Value.Hash }).ToArray(),
         };

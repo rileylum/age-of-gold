@@ -27,6 +27,7 @@ internal static class PixelShaderCheck
         """;
 
     // An authored two-layer surface: one coordinate set, an edge-texture blend, a packed normal and five targets.
+    // Like the host's programs, it carries a root signature shared with stages that bind more than it uses (the frame clock at b9).
     private const string Pixel = """
         cbuffer Tiling : register(b1) { float4 Scale[5]; };
         cbuffer Surface : register(b3) { float4 Tint0; float4 Tint1; float4 Blend; };
@@ -36,7 +37,7 @@ internal static class PixelShaderCheck
         struct Input { float4 position : SV_Position; float4 normal : NORMAL; float4 tangent : TANGENT; float4 colour : TEXCOORD0;
             float u : TEXCOORD4; float v : TEXCOORD5; float4 extra : TEXCOORD7; bool front : SV_IsFrontFace; };
         struct Output { float4 a : SV_Target0; float4 b : SV_Target1; float4 c : SV_Target2; float4 d : SV_Target3; float4 e : SV_Target4; };
-        [RootSignature("CBV(b1),CBV(b3),DescriptorTable(SRV(t0,numDescriptors=5)),DescriptorTable(Sampler(s0))")]
+        [RootSignature("CBV(b1),CBV(b3),CBV(b9),DescriptorTable(SRV(t0,numDescriptors=5)),DescriptorTable(Sampler(s0))")]
         Output Main(Input i) {
             float3 n = normalize(i.normal.xyz), t = normalize(i.tangent.xyz);
             float3 b = normalize(cross(n, t) * i.tangent.w);
@@ -244,6 +245,60 @@ internal static class PixelShaderCheck
             if (discarded) hidden++; else shown++;
         }
         if (shown == 0 || hidden == 0) throw new Exception("View fade fixture does not exercise both outcomes");
+        // A blended surface is drawn in the host's forward pass: lit colour with opacity in one target, opacity alone in another.
+        var forward = new PixelShader.Blended(0, 1);
+        foreach (var faded in new[] { null, fade })
+        {
+            var blendedProgram = compiler.Disassemble(compiler.Assemble(PixelShader.ComposeLayeredGround(module, viewed, Slots, Targets, Lighting, null, null, faded, forward), original));
+            foreach (float alpha in new[] { 0f, 0.35f, 1f })
+            {
+                Vector3 toCamera = new(1, 0.2f, 2);
+                var inputs = new Dictionary<(string, int), float[]>
+                {
+                    [("NORMAL", 0)] = [0.3f, 0.9f, -0.2f, 0], [("TANGENT", 0)] = [0.8f, -0.1f, 0.5f, 1], [("TEXCOORD", 0)] = [0.9f, 0.8f, 0.7f, alpha],
+                    [("TEXCOORD", 4)] = [0.37f], [("TEXCOORD", 5)] = [1.21f], [("TEXCOORD", 7)] = [-0.6f, 0.45f, 0, 0.25f],
+                    [("TANGENT", 4)] = [0.1f, 0.3f, 0.9f, 0], [("TANGENT", 6)] = [-0.7f, 0.2f, 0.6f, 0], [("TANGENT", 8)] = [toCamera.X, toCamera.Y, toCamera.Z, 5],
+                };
+                var opaque = Evaluate(text, inputs, true, cube: true);
+                var actual = Evaluate(blendedProgram, inputs, true, cube: true, out bool discarded);
+                float facing = MathF.Abs(Vector3.Dot(Vector3.Normalize(toCamera), Vector3.Normalize(new(0.3f, 0.9f, -0.2f))));
+                // The layers' coverage blends like their colour; the source then scales it by vertex alpha.
+                float opacity = (Coverage(1, default) * (1 - alpha) + Coverage(4, default) * alpha) * alpha
+                    * (faded is null ? 1 : Math.Clamp((facing - fade.Offset) * fade.Scale, 0, 1));
+                Near(actual, 0, new(opaque[(4, 0)], opaque[(4, 1)], opaque[(4, 2)]), "blended surface light");
+                Near(actual, 1, Vector3.Zero, "blended surface mask");
+                if (discarded || MathF.Abs(actual[(0, 3)] - opacity) > 1e-5f || actual[(1, 3)] != actual[(0, 3)])
+                    throw new Exception($"Blended surface opacity differs: {actual[(0, 3)]} != {opacity}");
+            }
+        }
+        Reject(() => PixelShader.ComposeLayeredGround(module, viewed, Slots, Targets, Lighting, 0.5f, null, null, forward), "blended");
+        // A scrolling surface slides both layers' coordinates by its rate times the host's frame clock, which the host
+        // forward programs name in their own constant layout.
+        var clocked = compiler.Disassemble(compiler.Compile("""
+            cbuffer cbOther : register(b2) { float4 Unrelated; };
+            cbuffer cbPerFrame : register(b9) { float4 Before[27]; float FC_GlobalTime; float3 After; };
+            float4 Main() : SV_Target { return float4(FC_GlobalTime, Unrelated.x, 0, 1); }
+            """, "Main", "ps_6_0"));
+        var clock = PixelShader.FindClock(clocked);
+        if (clock != new PixelShader.Clock(9, 27, 0, 448)) throw new Exception("Host frame clock was not located: " + clock);
+        Reject(() => PixelShader.FindClock(module), "clock");
+        var scroll = new PixelShader.Scroll(0.03f, -0.02f, clock);
+        var scrolled = compiler.Disassemble(compiler.Assemble(PixelShader.ComposeLayeredGround(module, viewed, Slots, Targets, Lighting, null, null, null, forward, scroll), original));
+        var still = compiler.Disassemble(compiler.Assemble(PixelShader.ComposeLayeredGround(module, viewed, Slots, Targets, Lighting, null, null, null, forward), original));
+        foreach (float time in new[] { 0f, 12.5f })
+        {
+            Dictionary<(string, int), float[]> At(float shift) => new()
+            {
+                [("NORMAL", 0)] = [0.3f, 0.9f, -0.2f, 0], [("TANGENT", 0)] = [0.8f, -0.1f, 0.5f, 1], [("TEXCOORD", 0)] = [0.9f, 0.8f, 0.7f, 0.35f],
+                [("TEXCOORD", 4)] = [0.37f + 0.03f * shift], [("TEXCOORD", 5)] = [1.21f - 0.02f * shift], [("TEXCOORD", 7)] = [-0.6f + 0.03f * shift, 0.45f - 0.02f * shift, 0, 0.25f],
+                [("TANGENT", 4)] = [0.1f, 0.3f, 0.9f, 0], [("TANGENT", 6)] = [-0.7f, 0.2f, 0.6f, 0], [("TANGENT", 8)] = [1, 0.2f, 2, 5],
+            };
+            var expected = Evaluate(still, At(time), true, cube: true);
+            var actual = Evaluate(scrolled, At(0), true, cube: true, out _, time);
+            foreach (var (key, value) in expected)
+                if (MathF.Abs(actual[key] - value) > 2e-5f) throw new Exception($"Scrolled surface differs at {key} for time {time}: {actual[key]} != {value}");
+        }
+        Reject(() => PixelShader.ComposeLayeredGround(module, viewed, Slots, Targets, Lighting, null, null, null, new PixelShader.Blended(1, 1)), "blended");
         Reject(() => PixelShader.ComposeLayeredGround(module, viewed, Slots, Targets, Lighting, null, null, fade), "cutout");
         Reject(() => PixelShader.ComposeLayeredGround(module, vertex, Slots, Targets, Lighting, null, air), "semantic");
         Reject(() => PixelShader.ComposeLayeredGround(composed, vertex, Slots, Targets, Lighting), "already");
@@ -270,7 +325,7 @@ internal static class PixelShaderCheck
     private static Dictionary<(int, int), float> Evaluate(string module, Dictionary<(string, int), float[]> inputs, bool front, bool cube) =>
         Evaluate(module, inputs, front, cube, out _);
 
-    private static Dictionary<(int, int), float> Evaluate(string module, Dictionary<(string, int), float[]> inputs, bool front, bool cube, out bool discarded)
+    private static Dictionary<(int, int), float> Evaluate(string module, Dictionary<(string, int), float[]> inputs, bool front, bool cube, out bool discarded, float? time = null)
     {
         var signatures = new ShaderSignatures(module, "ps");
         var evaluator = new ShaderEvaluator();
@@ -285,6 +340,7 @@ internal static class PixelShaderCheck
         {
             1 => [1 + index * 0.25f, 2 - index * 0.125f, index * 0.0625f, -index * 0.03125f],
             3 => index switch { 0 => [0.9f, 0.85f, 0.8f, 0], 1 => [0.7f, 0.95f, 0.6f, 0], _ => [Blend.X, Blend.Y, Blend.Z, 0] },
+            9 when time is { } seconds && index == 27 => [seconds, 0, 0, 0],
             _ => throw new Exception("Unexpected constant register"),
         };
         evaluator.Sample = (slot, at, level) =>

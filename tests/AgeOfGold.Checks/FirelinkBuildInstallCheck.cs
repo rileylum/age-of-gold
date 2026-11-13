@@ -62,10 +62,14 @@ internal static class FirelinkBuildInstallCheck
             || script.Events.Single(e => e.ID == 0).Instructions.Count(i => i.Bank == 2009 && i.ID == 3 && BitConverter.ToInt32(i.ArgData, 0) == restFlag
                 && BitConverter.ToUInt32(i.ArgData, 4) == restEntity) != 1)
             throw new Exception("Built resting point lacks its marker, controller, respawn region or registration");
+        // The source's own bonfire model stands at the resting point as scenery; other source objects are recorded as not built.
+        if (pieces.Count(p => p.Position == restMarker.Position) != 1
+            || manifest.RootElement.GetProperty("unbuiltObjects").EnumerateObject().Any(o => o.Name == "o0200" || o.Value.GetInt32() < 1))
+            throw new Exception("Built map lacks the source bonfire model at its resting point");
         var materials = BND4.Read(Path.Combine(mod, "material/allmaterial.matbinbnd.dcx")).Files
             .ToLookup(f => string.Join('/', f.Name.Replace('\\', '/').Split('/')[^3..]).ToLowerInvariant(), f => f.Bytes);
         var shaders = File.ReadAllBytes(Path.Combine(mod, "shader/shaderbdle.shaderbdlebnd.dcx"));
-        int surfaces = 0, cutouts = 0; var families = new HashSet<string>(StringComparer.Ordinal);
+        int surfaces = 0, cutouts = 0, blends = 0, scrolling = 0; var families = new HashSet<string>(StringComparer.Ordinal);
         foreach (var model in pieces.Select(p => p.ModelName).Distinct())
         {
             var binder = BND4.Read(Path.Combine(mod, $"map/m10/m10_01_00_00/m10_01_00_00_{model[1..]}.mapbnd.dcx"));
@@ -81,6 +85,12 @@ internal static class FirelinkBuildInstallCheck
                 string family = Path.GetFileNameWithoutExtension(definition.ShaderPath.Replace('\\', '/'));
                 bool cut = family.EndsWith("_cutout", StringComparison.Ordinal);
                 cutouts += cut ? 1 : 0;
+                // A blended surface asks the host for its forward pass and leaves depth alone.
+                bool add = family.EndsWith("_add", StringComparison.Ordinal), blend = add || family.EndsWith("_blend", StringComparison.Ordinal);
+                blends += blend ? 1 : 0;
+                if ((int)definition.Params.Single(p => p.Name == "g_BlendMode").Value != (add ? 4 : blend ? 2 : 0)
+                    || blend != (bool)definition.Params.Single(p => p.Name == "g_GX_bDisableDepthWrite").Value)
+                    throw new Exception("Built material's blend state disagrees with its shader family: " + family);
                 families.Add(family);
                 using var bundle = new BND4Reader(ShaderArchive.ReadFamily(shaders, family + ".shaderbdle"));
                 var metadata = METAPARAM.Read(bundle.ReadFile(bundle.Files.Single(f => f.Name.EndsWith(".metaparam", StringComparison.Ordinal))));
@@ -98,19 +108,22 @@ internal static class FirelinkBuildInstallCheck
                 surfaces++;
             }
         }
-        if (surfaces != 311 || cutouts != 87) throw new Exception("Built opaque and cutout surface inventory differs");
+        if (surfaces != 330 || cutouts != 70 || blends != 33) throw new Exception("Built opaque and cutout surface inventory differs");
         var lit = manifest.RootElement.GetProperty("groundFamilies").EnumerateObject().Select(f => f.Name).Order(StringComparer.Ordinal).ToArray();
         if (!lit.SequenceEqual(families.Order(StringComparer.Ordinal))) throw new Exception("Built models do not use exactly the recorded lit ground families");
         foreach (string family in families)
         {
             using var bundle = new BND4Reader(ShaderArchive.ReadFamily(shaders, family + ".shaderbdle"));
             var rows = new List<string>();
-            foreach (var stage in bundle.Files.Where(f => Regex.IsMatch(f.Name, @"_Gbuf[^\\/]*\.vpo$")))
+            // Deferred surfaces are drawn by the G-buffer stages and blended ones by the forward stages.
+            bool blend = family.EndsWith("_blend", StringComparison.Ordinal) || family.EndsWith("_add", StringComparison.Ordinal);
+            string pass = blend ? "_Fwd" : "_Gbuf";
+            foreach (var stage in bundle.Files.Where(f => Regex.IsMatch(f.Name, pass + @"(@\[cl\])?\.vpo$")))
             {
                 var signatures = new ShaderSignatures(compiler.Disassemble(bundle.ReadFile(stage)));
                 rows.Add(string.Join(",", new[] { 2, 4, 6 }.Select(index => signatures.Require(true, "TANGENT", index, 9).Row)));
             }
-            foreach (string variant in new[] { "_Gbuf.ppo", "_Gbuf_[A].ppo" })
+            foreach (string variant in new[] { pass + ".ppo", pass + "_[A].ppo" })
             {
             var pixel = compiler.Disassemble(bundle.ReadFile(bundle.Files.Single(f => f.Name.EndsWith(family + variant, StringComparison.Ordinal))));
             var inputs = new ShaderSignatures(pixel, "ps");
@@ -120,11 +133,17 @@ internal static class FirelinkBuildInstallCheck
             var declared = METAPARAM.Read(bundle.ReadFile(bundle.Files.Single(f => f.Name.EndsWith(".metaparam", StringComparison.Ordinal))));
             if (pixel.Contains("@dx.op.discard(i32 82, i1 %aog_uncovered)", StringComparison.Ordinal) != family.EndsWith("_cutout", StringComparison.Ordinal))
                 throw new Exception("Cutout coverage test is missing or misplaced: " + family);
+            if (pixel.Contains("i8 3, float %aog_opacity)", StringComparison.Ordinal) != blend) throw new Exception("Blended opacity output is missing or misplaced: " + family);
+            // A surface the source scrolls reads the host's frame clock; a still one never does.
+            bool scrolls = manifest.RootElement.GetProperty("groundFamilies").GetProperty(family).GetProperty("scroll").EnumerateArray().Any(v => v.GetSingle() != 0);
+            if (pixel.Contains("%aog_clock = ", StringComparison.Ordinal) != scrolls) throw new Exception("Texture scrolling is missing or misplaced: " + family);
+            scrolling += scrolls ? 1 : 0;
             if (!pixel.Contains("TextureCube", StringComparison.Ordinal) || (declared.ShaderId & 0x800) == 0)
                 throw new Exception("Built ground pixel stage lacks its environment cube or emission writes");
             rows.RemoveAt(rows.Count - 1);
             }
         }
+        if (scrolling == 0) throw new Exception("Built families lack the source's scrolling cloud, mist and shaft surfaces");
         var graphics = GPARAM.Read(Path.Combine(mod, "param/drawparam/m10_01_0000.gparam.dcx")).Groups.SelectMany(g => g.Params).ToLookup(p => p.Name1);
         if (graphics["VolumetricFog Enable"].Single().Values.Any(v => (bool)v) || graphics["GS Presents - Vignetting Power"].Single().Values.Any(v => (float)v != 0)
             || graphics["GS Presents - Chromatic Aberration Enable"].Single().Values.Any(v => (int)v != 0))

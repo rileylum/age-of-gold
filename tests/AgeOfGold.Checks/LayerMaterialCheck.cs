@@ -46,10 +46,11 @@ internal static class LayerMaterialCheck
         Reject(() => LayerMaterial.Read(Single(@"N:\authored\FRPG_Phn_ColDifSpcBmp.spx", detail: "unexpected-detail")));
         Reject(() => LayerMaterial.Read(Single(@"N:\authored\FRPG_Phn_ColDifSpcBmp.spx", extra: "g_Lightmap")));
         Reject(() => LayerMaterial.Read(Single(@"N:\authored\FRPG_Other.spx")));
-        // Alpha-tested and blended one-layer surfaces keep their alpha as a cutout; two-layer shaders have no such variant.
+        // Alpha-tested one-layer surfaces are cutouts and blended ones are drawn blended; two-layer shaders have neither variant.
         const string phong = @"N:\authored\FRPG_Phn_ColDifSpcBmp.spx";
-        if (LayerMaterial.Cutout(Single(phong)) || !LayerMaterial.Cutout(Single(phong, blend: 1)) || !LayerMaterial.Cutout(Single(phong, blend: 2))
-            || LayerMaterial.Read(Single(phong, blend: 1)) != single || LayerMaterial.Layers(Single(phong, blend: 4)) != 0
+        if (LayerMaterial.Cutout(Single(phong)) || !LayerMaterial.Cutout(Single(phong, blend: 1)) || LayerMaterial.Cutout(Single(phong, blend: 2))
+            || LayerMaterial.Blended(Single(phong)) || LayerMaterial.Blended(Single(phong, blend: 1)) || !LayerMaterial.Blended(Single(phong, blend: 2))
+            || LayerMaterial.Read(Single(phong, blend: 1)) != single || LayerMaterial.Read(Single(phong, blend: 2)) != single || LayerMaterial.Layers(Single(phong, blend: 4)) != 0
             || LayerMaterial.Layers(Single(@"N:\authored\FRPG_Phn_ColDifSpcBmpMul.spx", blend: 1)) != 0)
             throw new Exception("Cutout classification of one-layer surfaces differs");
         // Foliage and ivy shade as one lit layer; their sway is a separate translation.
@@ -74,8 +75,18 @@ internal static class LayerMaterialCheck
         var backdrop = LayerMaterial.ViewFade(Plane(1))!;
         if (LayerMaterial.Read(Plane(1)).First != new LayerMaterial.Layer("colour-a", NeutralTextures.FlatNormal, NeutralTextures.Neutral) || !LayerMaterial.Cutout(Plane(1))
             || MathF.Abs(backdrop.Offset) > 1e-6f || MathF.Abs(backdrop.Scale - 2) > 1e-5f || LayerMaterial.ViewFade(sky) is not null
-            || LayerMaterial.Layers(Plane(2)) != 0 || LayerMaterial.Layers(Plane(4)) != 0)
+            || LayerMaterial.Layers(Plane(2)) != 1 || !LayerMaterial.Blended(Plane(2)) || LayerMaterial.Cutout(Plane(2)) || LayerMaterial.ViewFade(Plane(2)) != backdrop
+            || LayerMaterial.Additive(Plane(2)) || LayerMaterial.Additive(Single(phong, blend: 2))
+            // Light shafts are the same planes added to the scene instead of laid over it.
+            || LayerMaterial.Layers(Plane(4)) != 1 || !LayerMaterial.Blended(Plane(4)) || !LayerMaterial.Additive(Plane(4)) || LayerMaterial.Cutout(Plane(4)))
             throw new Exception("Backdrop plane classification or its view fade differs");
+        // A blended surface with colour and normal but no packed texture (the cloud layer) takes the neutral packed texture.
+        var cloud = JsonSerializer.SerializeToElement(new { definition = "authored", shader = @"N:\authored\FRPG_Phn_ColDifBmp.spx", blendMode = 2,
+            textures = new[] { "g_Diffuse", "g_Bumpmap" }.Select(input => new { input, texture = input == "g_Diffuse" ? "colour-a" : "normal-a", scale = new[] { 1f, 1f } }),
+            coordinates = new[] { "g_Diffuse", "g_Bumpmap" }.Select(input => new { input, channel = 0 }) });
+        if (LayerMaterial.Layers(cloud) != 1 || !LayerMaterial.Blended(cloud) || LayerMaterial.Read(cloud).First != new LayerMaterial.Layer("colour-a", "normal-a", NeutralTextures.Neutral)
+            || LayerMaterial.Layers(JsonSerializer.SerializeToElement(new { shader = @"N:\authored\FRPG_Phn_ColDifBmp.spx", blendMode = 0 })) != 0)
+            throw new Exception("Blended colour-and-normal surface classification differs");
         Reject(() => LayerMaterial.ViewFade(Plane(1, 60, 60)));
         Console.WriteLine("PASS: ground colour, normal, packed and environment roles bind by layer and semantic; unsupported mappings fail");
     }
