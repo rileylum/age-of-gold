@@ -23,6 +23,11 @@ try
         FirelinkReferenceCheck.Run(args[1], args[2]);
         return;
     }
+    if (args.SequenceEqual(new[] { "pixel-shader" }))
+    {
+        PixelShaderCheck.Run();
+        return;
+    }
     if (args.SequenceEqual(new[] { "map-scenery" }))
     {
         MapSceneryCheck.Run();

@@ -8,6 +8,33 @@ internal static class VertexShader
 
     internal static string AddSecondaryTangent(string module) => AddDirection(module, 2, true);
 
+    /// <summary>For each component of a vertex input, the output semantic and column that receives it unchanged, if any.</summary>
+    internal static (string Name, int Index, int Column)?[] Forwarded(string module, string name, int index)
+    {
+        var signatures = new ShaderSignatures(module);
+        var input = signatures.Find(false, name, index);
+        var lines = signatures.Lines;
+        var result = new (string, int, int)?[input.Columns];
+        var loads = new Dictionary<string, int>();
+        foreach (var line in lines)
+        {
+            var load = Regex.Match(line.Split(';')[0].Trim(), @"^(%[\w.$-]+) = call float @dx\.op\.loadInput\.f32\(i32 4, i32 " + input.Id + @", i32 0, i8 ([0-3]), i32 undef\)$");
+            if (load.Success) loads.Add(load.Groups[1].Value, load.Groups[2].Value[0] - '0');
+        }
+        var outputs = Enumerable.Range(0, 64).Select(id => { try { return signatures.Output(id); } catch (InvalidDataException) { return null; } })
+            .TakeWhile(m => m is not null).ToArray();
+        foreach (var line in lines)
+        {
+            var store = Regex.Match(line.Split(';')[0].Trim(), @"^call void @dx\.op\.storeOutput\.f32\(i32 5, i32 (\d+), i32 0, i8 ([0-3]), float (%[\w.$-]+)\)$");
+            if (!store.Success || !loads.TryGetValue(store.Groups[3].Value, out int component)) continue;
+            var output = outputs[int.Parse(store.Groups[1].Value)]!;
+            var target = (output.Name, output.Index, signatures.Column(output) + (store.Groups[2].Value[0] - '0'));
+            if (result[component] is { } previous && previous != target) throw new InvalidDataException("Vertex input is forwarded to several outputs");
+            result[component] = target;
+        }
+        return result;
+    }
+
     private static string AddDirection(string module, int index, bool packed)
     {
         var signatures = new ShaderSignatures(module);

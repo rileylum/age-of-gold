@@ -11,7 +11,7 @@ internal sealed class ShaderSignatures
     private readonly string[] tables;
     private int next;
 
-    internal ShaderSignatures(string module)
+    internal ShaderSignatures(string module, string stage = "vs")
     {
         // lazy: bounded SM6.0 graphics text; revisit when a supported family exceeds this size.
         if (module.Length > 4 * 1024 * 1024) throw new InvalidDataException("Shader module exceeds the signature adapter limit");
@@ -23,8 +23,8 @@ internal sealed class ShaderSignatures
                 throw new InvalidDataException("Duplicate shader metadata node");
         }
         var model = Read(Reference(One(Read("dx.shaderModel"))));
-        if (!model.SequenceEqual(new[] { "!\"vs\"", "i32 6", "i32 0" }))
-            throw new InvalidDataException("Expected a shader-model 6.0 vertex program");
+        if (stage is not ("vs" or "ps") || !model.SequenceEqual(new[] { "!\"" + stage + "\"", "i32 6", "i32 0" }))
+            throw new InvalidDataException("Expected a shader-model 6.0 " + (stage == "ps" ? "pixel" : "vertex") + " program");
         var entry = Read(Reference(One(Read("dx.entryPoints"))));
         if (entry.Length != 5 || !Regex.IsMatch(entry[0], @"^void \(\)\* @[\w.$-]+$"))
             throw new InvalidDataException("Unsupported vertex entry metadata");
@@ -55,6 +55,53 @@ internal sealed class ShaderSignatures
             || member.Row < 0 || member.Fields[9] != "i8 0")
             throw new InvalidDataException("Unsupported tangent signature encoding");
         return member;
+    }
+
+    internal Member Find(bool output, string name, int index)
+    {
+        var matches = Members(output).Where(m => m.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && m.Index == index).ToArray();
+        return matches.Length == 1 ? matches[0] : throw new InvalidDataException("Missing or ambiguous shader semantic " + name + index);
+    }
+
+    internal Member Output(int id) => Members(true).SingleOrDefault(m => m.Id == id) ?? throw new InvalidDataException("Missing shader output " + id);
+
+    internal int Column(Member member) => Integer(member.Fields[9], "i8");
+
+    /// <summary>Adds an input that receives another stage's output: same semantic, type, interpolation and register.</summary>
+    internal int Link(Member produced)
+    {
+        var members = Members(false);
+        if (members.Any(m => m.Name.Equals(produced.Name, StringComparison.OrdinalIgnoreCase) && m.Index == produced.Index))
+            throw new InvalidDataException("Linked shader input already exists");
+        int start = Integer(produced.Fields[9], "i8");
+        if (members.Any(m => m.Row == produced.Row && m.Fields[3] == "i8 0"
+                && Integer(m.Fields[9], "i8") < start + produced.Columns && start < Integer(m.Fields[9], "i8") + m.Columns))
+            throw new InvalidDataException("Linked shader input register is occupied");
+        int id = checked(members.Max(m => m.Id) + 1);
+        var fields = produced.Fields.ToArray();
+        fields[0] = "i32 " + id;
+        fields[4] = "!" + Add(["i32 " + produced.Index]);
+        fields[10] = "null";
+        string node = Add(fields);
+        Set(tables[0], [.. Read(tables[0]), "!" + node]);
+        return id;
+    }
+
+    /// <summary>Records which components of an input the program reads, in addition to those already recorded.</summary>
+    internal void Use(bool output, int id, int mask)
+    {
+        var member = Members(output).Single(m => m.Id == id);
+        int previous = 0;
+        if (member.Fields[10] != "null")
+        {
+            var properties = Read(Reference(member.Fields[10]));
+            // lazy: only the usage-mask property is understood; other signature properties need their own handling.
+            if (properties.Length != 2 || properties[0] != "i32 3") throw new InvalidDataException("Unsupported shader signature properties");
+            previous = Integer(properties[1], "i32");
+        }
+        var fields = member.Fields.ToArray();
+        fields[10] = "!" + Add(["i32 3", "i32 " + (previous | mask)]);
+        Set(member.Node, fields);
     }
 
     internal int Append(bool output, Member template, int index, int? componentType = null)
