@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AgeOfGold.Shaders;
 
 namespace AgeOfGold.Scene;
 
@@ -17,6 +18,8 @@ internal sealed record LayerMaterial(LayerMaterial.Layer First, LayerMaterial.La
             ("FRPG_Phn_ColDifSpcBmp", 0 or 1 or 2) => 1, ("FRPG_Phn_ColDifSpcBmpMul", 0) => 2,
             // The sky dome: colour only, drawn behind everything in the source.
             ("FRPG_Phn_ColDif", 32) => 1,
+            // Backdrop planes whose coverage fades with the view angle. lazy: only the cutout form; blended mist and additive shafts need a blended pass.
+            ("FRPG_NormalToAlpha", 1) => 1,
             // lazy: foliage and ivy are lit as plain surfaces; their wind sway needs the vertex stage and their extra coordinate sets.
             ("FRPG_Foliage_ColDifSpcBmp" or "FRPG_Ivy_ColDifSpcBmp", 0 or 1) => 1,
             _ => 0,
@@ -29,7 +32,19 @@ internal sealed record LayerMaterial(LayerMaterial.Layer First, LayerMaterial.La
 
     /// <summary>Whether a one-layer material has a colour texture only, with no normal or packed texture.</summary>
     internal static bool ColourOnly(JsonElement material) => Path.GetFileNameWithoutExtension(material.GetProperty("shader").GetString()!.Replace('\\', '/'))
-        is "FRPG_Phn_ColDif";
+        is "FRPG_Phn_ColDif" or "FRPG_NormalToAlpha";
+
+    /// <summary>The view fade of a backdrop plane, from the two angles between which its coverage rises; null for other materials.</summary>
+    internal static PixelShader.ViewFade? ViewFade(JsonElement material)
+    {
+        if (Path.GetFileNameWithoutExtension(material.GetProperty("shader").GetString()!.Replace('\\', '/')) != "FRPG_NormalToAlpha") return null;
+        var parameters = material.GetProperty("parameters");
+        // Angles are measured from the surface normal: no coverage at the minimum angle, full coverage from the maximum.
+        double none = Math.Cos(parameters.GetProperty("g_Normal2Alpha_MinAngle").GetSingle() * Math.PI / 180);
+        double full = Math.Cos(parameters.GetProperty("g_Normal2Alpha_MaxAngle").GetSingle() * Math.PI / 180);
+        if (!(full > none + 1e-6)) throw new InvalidDataException("Unsupported view fade angles");
+        return new((float)none, (float)(1 / (full - none)));
+    }
 
     /// <summary>Whether the surface's alpha removes pixels.</summary>
     // lazy: blended surfaces are cut out too, as in the accepted playtest, until forward blending is translated.

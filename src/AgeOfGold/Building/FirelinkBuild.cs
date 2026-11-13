@@ -75,11 +75,11 @@ internal static class FirelinkBuild
         // First pass: classify each model's surfaces and collect texture names; geometry is read again when its model is built.
         var renderer = SourceRendererSettings.Read(source);
         var environmentSettings = SourceEnvironmentSettings.Read(source, toolchain);
-        var models = new List<(string Name, Dictionary<int, (float R, float G, float B, bool Unlit)> Surfaces, string[] Textures)>();
+        var models = new List<(string Name, Dictionary<int, (float R, float G, float B, bool Unlit, float FadeOffset, float FadeScale)> Surfaces, string[] Textures)>();
         foreach (string name in reader.Models)
         {
             using var model = JsonDocument.Parse(reader.ReadModel(name));
-            var ground = new Dictionary<int, (float, float, float, bool)>(); var textures = new List<string>();
+            var ground = new Dictionary<int, (float, float, float, bool, float, float)>(); var textures = new List<string>();
             foreach (var surface in model.RootElement.GetProperty("surfaces").EnumerateArray())
             {
                 var material = surface.GetProperty("material");
@@ -87,13 +87,15 @@ internal static class FirelinkBuild
                 if (LayerMaterial.Layers(material) == 0) { unbuilt[definition] = unbuilt.GetValueOrDefault(definition) + 1; continue; }
                 var parameters = material.GetProperty("parameters");
                 // The source applies its environment light only to materials in the renderer's environment mode; type zero is unlit.
-                int lightingType = parameters.GetProperty("g_LightingType").GetInt32();
+                // Backdrop planes have no lighting type and are lit like the renderer's environment mode.
+                int lightingType = parameters.TryGetProperty("g_LightingType", out var declared) ? declared.GetInt32() : environmentSettings.LightingType;
+                var fade = LayerMaterial.ViewFade(material);
                 if (lightingType != 0 && lightingType != environmentSettings.LightingType)
                     throw new InvalidDataException("Opaque material uses an unclassified lighting type: " + name);
                 float power = parameters.GetProperty("g_DiffuseMapColorPower").GetSingle();
                 var tint = parameters.GetProperty("g_DiffuseMapColor").EnumerateArray().Select(v => MathF.Pow(v.GetSingle() * power, 2.2f)).ToArray();
                 if (tint.Length != 3) throw new InvalidDataException("Unsupported diffuse multiplier: " + name);
-                ground.Add(surface.GetProperty("index").GetInt32(), (tint[0], tint[1], tint[2], lightingType == 0));
+                ground.Add(surface.GetProperty("index").GetInt32(), (tint[0], tint[1], tint[2], lightingType == 0, fade?.Offset ?? 0, fade?.Scale ?? 0));
                 var layers = LayerMaterial.Read(material);
                 textures.AddRange(new[] { layers.First, layers.Second }.SelectMany(l => new[] { l.Colour, l.Normal, l.Packed }));
             }
@@ -148,9 +150,9 @@ internal static class FirelinkBuild
         // Lighting, air and the diffuse multiplier are compiled into the programs, so each combination has its own shader family and material.
         var airRows = SourceAirReader.Read(source);
         var keys = models.SelectMany(m => m.Surfaces.Values.Select(d => (Rows: rowOf[m.Name], Diffuse: d))).Distinct().Order().ToArray();
-        string Family((int Light, int Fog, int Scattering) rows, (float, float, float, bool) diffuse) =>
+        string Family((int Light, int Fog, int Scattering) rows, (float, float, float, bool, float, float) diffuse) =>
             $"{GroundFamily}_{rows.Light}_{rows.Fog}_{rows.Scattering}_{Array.IndexOf(keys.Where(k => k.Rows == rows).Select(k => k.Diffuse).ToArray(), diffuse)}";
-        var families = new SortedDictionary<string, (PixelShader.GroundLighting Lighting, SourceAir.Values? Air)>(StringComparer.Ordinal);
+        var families = new SortedDictionary<string, (PixelShader.GroundLighting Lighting, SourceAir.Values? Air, PixelShader.ViewFade? Fade)>(StringComparer.Ordinal);
         foreach (var (rows, diffuse) in keys)
         {
             var values = SourceLightingParameters.Values(lighting[rows.Light], renderer);
@@ -162,7 +164,8 @@ internal static class FirelinkBuild
             // An unlit surface shows its own colour: no environment light and a uniform unit hemisphere.
             float[] tint = [diffuse.Item1, diffuse.Item2, diffuse.Item3];
             families.Add(Family(rows, diffuse), (diffuse.Item4 ? new([0, 0, 0], [1, 1, 1], [1, 1, 1], tint)
-                : new(Rgb("gFC_EnvDifMapMulCol").Select(v => v * environmentSettings.Strength).ToArray(), Rgb("gFC_HemAmbCol_u"), Rgb("gFC_HemAmbCol_d"), tint), air));
+                : new(Rgb("gFC_EnvDifMapMulCol").Select(v => v * environmentSettings.Strength).ToArray(), Rgb("gFC_HemAmbCol_u"), Rgb("gFC_HemAmbCol_d"), tint), air,
+                diffuse.Item6 == 0 ? null : new PixelShader.ViewFade(diffuse.Item5, diffuse.Item6)));
         }
         var environments = models.ToDictionary(m => m.Name, m =>
         {
@@ -270,29 +273,30 @@ internal static class FirelinkBuild
             outputRow = family.Files.Where(f => Regex.IsMatch(f.Name, @"_Gbuf[^\\/]*\.vpo$"))
                 .Max(f => VertexShader.FreeOutputRow(compiler.Disassemble(family.ReadFile(f))));
         // With air, the vertex stage also forwards the vector to the camera and the view depth.
-        string Forward(string module, SourceAir.Values? air)
+        string Forward(string module, bool view)
         {
             string frames = VertexShader.AddLayerFrames(module, outputRow);
-            return air is null ? frames : VertexShader.AddView(frames, outputRow + 3);
+            return view ? VertexShader.AddView(frames, outputRow + 3) : frames;
         }
         var plain = compiler.Disassemble(ShaderArchive.Read(shaders, HostFamily + ".shaderbdle", HostFamily + "_Gbuf.vpo"));
         files.Add("mod/shader/shaderbdle.shaderbdlebnd.dcx", ShaderArchive.AddFamilies(shaders, HostFamily,
             families.Concat(cutouts.Select(name => KeyValuePair.Create(name, families[name[..^"_cutout".Length]])))
                 .OrderBy(family => family.Key, StringComparer.Ordinal).Select(family => (family.Key, (Func<string, byte[], byte[]>)((suffix, bytes) =>
             {
-                var (light, air) = family.Value;
+                var (light, air, fade) = family.Value;
+                bool cut = cutouts.Contains(family.Key), view = air is not null || fade is not null && cut;
                 if (suffix == ".metaparam") return emitting;
                 if (Regex.IsMatch(suffix, @"^_Gbuf.*\.vpo$"))
                 {
-                    string stageKey = suffix + "|" + (air is null ? "plain" : "view");
+                    string stageKey = suffix + "|" + (view ? "view" : "plain");
                     if (!vertexStages.TryGetValue(stageKey, out var stage))
-                        vertexStages.Add(stageKey, stage = compiler.Assemble(Forward(compiler.Disassemble(bytes), air), bytes));
+                        vertexStages.Add(stageKey, stage = compiler.Assemble(Forward(compiler.Disassemble(bytes), view), bytes));
                     return stage;
                 }
                 if (suffix is "_Gbuf.ppo" or "_Gbuf_[A].ppo")
                     // lazy: the source's half-coverage threshold, as in the accepted playtest; no material here overrides it.
-                    return compiler.Assemble(PixelShader.ComposeLayeredGround(compiler.Disassemble(bytes), Forward(plain, air), slots, HostTargets, light,
-                        cutouts.Contains(family.Key) ? 128 / 255f : null, air), bytes);
+                    return compiler.Assemble(PixelShader.ComposeLayeredGround(compiler.Disassemble(bytes), Forward(plain, view), slots, HostTargets, light,
+                        cut ? 128 / 255f : null, air, cut ? fade : null), bytes);
                 return bytes;
             }))).ToArray()));
 
@@ -309,7 +313,7 @@ internal static class FirelinkBuild
             inputs = new { source = source.Fingerprints, host = host.Fingerprints },
             scenery = new { models = scenery.Models, placements = scenery.Placements },
             textures = names,
-            groundFamilies = families.ToDictionary(f => f.Key, f => new { lighting = f.Value.Lighting, air = f.Value.Air }),
+            groundFamilies = families.ToDictionary(f => f.Key, f => new { lighting = f.Value.Lighting, air = f.Value.Air, fade = f.Value.Fade }),
             cutoutFamilies = cutouts,
             arrival = new { collision = terrain.Arrival, selection = arrival, focus = arrivalFocus, tone = arrivalTone, exposure = arrivalTone.BrightExposure, correction = arrivalCorrection },
             unbuiltSurfaces = unbuilt,

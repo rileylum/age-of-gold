@@ -67,6 +67,16 @@ internal static class LayerMaterialCheck
         if (flat.GetDXGIFormat() != DDS.DXGI_FORMAT.BC5_UNORM || neutral.GetDXGIFormat() != DDS.DXGI_FORMAT.BC1_UNORM || flat.dwWidth != 4 || neutral.dwHeight != 4
             || !NeutralTextures.Bytes(NeutralTextures.FlatNormal).AsSpan(flat.DataOffset).SequenceEqual(new byte[] { 128, 128, 0, 0, 0, 0, 0, 0, 128, 128, 0, 0, 0, 0, 0, 0 }))
             throw new Exception("Authored neutral textures are not one flat block");
+        // A backdrop plane: colour only, cut out, and fading as the view grazes it between the material's two angles.
+        JsonElement Plane(int blend, float minimum = 90, float maximum = 60) => JsonSerializer.SerializeToElement(new { definition = "authored",
+            shader = @"N:\authored\FRPG_NormalToAlpha.spx", blendMode = blend, parameters = new { g_Normal2Alpha_MinAngle = minimum, g_Normal2Alpha_MaxAngle = maximum },
+            textures = new[] { new { input = "g_Diffuse", texture = "colour-a", scale = new[] { 1f, 1f } } }, coordinates = new[] { new { input = "g_Diffuse", channel = 0 } } });
+        var backdrop = LayerMaterial.ViewFade(Plane(1))!;
+        if (LayerMaterial.Read(Plane(1)).First != new LayerMaterial.Layer("colour-a", NeutralTextures.FlatNormal, NeutralTextures.Neutral) || !LayerMaterial.Cutout(Plane(1))
+            || MathF.Abs(backdrop.Offset) > 1e-6f || MathF.Abs(backdrop.Scale - 2) > 1e-5f || LayerMaterial.ViewFade(sky) is not null
+            || LayerMaterial.Layers(Plane(2)) != 0 || LayerMaterial.Layers(Plane(4)) != 0)
+            throw new Exception("Backdrop plane classification or its view fade differs");
+        Reject(() => LayerMaterial.ViewFade(Plane(1, 60, 60)));
         Console.WriteLine("PASS: ground colour, normal, packed and environment roles bind by layer and semantic; unsupported mappings fail");
     }
 
