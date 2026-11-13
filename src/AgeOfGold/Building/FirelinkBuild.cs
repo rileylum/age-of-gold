@@ -303,8 +303,9 @@ internal static class FirelinkBuild
         }
         var plain = compiler.Disassemble(ShaderArchive.Read(shaders, HostFamily + ".shaderbdle", HostFamily + "_Gbuf.vpo"));
         files.Add("mod/shader/shaderbdle.shaderbdlebnd.dcx", ShaderArchive.AddFamilies(shaders, HostFamily,
-            families.Concat(cutouts.Select(name => KeyValuePair.Create(name, families[name[..^"_cutout".Length]])))
-                .OrderBy(family => family.Key, StringComparer.Ordinal).Select(family => (family.Key, (Func<string, byte[], byte[]>)((suffix, bytes) =>
+            // Only families a built surface uses are written; a material may exist only as a cutout.
+            groundDefinitions.Keys.Select(name => KeyValuePair.Create(name, families[cutouts.Contains(name) ? name[..^"_cutout".Length] : name]))
+                .Select(family => (family.Key, (Func<string, byte[], byte[]>)((suffix, bytes) =>
             {
                 var (light, air, fade) = family.Value;
                 bool cut = cutouts.Contains(family.Key), view = air is not null || fade is not null && cut;
@@ -348,8 +349,11 @@ internal static class FirelinkBuild
             inputs = new { source = source.Fingerprints, host = host.Fingerprints },
             scenery = new { models = scenery.Models, placements = scenery.Placements },
             textures = names,
-            groundFamilies = families.ToDictionary(f => f.Key, f => new { lighting = f.Value.Lighting, air = f.Value.Air, fade = f.Value.Fade }),
-            cutoutFamilies = cutouts,
+            groundFamilies = groundDefinitions.Keys.ToDictionary(name => name, name =>
+            {
+                var family = families[cutouts.Contains(name) ? name[..^"_cutout".Length] : name];
+                return new { lighting = family.Lighting, air = family.Air, fade = family.Fade, cutout = cutouts.Contains(name) };
+            }),
             restingPoint = new { entity = restingEntity, flag = restingFlag, position = new[] { resting.Position.X, resting.Position.Y, resting.Position.Z } },
             arrival = new { collision = terrain.Arrival, selection = arrival, focus = arrivalFocus, tone = arrivalTone, exposure = arrivalTone.BrightExposure, correction = arrivalCorrection },
             unbuiltSurfaces = unbuilt,

@@ -100,7 +100,6 @@ internal static class FirelinkBuildInstallCheck
         }
         if (surfaces != 311 || cutouts != 87) throw new Exception("Built opaque and cutout surface inventory differs");
         var lit = manifest.RootElement.GetProperty("groundFamilies").EnumerateObject().Select(f => f.Name).Order(StringComparer.Ordinal).ToArray();
-        lit = lit.Concat(manifest.RootElement.GetProperty("cutoutFamilies").EnumerateArray().Select(f => f.GetString()!)).Order(StringComparer.Ordinal).ToArray();
         if (!lit.SequenceEqual(families.Order(StringComparer.Ordinal))) throw new Exception("Built models do not use exactly the recorded lit ground families");
         foreach (string family in families)
         {
