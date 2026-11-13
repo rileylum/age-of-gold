@@ -41,8 +41,10 @@ internal static class FirelinkMapWriter
             collision.Position = Vector3.Zero; collision.Rotation = Vector3.Zero; collision.Scale = Vector3.One;
             collision.EntityID = 0; Array.Fill(collision.EntityGroupIDs, 0u);
             collision.GameEditionDisable = MSBE.Part.GameEditionDisableType.NeverDisable;
+            // lazy: always visible, as in the accepted playtest. Carrying the source's display groups hid the player in play;
+            // they need a mapping onto the host's group bits first.
             collision.Unk1.DisplayGroups = new uint[8];
-            placements[i].DisplayGroups.CopyTo(collision.Unk1.DisplayGroups, 0);
+            Array.Fill(collision.Unk1.DisplayGroups, uint.MaxValue);
             Array.Fill(collision.Unk1.DrawGroups, uint.MaxValue);
             Array.Fill(collision.Unk1.CollisionMask, uint.MaxValue);
             var model = (MSBE.Model.Collision)templateModel.DeepCopy();

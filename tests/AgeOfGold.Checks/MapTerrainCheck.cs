@@ -34,7 +34,7 @@ internal static class MapTerrainCheck
             throw new Exception("Terrain placement, spawn or special-role accounting differs");
         var collision = check.Parts.Collisions.Single(p => p.ModelName == "h800000");
         if (collision.Position != Vector3.Zero || collision.Rotation != Vector3.Zero || collision.Scale != Vector3.One
-            || !collision.Unk1.DisplayGroups.SequenceEqual(new uint[] { 1,4,16,64,0,0,0,0 })
+            || collision.Unk1.DisplayGroups.Any(v => v != uint.MaxValue)
             || collision.Unk1.DrawGroups.Any(v => v != uint.MaxValue) || collision.Unk1.CollisionMask.Any(v => v != uint.MaxValue)
             || collision.EntityID != 0 || collision.EntityGroupIDs.Any(v => v != 0)
             || collision.HitFilterID != MSBE.Part.Collision.HitFilterType.Standard)
@@ -50,7 +50,7 @@ internal static class MapTerrainCheck
         check.Parts.Collisions.Remove(collision);
         check.Models.Collisions.RemoveAll(m => m.Name == "h800000");
         if (!before.SequenceEqual(check.Write())) throw new Exception("Unrelated map fields changed");
-        Console.WriteLine("PASS: terrain map supports source spawn, retains visibility and host fields, reports excluded roles and rejects occupied identities");
+        Console.WriteLine("PASS: terrain map supports source spawn, keeps terrain always visible, retains host fields, reports excluded roles and rejects occupied identities");
     }
 
     private static void Reject(Action action, string reason)

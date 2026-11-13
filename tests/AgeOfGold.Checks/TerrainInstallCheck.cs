@@ -41,9 +41,8 @@ internal static class TerrainInstallCheck
         {
             var original = sourceMap.Parts.Collisions.Single(p => p.Name == placements[i].Name);
             var added = mapCheck.Parts.Collisions.Single(p => p.ModelName == $"h{800000 + i:D6}");
-            if (!placements[i].DisplayGroups.SequenceEqual(original.DispGroups)
-                || !added.Unk1.DisplayGroups.SequenceEqual(original.DispGroups.Concat(new uint[4])))
-                throw new Exception("Source collision visibility groups changed during map translation");
+            if (!placements[i].DisplayGroups.SequenceEqual(original.DispGroups) || added.Unk1.DisplayGroups.Any(v => v != uint.MaxValue))
+                throw new Exception("Source collision visibility was misread or terrain is not always visible");
             mapCheck.Parts.Collisions.Remove(added);
             mapCheck.Models.Collisions.RemoveAll(m => m.Name == added.ModelName);
         }
