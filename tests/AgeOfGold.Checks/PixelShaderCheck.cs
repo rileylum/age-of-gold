@@ -225,6 +225,26 @@ internal static class PixelShaderCheck
             Near(actual, 4, new(expected), "fogged and scattered light");
             if (actual.Where(p => p.Key.Item1 != 4 || p.Key.Item2 == 3).Any(p => clear[p.Key] != p.Value)) throw new Exception("Source air changed other targets");
         }
+        // A view-faded cutout (a backdrop plane) loses coverage as the view grazes its surface.
+        var fade = new PixelShader.ViewFade(0.1f, 4f);
+        var planes = compiler.Disassemble(compiler.Assemble(PixelShader.ComposeLayeredGround(module, viewed, Slots, Targets, Lighting, 0.5f, null, fade), original));
+        int shown = 0, hidden = 0;
+        foreach (var toCamera in new[] { new Vector3(0.3f, 0.9f, -0.2f) * 7, new Vector3(1, 0.2f, 2), new Vector3(2, -0.4f, 0.5f) })
+        {
+            var inputs = new Dictionary<(string, int), float[]>
+            {
+                [("NORMAL", 0)] = [0.3f, 0.9f, -0.2f, 0], [("TANGENT", 0)] = [0.8f, -0.1f, 0.5f, 1], [("TEXCOORD", 0)] = [0.9f, 0.8f, 0.7f, 1f],
+                [("TEXCOORD", 4)] = [0.37f], [("TEXCOORD", 5)] = [1.21f], [("TEXCOORD", 7)] = [-0.6f, 0.45f, 0, 0.25f],
+                [("TANGENT", 4)] = [0.1f, 0.3f, 0.9f, 0], [("TANGENT", 6)] = [-0.7f, 0.2f, 0.6f, 0], [("TANGENT", 8)] = [toCamera.X, toCamera.Y, toCamera.Z, 5],
+            };
+            Evaluate(planes, inputs, true, cube: true, out bool discarded);
+            float facing = MathF.Abs(Vector3.Dot(Vector3.Normalize(toCamera), Vector3.Normalize(new(0.3f, 0.9f, -0.2f))));
+            float coverage = Coverage(4, default) * Math.Clamp((facing - fade.Offset) * fade.Scale, 0, 1);
+            if (discarded != (coverage < 0.5f)) throw new Exception("View-faded coverage differs");
+            if (discarded) hidden++; else shown++;
+        }
+        if (shown == 0 || hidden == 0) throw new Exception("View fade fixture does not exercise both outcomes");
+        Reject(() => PixelShader.ComposeLayeredGround(module, viewed, Slots, Targets, Lighting, null, null, fade), "cutout");
         Reject(() => PixelShader.ComposeLayeredGround(module, vertex, Slots, Targets, Lighting, null, air), "semantic");
         Reject(() => PixelShader.ComposeLayeredGround(composed, vertex, Slots, Targets, Lighting), "already");
         Reject(() => PixelShader.ComposeLayeredGround(module, compiler.Disassemble(compiler.Compile(Vertex, "Main", "vs_6_0")), Slots, Targets, Lighting), "semantic");

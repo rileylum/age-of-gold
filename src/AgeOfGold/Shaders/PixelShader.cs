@@ -16,6 +16,9 @@ internal static class PixelShader
     /// <summary>Linear RGB factors: environment gain, upper and lower hemisphere light, and the material's diffuse multiplier.</summary>
     internal sealed record GroundLighting(float[] Environment, float[] Upper, float[] Lower, float[] Diffuse);
 
+    /// <summary>Coverage falls with the angle between the view and the surface: saturate((|cos| − Offset) × Scale).</summary>
+    internal sealed record ViewFade(float Offset, float Scale);
+
     private const string Name = @"%[\w.$-]+";
     private sealed record Instruction(int Line, string Text, string[] Operands);
 
@@ -26,8 +29,9 @@ internal static class PixelShader
     /// <param name="cutout">When set, pixels whose blended colour alpha is below this reference are discarded.</param>
     /// <param name="air">When set, the source's fog and light scattering are applied to the emitted light; the vertex stage must forward the view.</param>
     internal static string ComposeLayeredGround(string module, string vertex, LayerSlots slots, Targets targets, GroundLighting lighting,
-        float? cutout = null, SourceAir.Values? air = null)
+        float? cutout = null, SourceAir.Values? air = null, ViewFade? fade = null)
     {
+        if (fade is not null && cutout is null) throw new InvalidDataException("A view fade needs a cutout reference to act on");
         if (cutout is { } reference && !(reference > 0 && reference <= 1)) throw new InvalidDataException("Cutout reference must be within (0, 1]");
         foreach (var factor in new[] { lighting.Environment, lighting.Upper, lighting.Lower, lighting.Diffuse })
             if (factor.Length != 3 || !factor.All(float.IsFinite)) throw new InvalidDataException("Ground lighting factors must be three finite values");
@@ -66,7 +70,7 @@ internal static class PixelShader
             bitangents[layer] = "xyz".Select((axis, i) => Load("TANGENT", 4 + 2 * layer, i, $"b{layer}{axis}")).ToArray();
         }
         string[] view = [];
-        if (air is not null)
+        if (air is not null || fade is not null)
         {
             signatures.Link(produced.Find(true, "TANGENT", 8));
             view = "xyzw".Select((axis, i) => Load("TANGENT", 8, i, "view" + axis)).ToArray();
@@ -320,6 +324,15 @@ internal static class PixelShader
             string lower = Emit("cover0", $"extractvalue %dx.types.ResRet.f32 {samples[slots.Colour[0]].Result}, 3");
             string upper = Emit("cover1", $"extractvalue %dx.types.ResRet.f32 {samples[slots.Colour[1]].Result}, 3");
             string coverage = Mad("coverage", Emit("coverdelta", $"fsub fast float {upper}, {lower}"), alpha, lower);
+            if (fade is not null)
+            {
+                // The host's surface normal is unit length; the view vector is not.
+                string facing = Emit("fadefacing", "fdiv fast float " + Unary("fadeabs", 6, Emit("fadedot",
+                    $"call float @dx.op.dot3.f32(i32 55, float {view[0]}, float {view[1]}, float {view[2]}, float {surfaceNormal[0]}, float {surfaceNormal[1]}, float {surfaceNormal[2]})"))
+                    + ", " + Unary("fadedistance", 24, Dot3("fadesquare", view[..3])));
+                coverage = Emit("fadedcoverage", $"fmul fast float {coverage}, " + Unary("fade", 7, Emit("fadescaled", "fmul fast float "
+                    + Emit("fadeoffset", $"fsub fast float {facing}, {Float(fade.Offset)}") + ", " + Float(fade.Scale))));
+            }
             body.Add($"  call void @dx.op.discard(i32 82, i1 {Emit("uncovered", $"fcmp fast olt float {coverage}, {Float(threshold)}")})");
         }
         Insert(litLine, body);
