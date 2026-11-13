@@ -45,7 +45,7 @@ internal static class FirelinkBuildInstallCheck
             || layout.Parts.Enemies.Any(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable))
             throw new Exception("Built map retains host placements or lacks source terrain and scenery");
         var materials = BND4.Read(Path.Combine(mod, "material/allmaterial.matbinbnd.dcx")).Files
-            .ToLookup(f => Path.GetFileNameWithoutExtension(f.Name.Replace('\\', '/')), f => f.Bytes, StringComparer.OrdinalIgnoreCase);
+            .ToLookup(f => string.Join('/', f.Name.Replace('\\', '/').Split('/')[^3..]).ToLowerInvariant(), f => f.Bytes);
         var shaders = File.ReadAllBytes(Path.Combine(mod, "shader/shaderbdle.shaderbdlebnd.dcx"));
         int surfaces = 0; var families = new HashSet<string>(StringComparer.Ordinal);
         foreach (var model in pieces.Select(p => p.ModelName).Distinct())
@@ -55,7 +55,11 @@ internal static class FirelinkBuildInstallCheck
             foreach (var mesh in flver.Meshes)
             {
                 var material = flver.Materials[mesh.MaterialIndex];
-                var definition = MATBIN.Read(materials[Path.GetFileNameWithoutExtension(material.MTD.Replace('\\', '/'))].Single());
+                // The host resolves "<set>/<name>.mtd" to the definition stored as "<set>/matxml/<name>.matbin".
+                var mtd = material.MTD.Replace('\\', '/').Split('/');
+                var matches = materials[$"{mtd[^2]}/matxml/{Path.GetFileNameWithoutExtension(mtd[^1])}.matbin".ToLowerInvariant()].ToArray();
+                if (matches.Length != 1) throw new Exception("Built model material does not resolve to one definition: " + material.MTD);
+                var definition = MATBIN.Read(matches[0]);
                 string family = Path.GetFileNameWithoutExtension(definition.ShaderPath.Replace('\\', '/'));
                 families.Add(family);
                 using var bundle = new BND4Reader(ShaderArchive.ReadFamily(shaders, family + ".shaderbdle"));

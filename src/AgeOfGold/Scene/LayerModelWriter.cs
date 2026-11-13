@@ -44,8 +44,12 @@ internal static class LayerModelWriter
                 var definition = MATBIN.Read(binding.Definition);
                 var name = Path.GetFileNameWithoutExtension(definition.SourcePath.Replace('\\', '/'));
                 if (string.IsNullOrWhiteSpace(name)) throw new InvalidDataException("Bound material lacks an identity");
-                int start = material.MTD.LastIndexOfAny(['/', '\\']) + 1;
-                var path = material.MTD[..start] + name + Path.GetExtension(material.MTD[start..]);
+                // The host finds the definition from this path: its directory without the definition folder, as a material name.
+                int start = definition.SourcePath.LastIndexOfAny(['/', '\\']) + 1;
+                string directory = definition.SourcePath[..start];
+                foreach (string folder in new[] { "matxml\\", "matxml/" })
+                    if (directory.EndsWith(folder, StringComparison.OrdinalIgnoreCase)) directory = directory[..^folder.Length];
+                var path = directory + name + ".mtd";
                 return new FLVER2.Material { Name = name + "_" + i, MTD = path, GXIndex = 0, Index = i, Textures = binding.Textures.ToList() };
             }).ToList();
         foreach (var surface in surfaces)

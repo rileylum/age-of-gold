@@ -9,7 +9,7 @@ internal static class LayerModelCheck
         var template = new FLVER2 { Skeletons = new() }; template.Header.Version = 0x2001a;
         template.Nodes.Add(new() { Name = "authored", Scale = Vector3.One });
         template.GXLists.Add(new());
-        template.Materials.Add(new() { Name = "authored-layer", MTD = "authored.mtd", GXIndex = 0, Index = 0 });
+        template.Materials.Add(new() { Name = "authored-layer", MTD = @"N:\exemplar\place.mtd", GXIndex = 0, Index = 0 });
         template.BufferLayouts.Add([
             new(FLVER.LayoutType.Float3, FLVER.LayoutSemantic.Position),
             new(FLVER.LayoutType.UByte4Norm, FLVER.LayoutSemantic.Normal),
@@ -42,7 +42,9 @@ internal static class LayerModelCheck
         Check(bound, [surface, surface]);
         if (bound.Materials.Count != 2 || bound.Meshes[0].MaterialIndex != 0 || bound.Meshes[1].MaterialIndex != 1
             || bound.Materials[0].Textures[0].Path != "AUTHORED_first.tif" || bound.Materials[1].Textures[0].Path != "AUTHORED_second.tif"
-            || bound.Materials.Any(m => m.MTD != "authored.mtd" || m.GXIndex != 0)) throw new Exception("Layered surface bindings were lost or shared");
+            || bound.Materials.Any(m => m.GXIndex != 0)) throw new Exception("Layered surface bindings were lost or shared");
+        // The host resolves a model's material by the definition's own location, not the exemplar's.
+        if (bound.Materials.Any(m => m.MTD != "authored.mtd")) throw new Exception("Bound material path does not follow its definition");
         Console.WriteLine("PASS: layered host format preserves full secondary coordinates, four frame vectors, float colour and bounds");
     }
 

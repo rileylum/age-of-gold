@@ -7,4 +7,13 @@
     <RestoreLockedMode Condition="Exists('$(MSBuildProjectDirectory)/packages.lock.json')">true</RestoreLockedMode>
     <PathMap>$(MSBuildThisFileDirectory)=/_source/</PathMap>
   </PropertyGroup>
+  <!-- The host shader archive is several hundred megabytes; an eager collector keeps the build within ordinary memory. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'AgeOfGold' Or '$(MSBuildProjectName)' == 'AgeOfGold.Checks'">
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'AgeOfGold' Or '$(MSBuildProjectName)' == 'AgeOfGold.Checks'">
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="9" />
+    <RuntimeHostConfigurationOption Include="System.GC.HeapHardLimit" Value="5368709120" />
+  </ItemGroup>
 </Project>

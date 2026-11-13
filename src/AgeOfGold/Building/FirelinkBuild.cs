@@ -28,7 +28,32 @@ internal static class FirelinkBuild
             throw new IOException("Output must be separate from both installs");
         Oodle.SearchPaths.Add(host.Root);
         var archive = new HostArchive(host);
-        var files = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
+        var parent = Path.GetDirectoryName(output)!;
+        Directory.CreateDirectory(parent);
+        string staging = Path.Combine(parent, ".aog-building-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Stage(source, host, archive, compiler, new Output(staging));
+            Directory.Move(staging, output);
+        }
+        finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
+    }
+
+    // Written files are released at once; only their fingerprints stay in memory.
+    private sealed class Output(string root)
+    {
+        internal readonly SortedDictionary<string, (int Size, string Hash)> Files = new(StringComparer.Ordinal);
+        internal void Add(string relative, byte[] bytes)
+        {
+            Files.Add(relative, (bytes.Length, Convert.ToHexString(SHA256.HashData(bytes))));
+            var path = Path.Combine(root, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, bytes);
+        }
+    }
+
+    private static void Stage(Install source, Install host, HostArchive archive, ShaderCompiler compiler, Output files)
+    {
         var unbuilt = new SortedDictionary<string, int>(StringComparer.Ordinal);
         // A new identity must never shadow an installed host file.
         void Add(string path, byte[] bytes)
@@ -37,23 +62,28 @@ internal static class FirelinkBuild
             files.Add("mod/" + path, bytes);
         }
 
-        using var scene = JsonDocument.Parse(SceneReader.Read(source));
+        var reader = new SceneReader(source);
         var collision = SourceCollisionReader.ReadScene(source);
         var lighting = SourceLightingReader.Read(source).Scenery.ToDictionary(r => r.Id);
-        var placements = scene.RootElement.GetProperty("placements").EnumerateArray().ToArray();
+        using var placementDocument = JsonDocument.Parse(reader.ReadPlacements());
+        var placements = placementDocument.RootElement.EnumerateArray().ToArray();
 
         // lazy: only the two-layer ground family is built; every other surface is counted in the manifest until its family lands.
-        var models = new List<(string Name, JsonElement[] Surfaces)>();
-        foreach (var model in scene.RootElement.GetProperty("models").EnumerateArray())
+        // First pass: classify each model's surfaces and collect texture names; geometry is read again when its model is built.
+        var models = new List<(string Name, int[] Surfaces, string[] Textures)>();
+        foreach (string name in reader.Models)
         {
-            var ground = new List<JsonElement>();
-            foreach (var surface in model.GetProperty("surfaces").EnumerateArray())
+            using var model = JsonDocument.Parse(reader.ReadModel(name));
+            var ground = new List<int>(); var textures = new List<string>();
+            foreach (var surface in model.RootElement.GetProperty("surfaces").EnumerateArray())
             {
-                string definition = surface.GetProperty("material").GetProperty("definition").GetString()!;
-                if (definition == "M[DB][M]") ground.Add(surface);
-                else unbuilt[definition] = unbuilt.GetValueOrDefault(definition) + 1;
+                var material = surface.GetProperty("material");
+                string definition = material.GetProperty("definition").GetString()!;
+                if (definition != "M[DB][M]") { unbuilt[definition] = unbuilt.GetValueOrDefault(definition) + 1; continue; }
+                ground.Add(surface.GetProperty("index").GetInt32());
+                textures.AddRange(material.GetProperty("textures").EnumerateArray().Select(t => t.GetProperty("texture").GetString()!).Where(n => n != ""));
             }
-            if (ground.Count != 0) models.Add((model.GetProperty("name").GetString()!, ground.ToArray()));
+            if (ground.Count != 0) models.Add((name, ground.ToArray(), textures.ToArray()));
         }
 
         var layout = MSBE.Read(archive.Read($"map/mapstudio/{Map}.msb.dcx"));
@@ -81,8 +111,7 @@ internal static class FirelinkBuild
             if (textures.Length != 1) throw new InvalidDataException("Lighting row lacks one diffuse environment texture");
             return $"EnvDif_m10_{textures[0]:D3}";
         }, StringComparer.Ordinal);
-        var required = models.SelectMany(m => m.Surfaces).SelectMany(s => s.GetProperty("material").GetProperty("textures").EnumerateArray())
-            .Select(t => t.GetProperty("texture").GetString()!).Where(n => n != "").Concat(environments.Values)
+        var required = models.SelectMany(m => m.Textures).Concat(environments.Values)
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         var environmentBinder = BND4.Read(archive.Read($"map/m10/{Map}/{Map}_envmap_00_high_00.tpfbnd.dcx"));
         var textureTemplate = environmentBinder.Files.Select(f => DCX.Is(f.Bytes) ? DCX.Decompress(f.Bytes) : f.Bytes)
@@ -123,8 +152,11 @@ internal static class FirelinkBuild
         byte[]? groundDefinition = null, groundMetadata = null;
         foreach (var model in models)
         {
-            var surfaces = model.Surfaces.Select(s => LayerGeometry.Pack(LayerGeometry.Read(s))).ToArray();
-            var bindings = model.Surfaces.Select(s =>
+            using var document = JsonDocument.Parse(reader.ReadModel(model.Name));
+            var selected = document.RootElement.GetProperty("surfaces").EnumerateArray()
+                .Where(s => model.Surfaces.Contains(s.GetProperty("index").GetInt32())).ToArray();
+            var surfaces = selected.Select(s => LayerGeometry.Pack(LayerGeometry.Read(s))).ToArray();
+            var bindings = selected.Select(s =>
             {
                 var bound = MaterialWriter.BindLayers(hostDefinition.Bytes, metadata, donorDefinition, donorMetadata,
                     LayerMaterial.Read(s.GetProperty("material")), names, names[environments[model.Name]]);
@@ -153,6 +185,7 @@ internal static class FirelinkBuild
         definitions.Files.Add(new BinderFile(hostDefinition.Flags, definitions.Files.Max(f => f.ID) + 1, definitionName, groundDefinition));
         files.Add("mod/material/allmaterial.matbinbnd.dcx", definitions.Write());
 
+        definitions = null!;
         files.Add("mod/shader/shaderbdle.shaderbdlebnd.dcx", ShaderArchive.AddFamily(shaders, HostFamily, GroundFamily, (suffix, bytes) =>
         {
             if (suffix == ".metaparam") return groundMetadata;
@@ -175,25 +208,10 @@ internal static class FirelinkBuild
             scenery = new { models = scenery.Models, placements = scenery.Placements },
             unbuiltSurfaces = unbuilt,
             excludedCollision = terrain.Excluded.Select(p => new { p.Name, p.Role, p.Disabled }),
-            files = files.Select(f => new { path = f.Key, size = f.Value.Length, sha256 = Convert.ToHexString(SHA256.HashData(f.Value)) }),
+            files = files.Files.Select(f => new { path = f.Key, size = f.Value.Size, sha256 = f.Value.Hash }).ToArray(),
         };
         files.Add("manifest.json", System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }) + "\n"));
-
-        var parent = Path.GetDirectoryName(output)!;
-        Directory.CreateDirectory(parent);
-        string staging = Path.Combine(parent, ".aog-building-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            foreach (var (relative, bytes) in files)
-            {
-                var path = Path.Combine(staging, relative);
-                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                File.WriteAllBytes(path, bytes);
-            }
-            Directory.Move(staging, output);
-        }
-        finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
-        Console.WriteLine($"Built {files.Count} files. {unbuilt.Values.Sum()} source surfaces in {unbuilt.Count} material families are not built yet.");
+        Console.WriteLine($"Built {files.Files.Count} files. {unbuilt.Values.Sum()} source surfaces in {unbuilt.Count} material families are not built yet.");
     }
 
     private static string Rename(string path) => path.Contains(HostFamily, StringComparison.Ordinal)
