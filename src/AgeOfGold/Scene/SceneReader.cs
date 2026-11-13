@@ -48,7 +48,9 @@ internal sealed class SceneReader
                 drawGroups = p.DrawGroups,
             }).ToArray();
 
-    // The patch binder overrides the base one; two different entries for one name inside a binder are ambiguous.
+    // The patch binder overrides the base one. Within a binder a name can appear twice with different contents (the remaster
+    // added definitions beside older ones of the same name); the first entry is used.
+    // lazy: first-entry-wins is inferred from how resource registries usually treat a repeated name, not observed in the source game.
     private MTD Definition(string name)
     {
         if (definitions.TryGetValue(name, out var known)) return known;
@@ -56,8 +58,6 @@ internal sealed class SceneReader
         foreach (var (path, files) in definitionBinders)
         {
             var entries = files[name].ToArray();
-            if (entries.Skip(1).Any(e => !e.AsSpan().SequenceEqual(entries[0])))
-                throw new InvalidDataException($"Conflicting material definitions in {path}: {name}");
             if (entries.Length != 0) chosen = entries[0];
         }
         if (chosen is null) throw new InvalidDataException($"Missing material definition: {name}");
@@ -133,7 +133,9 @@ internal sealed class SceneReader
             var blend = definition.Params.Single(p => p.Name == "g_BlendMode");
             if (blend.Value is not int mode || mode is not (0 or 1 or 2 or 3 or 4 or 32))
                 throw new InvalidDataException($"Unclassified material blend mode: {material.MTD}");
-            if (mesh.FaceSets.Any(f => f.Flags is not (FLVER2.FaceSet.FSFlags.None or FLVER2.FaceSet.FSFlags.LodLevel1 or FLVER2.FaceSet.FSFlags.LodLevel2)))
+            // Besides the full-detail set a mesh may carry lower-detail sets and, on characters, copies drawn for motion blur.
+            const FLVER2.FaceSet.FSFlags known = FLVER2.FaceSet.FSFlags.LodLevel1 | FLVER2.FaceSet.FSFlags.LodLevel2 | FLVER2.FaceSet.FSFlags.MotionBlur;
+            if (mesh.FaceSets.Any(f => (f.Flags & ~known) != 0))
                 throw new InvalidDataException($"Unclassified face-set role in {name}/{index}");
             var faces = mesh.FaceSets.Single(f => f.Flags == FLVER2.FaceSet.FSFlags.None);
             var indices = faces.Triangulate(mesh.Vertices.Count < 65536);
@@ -146,8 +148,16 @@ internal sealed class SceneReader
                 // Scenery vertices follow one fixed node; a posed character's follow the blend of their nodes' posed transforms.
                 var blend = skin is null ? default : PosedGeometry.Blend(skin, mesh, vertex);
                 Vector3 Direction(Vector3 v) { var turned = Vector3.TransformNormal(v, blend); return turned.LengthSquared() == 0 ? turned : Vector3.Normalize(turned); }
-                Vector4 Tangent(Vector4 t) => skin is null ? FirelinkRigidGeometry.BakeTangent(model, mesh, vertex, t) : new(Direction(new(t.X, t.Y, t.Z)), t.W);
                 var geometry = skin is null ? FirelinkRigidGeometry.Bake(model, mesh, vertex) : (Position: Vector3.Transform(vertex.Position, blend), Normal: Direction(vertex.Normal));
+                Vector4 Tangent(Vector4 t)
+                {
+                    if (skin is null) return FirelinkRigidGeometry.BakeTangent(model, mesh, vertex, t);
+                    var across = Direction(new(t.X, t.Y, t.Z));
+                    across -= geometry.Normal * Vector3.Dot(across, geometry.Normal);
+                    // A skinned model can carry a degenerate tangent; any direction across the normal then completes the frame.
+                    if (across.LengthSquared() < 1e-12f) across = Vector3.Cross(geometry.Normal, MathF.Abs(geometry.Normal.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitX);
+                    return new(Vector3.Normalize(across), t.W < 0 ? -1 : 1);
+                }
                 return new
                 {
                     position = Vector(geometry.Position), normal = Vector(geometry.Normal),

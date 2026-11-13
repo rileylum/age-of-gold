@@ -31,6 +31,9 @@ internal static class SceneCheck
         Write("mtd/Mtd.mtdbnd.dcx", binder.Write());
         definition.Params[1].Value = 0.75f;
         binder.Files[0].Bytes = definition.Write();
+        // A binder can hold a name twice with different contents; the first entry is the one used.
+        definition.Params[1].Value = 0.9f;
+        binder.Files.Add(new BinderFile(Binder.FileFlags.Flag1, 3, "authored.mtd", definition.Write()));
         Write("mtd/MtdPatch.mtdbnd.dcx", binder.Write());
         var model = new FLVER2();
         model.Header.Version = 0x2000C;

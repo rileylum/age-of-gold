@@ -385,6 +385,8 @@ try
     Console.WriteLine("PASS: missing inputs, install writes, symlink escapes and failed preparation leave no output");
     SceneCheck.Run(root);
     EffectCheck.Run();
+    TalkScriptCheck.Run();
+    MessageBundleCheck.Run();
     SourcePoseCheck.Run();
     TextureCheck.Run(root);
     TextureWriterCheck.Run();

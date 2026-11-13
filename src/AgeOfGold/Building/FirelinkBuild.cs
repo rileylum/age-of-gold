@@ -10,6 +10,8 @@ using AgeOfGold.Maps;
 using AgeOfGold.Params;
 using AgeOfGold.Scene;
 using AgeOfGold.Shaders;
+using AgeOfGold.Talk;
+using AgeOfGold.Text;
 using SoulsFormats;
 
 namespace AgeOfGold.Building;
@@ -27,6 +29,12 @@ internal static class FirelinkBuild
     private const int HostDriftingLeaves = 200000;
     // The source's effect for a lit, unkindled bonfire, and the host identities reserved for its translation and textures.
     // lazy: the lit state only; unlit and kindled bonfires use neighbouring source effects and need the resting point's state.
+    // The Fire Keeper's interaction: the source talk identity that places it, the source texts of its prompt and first response,
+    // and the host identities reserved for its talk script, action, prompt and message. The host action row copied is its plain "talk".
+    // lazy: one fixed response in English from authored source text identities; the source's talk scripts, services, flags and
+    // other languages are not translated.
+    private const int SourceKeeperTalk = 102606, SourceKeeperPrompt = 10010200, SourceKeeperResponse = 10010191;
+    private const int KeeperTalk = 100190000, KeeperAction = 9100000, KeeperPrompt = 9100000, KeeperMessage = 9100001, HostTalkAction = 6000;
     private const int SourceBonfireFire = 90001, BonfireFire = 990100300, BonfireFireTextures = 990300;
 
     internal static void Run(string sourcePath, string hostPath, string outputPath, ShaderCompiler compiler, string toolchain)
@@ -84,15 +92,23 @@ internal static class FirelinkBuild
         var objectPlacements = objectDocument.RootElement.EnumerateArray().ToLookup(p => sceneryObjects.Contains(p.GetProperty("model").GetString()));
         var unbuiltObjects = new SortedDictionary<string, int>(objectPlacements[false].GroupBy(p => p.GetProperty("model").GetString()!)
             .ToDictionary(g => g.Key, g => g.Count()), StringComparer.Ordinal);
-        var placements = placementDocument.RootElement.EnumerateArray().Concat(objectPlacements[true]).ToArray();
-        byte[] ReadModel(string name) => sceneryObjects.Contains(name) ? reader.ReadObject(name) : reader.ReadModel(name);
+        // lazy: of the source's characters only the Fire Keeper is built, as scenery held at the first frame of her idle animation;
+        // living characters need host skeletons, animation and behaviour. The rest are counted in the manifest.
+        var sceneryCharacters = new SortedDictionary<string, string>(StringComparer.Ordinal) { ["c2750"] = "a00_0000" };
+        using var characterDocument = JsonDocument.Parse(reader.ReadCharacterPlacements());
+        var characterPlacements = characterDocument.RootElement.EnumerateArray().ToLookup(p => sceneryCharacters.ContainsKey(p.GetProperty("model").GetString()!));
+        var unbuiltCharacters = new SortedDictionary<string, int>(characterPlacements[false].GroupBy(p => p.GetProperty("model").GetString()!)
+            .ToDictionary(g => g.Key, g => g.Count()), StringComparer.Ordinal);
+        var placements = placementDocument.RootElement.EnumerateArray().Concat(objectPlacements[true]).Concat(characterPlacements[true]).ToArray();
+        byte[] ReadModel(string name) => sceneryCharacters.TryGetValue(name, out var held) ? reader.ReadCharacter(name, held)
+            : sceneryObjects.Contains(name) ? reader.ReadObject(name) : reader.ReadModel(name);
 
         // lazy: only the opaque lit families are built; every other surface is counted in the manifest until its family lands.
         // First pass: classify each model's surfaces and collect texture names; geometry is read again when its model is built.
         var renderer = SourceRendererSettings.Read(source);
         var environmentSettings = SourceEnvironmentSettings.Read(source, toolchain);
         var models = new List<(string Name, Dictionary<int, (float R, float G, float B, bool Unlit, float FadeOffset, float FadeScale, float ScrollU, float ScrollV)> Surfaces, string[] Textures)>();
-        foreach (string name in reader.Models.Concat(sceneryObjects))
+        foreach (string name in reader.Models.Concat(sceneryObjects).Concat(sceneryCharacters.Keys))
         {
             using var model = JsonDocument.Parse(ReadModel(name));
             var ground = new Dictionary<int, (float, float, float, bool, float, float, float, float)>(); var textures = new List<string>();
@@ -173,11 +189,39 @@ internal static class FirelinkBuild
         var fireAt = resting.Position + Vector3.Transform(reader.ReadObjectAttachment("o0200"), Matrix4x4.CreateRotationY(bonfires[0].Rotation.Y * MathF.PI / 180));
         FirelinkMapWriter.AddEffect(layout, effectRegion, "aog_bonfire_fire", BonfireFire, fireAt, bonfires[0].Rotation);
         var (restingMapBytes, restingEvents) = FirelinkBonfire.Apply(layout.Write(), archive.Read($"event/{Map}.emevd.dcx"), restingTemplate, resting);
-        files.Add($"mod/map/mapstudio/{Map}.msb.dcx", restingMapBytes);
+        // The Fire Keeper is spoken to through an unseen controller where the source places her talk.
+        var keepers = sourceLayout.Parts.Enemies.Where(p => p.TalkID == SourceKeeperTalk).ToArray();
+        if (keepers.Length != 1) throw new InvalidDataException("Expected one source placement for the Fire Keeper's talk");
+        var spoken = MSBE.Read(restingMapBytes);
+        var occupied = spoken.Parts.GetEntries().Select(p => p.EntityID).Concat(spoken.Regions.GetEntries().Select(r => r.EntityID)).ToHashSet();
+        // lazy: the same reserved range as the resting point's controller, from its far end.
+        uint keeperEntity = Enumerable.Range(0, 40).Select(i => (uint)(10010990 - i)).First(id => !occupied.Contains(id));
+        FirelinkMapWriter.AddTalker(spoken, spoken.Parts.Enemies.Single(p => p.EntityID == restingEntity - 1000), "aog_firekeeper_talk", keeperEntity, KeeperTalk,
+            keepers[0].Position + terrain.Offset, keepers[0].Rotation);
+        files.Add($"mod/map/mapstudio/{Map}.msb.dcx", spoken.Write());
         files.Add($"mod/event/{Map}.emevd.dcx", restingEvents);
+        // Her talk script joins the map's own talk bundle, or an emptied copy of the resting template map's when the map has none.
+        string talkPath = $"script/talk/{Map}.talkesdbnd.dcx", talkName = $"t{KeeperTalk:D9}.esd";
+        bool ownTalk = archive.Contains(talkPath);
+        var talkBundle = BND4.Read(archive.Read(ownTalk ? talkPath : $"script/talk/{restingMap}.talkesdbnd.dcx"));
+        if (talkBundle.Files.Count == 0) throw new InvalidDataException("Host talk bundle template is empty");
+        string talkFolder = talkBundle.Files[0].Name[..(talkBundle.Files[0].Name.LastIndexOf('\\') + 1)];
+        var talkFlags = talkBundle.Files[0].Flags;
+        if (!ownTalk) { talkBundle.Files.Clear(); talkFolder = talkFolder.Replace(restingMap, Map); }
+        if (!talkFolder.Contains(Map, StringComparison.Ordinal) || talkBundle.Files.Any(f => f.Name.EndsWith(talkName, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidDataException("Host talk bundle cannot take the build's talk script");
+        talkBundle.Files.Add(new(talkFlags, talkBundle.Files.Select(f => f.ID).DefaultIfEmpty(-1).Max() + 1, talkFolder + talkName, TalkScript.OneMessage(KeeperAction, KeeperMessage)));
+        files.Add("mod/" + talkPath, talkBundle.Write());
+        // Her prompt and response are the source's own words, added to the host's newest menu text bundle.
+        const string hostText = "msg/engus/menu_dlc02.msgbnd.dcx";
+        var sourceText = source.Read("msg/ENGLISH/menu.msgbnd.dcx");
+        files.Add("mod/" + hostText, MessageBundle.Add(archive.Read(hostText), [
+            ("ActionButtonText.fmg", KeeperPrompt, MessageBundle.ReadSource(sourceText, "Event_text_.fmg", SourceKeeperPrompt)),
+            ("EventTextForTalk.fmg", KeeperMessage, MessageBundle.ReadSource(sourceText, "Event_text_.fmg", SourceKeeperResponse))]));
         // The source picks its screen settings from the collision the player stands on; the build starts with the arrival's.
         // lazy: one selection for the whole map; other collisions select other rows and need the host's per-area switching.
-        var arrival = SourceAtmosphereReader.Selections(source)[terrain.Arrival];
+        var selections = SourceAtmosphereReader.Selections(source);
+        var arrival = selections[terrain.Arrival];
         var focus = SourceAtmosphereReader.DepthOfField(source);
         if (!focus.TryGetValue(arrival.DepthOfField, out var arrivalFocus)) throw new InvalidDataException("Arrival selects a missing depth-of-field row");
         files.Add("mod/param/drawparam/mapbase.gparam.dcx", HostAtmosphere.FocusLikeSource(archive.Read("param/drawparam/mapbase.gparam.dcx"), arrivalFocus));
@@ -195,11 +239,19 @@ internal static class FirelinkBuild
         string graphics = $"param/drawparam/{Map[..6]}_{Map[7..9]}00.gparam.dcx";
         files.Add("mod/" + graphics, HostAtmosphere.RemoveHostEffects(archive.Read(graphics)));
 
+        var characterSupports = new SortedDictionary<string, string>(StringComparer.Ordinal);
         // Each model is lit, fogged and scattered by the rows its placements select.
         var rowOf = models.ToDictionary(m => m.Name, m =>
         {
-            var rows = placements.Where(p => p.GetProperty("model").GetString() == m.Name)
-                .Select(p => (Light: p.GetProperty("lighting").GetInt32(), Fog: p.GetProperty("fog").GetInt32(), Scattering: p.GetProperty("scattering").GetInt32())).Distinct().ToArray();
+            var rows = placements.Where(p => p.GetProperty("model").GetString() == m.Name).Select(p =>
+            {
+                // A character takes the rows of the collision it stands on, as the source lights whoever walks there.
+                if (!sceneryCharacters.ContainsKey(m.Name))
+                    return (Light: p.GetProperty("lighting").GetInt32(), Fog: p.GetProperty("fog").GetInt32(), Scattering: p.GetProperty("scattering").GetInt32());
+                string support = terrain.Support(V(p.GetProperty("position")) + terrain.Offset);
+                characterSupports[p.GetProperty("name").GetString()!] = support;
+                return (selections[support].Light, selections[support].Fog, selections[support].Scattering);
+            }).Distinct().ToArray();
             return rows.Length == 1 ? rows[0] : throw new InvalidDataException("Scenery model is placed under several lighting or air rows: " + m.Name);
         }, StringComparer.Ordinal);
         // Lighting, air and the diffuse multiplier are compiled into the programs, so each combination has its own shader family and material.
@@ -248,7 +300,8 @@ internal static class FirelinkBuild
         DCX.Decompress(archive.Read($"map/m10/{Map}/{Map}_000000.mapbnd.dcx"), out var packageCompression);
         var textureWriter = new TextureWriter(textureTemplate, packageCompression);
         // An object's textures come from its own binder; every other name is looked up in the map's packages.
-        var raw = sceneryObjects.SelectMany(reader.ReadObjectTextures).Where(t => required.Contains(t.Name)).ToDictionary(t => t.Name, t => t.Bytes, StringComparer.Ordinal);
+        var raw = sceneryObjects.SelectMany(reader.ReadObjectTextures).Concat(sceneryCharacters.Keys.SelectMany(reader.ReadCharacterTextures))
+            .Where(t => required.Contains(t.Name)).DistinctBy(t => t.Name, StringComparer.Ordinal).ToDictionary(t => t.Name, t => t.Bytes, StringComparer.Ordinal);
         foreach (var texture in TextureReader.Read(source, required.Where(n => !NeutralTextures.Is(n) && !raw.ContainsKey(n)).ToArray())) raw.Add(texture.Name, texture.Bytes);
         foreach (string neutral in required.Where(NeutralTextures.Is)) raw.Add(neutral, NeutralTextures.Bytes(neutral));
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -419,6 +472,8 @@ internal static class FirelinkBuild
         // lazy: the host template's place name until source text is translated.
         destinations.Bytes = GameplayTables.ReplaceDestinations(destinations.Bytes, destinationTemplate.Entity,
             new(restingFlag, "aog_bonfire", restingEntity, (uint)restingFlag, 10, 1, 0, resting.Position, destinationTemplate.Text));
+        var actions = regulation.Tables.Files.Single(f => Path.GetFileName(f.Name.Replace('\\', '/')) == "ActionButtonParam.param");
+        actions.Bytes = GameplayTables.AddInteraction(actions.Bytes, HostTalkAction, KeeperAction, "aog_firekeeper_talk", KeeperPrompt);
         files.Add("mod/regulation.bin", regulation.Write());
 
         files.Add("age-of-gold.me3", System.Text.Encoding.UTF8.GetBytes(
@@ -443,6 +498,9 @@ internal static class FirelinkBuild
             arrival = new { collision = terrain.Arrival, selection = arrival, focus = arrivalFocus, tone = arrivalTone, exposure = arrivalTone.BrightExposure, correction = arrivalCorrection },
             unbuiltSurfaces = unbuilt,
             unbuiltObjects,
+            unbuiltCharacters,
+            characters = characterSupports.ToDictionary(c => c.Key, c => new { collision = c.Value, rows = selections[c.Value] }),
+            talk = new { fireKeeper = new { entity = keeperEntity, script = KeeperTalk, action = KeeperAction, prompt = KeeperPrompt, message = KeeperMessage } },
             effects = new
             {
                 bonfire = new { effect = BonfireFire, source = SourceBonfireFire, position = new[] { fireAt.X, fireAt.Y, fireAt.Z }, clusters = fire.Clusters.Length,

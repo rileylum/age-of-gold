@@ -7,8 +7,25 @@ namespace AgeOfGold.Maps;
 internal static class FirelinkMapWriter
 {
     /// <param name="Arrival">The source collision placement that supports the spawn.</param>
+    /// <param name="Sources">The source collision placement behind each built part, in the parts' order.</param>
     internal sealed record Terrain(Vector3 Offset, Vector3 Spawn, HostCollisionWriter.Part[] High,
-        HostCollisionWriter.Part[] Low, SourceCollisionReader.Placement[] Excluded, string Arrival);
+        HostCollisionWriter.Part[] Low, SourceCollisionReader.Placement[] Excluded, string Arrival, string[] Sources)
+    {
+        /// <summary>The source collision placement whose surface lies nearest beneath a point in the build.</summary>
+        internal string Support(Vector3 point)
+        {
+            string? best = null; float height = float.NegativeInfinity;
+            for (int i = 0; i < Low.Length; i++)
+            {
+                float ground;
+                // Most placements have no surface under the point at all.
+                try { ground = TerrainGeometry.GroundBelow([Low[i].Geometry], point + new Vector3(0, 0.5f, 0)); }
+                catch (InvalidDataException) { continue; }
+                if (ground > height) (best, height) = (Sources[i], ground);
+            }
+            return best ?? throw new InvalidDataException("No terrain beneath the requested point");
+        }
+    }
 
     internal static Terrain AddTerrain(MSBE layout, SourceCollisionReader.Scene source)
     {
@@ -63,7 +80,7 @@ internal static class FirelinkMapWriter
         }
         player.Position = spawn;
         player.Rotation = Vector(source.Spawn.Rotation);
-        return new(offset, spawn, high, low, excluded, supports[0].Name);
+        return new(offset, spawn, high, low, excluded, supports[0].Name, placements.Select(p => p.Name).ToArray());
     }
 
     internal sealed record SceneryPlacement(string Name, string Model, Vector3 Position, Vector3 Rotation, Vector3 Scale);
@@ -133,6 +150,21 @@ internal static class FirelinkMapWriter
         region.Shape = new MSB.Shape.Point(); region.Position = position; region.Rotation = rotation;
         region.EntityID = 0; region.ActivationPartName = null;
         layout.Regions.SFX.Add(region);
+    }
+
+    /// <summary>Adds an unseen controller that runs a talk script where a source character is spoken to, copied from an installed controller.</summary>
+    internal static void AddTalker(MSBE layout, MSBE.Part.Enemy template, string name, uint entity, int talk, Vector3 position, Vector3 rotation)
+    {
+        if (layout.Parts.GetEntries().Any(p => p.Name == name || p.EntityID == entity) || layout.Regions.GetEntries().Any(r => r.EntityID == entity))
+            throw new InvalidDataException("Talker identity is already occupied: " + name);
+        var talker = (MSBE.Part.Enemy)template.DeepCopy();
+        talker.Name = name; talker.EntityID = entity; talker.TalkID = talk;
+        // Placements of one model are told apart by instance.
+        talker.InstanceID = layout.Parts.Enemies.Where(p => p.ModelName == talker.ModelName).Select(p => p.InstanceID).DefaultIfEmpty(-1).Max() + 1;
+        talker.Position = position; talker.Rotation = rotation;
+        talker.CollisionPartName = null; talker.WalkRouteName = null; Array.Fill(talker.EntityGroupIDs, 0u);
+        talker.GameEditionDisable = MSBE.Part.GameEditionDisableType.NeverDisable;
+        layout.Parts.Enemies.Add(talker);
     }
 
     internal static Scenery AddScenery(MSBE layout, IReadOnlyList<SceneryPlacement> placements, Vector3 offset)

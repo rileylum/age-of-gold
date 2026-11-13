@@ -32,6 +32,10 @@ internal static class MapTerrainCheck
             || terrain.High.Length != 1 || terrain.Low.Length != 1 || terrain.Arrival != "authored-solid"
             || !terrain.Excluded.Select(p => p.Name).SequenceEqual(new[] { "authored-water", "authored-disabled" }))
             throw new Exception("Terrain placement, spawn or special-role accounting differs");
+        // Anything standing on the terrain can ask which source collision placement holds it up.
+        if (terrain.Support(new(100.5f, 221, 300.5f)) != "authored-solid") throw new Exception("Supporting collision placement differs");
+        Reject(() => terrain.Support(new(150, 221, 300)), "a point off the terrain");
+        Reject(() => terrain.Support(new(100, 210, 300)), "a point under the terrain");
         var collision = check.Parts.Collisions.Single(p => p.ModelName == "h800000");
         if (collision.Position != Vector3.Zero || collision.Rotation != Vector3.Zero || collision.Scale != Vector3.One
             || collision.Unk1.DisplayGroups.Any(v => v != uint.MaxValue)

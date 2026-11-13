@@ -50,7 +50,7 @@ internal static class FirelinkBuildInstallCheck
         var pieces = layout.Parts.MapPieces.Where(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable).ToArray();
         if (pieces.Length == 0 || pieces.Any(p => !p.ModelName.StartsWith("m81", StringComparison.Ordinal))
             || layout.Parts.Collisions.Count(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable) != 39
-            || layout.Parts.Enemies.Count(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable) != 1)
+            || layout.Parts.Enemies.Count(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable) != 2)
             throw new Exception("Built map retains host placements or lacks source terrain and scenery");
         // A resting point: marker, controller and respawn region placed together and registered with the build's flag.
         var rest = manifest.RootElement.GetProperty("restingPoint");
@@ -87,6 +87,30 @@ internal static class FirelinkBuildInstallCheck
             || fireEffect.RootContainer.Containers.Any(c => BitConverter.SingleToInt32Bits(32769f * 255) != (c.Effects.Single().Actions[9].Properties1[10].Fields[0] is FXR3.Field.FieldInt whole
                 ? whole.Value : BitConverter.SingleToInt32Bits(((FXR3.Field.FieldFloat)c.Effects.Single().Actions[9].Properties1[10].Fields[0]).Value))))
             throw new Exception("Built fire particles are not marked for, or the particle stage lacks, the source's colour response");
+        // The Fire Keeper is posed scenery, lit by the rows of the collision she sits on rather than her placement's own.
+        var keepers = manifest.RootElement.GetProperty("characters").EnumerateObject().ToArray();
+        var sceneryNames = manifest.RootElement.GetProperty("scenery").GetProperty("placements").EnumerateObject().Select(p => p.Value.GetString()).ToArray();
+        if (keepers.Length != 1 || !sceneryNames.Contains(keepers[0].Name) || !keepers[0].Value.GetProperty("collision").GetString()!.StartsWith('h')
+            || keepers[0].Value.GetProperty("rows").GetProperty("Light").GetInt32() <= 0
+            || manifest.RootElement.GetProperty("unbuiltCharacters").EnumerateObject().Any(c => c.Name == "c2750"))
+            throw new Exception("Built scenery lacks the posed Fire Keeper or her collision's lighting rows");
+        // She is spoken to through a controller whose talk script opens the source's own response.
+        var speech = manifest.RootElement.GetProperty("talk").GetProperty("fireKeeper");
+        int talkScript = speech.GetProperty("script").GetInt32(), talkAction = speech.GetProperty("action").GetInt32();
+        var talker = layout.Parts.Enemies.Single(p => p.EntityID == speech.GetProperty("entity").GetUInt32());
+        var talkFile = BND4.Read(Path.Combine(mod, "script/talk/m10_01_00_00.talkesdbnd.dcx")).Files.Single(f => f.Name.EndsWith($"\\m10_01_00_00\\t{talkScript:D9}.esd", StringComparison.Ordinal));
+        var talkStates = ESD.Read(talkFile.Bytes).StateGroups[1];
+        var sourceWords = BND3.Read(Path.Combine(source, "msg/ENGLISH/menu.msgbnd.dcx")).Files.Where(f => f.Name.EndsWith("Event_text_.fmg", StringComparison.Ordinal)).Select(f => FMG.Read(f.Bytes)).ToArray();
+        var hostWords = BND4.Read(Path.Combine(mod, "msg/engus/menu_dlc02.msgbnd.dcx")).Files.ToDictionary(f => f.Name.Split('\\')[^1], f => FMG.Read(f.Bytes));
+        string builtPrompt = hostWords["ActionButtonText.fmg"][speech.GetProperty("prompt").GetInt32()], builtResponse = hostWords["EventTextForTalk.fmg"][speech.GetProperty("message").GetInt32()];
+        var actionRows = PARAM.Read(AgeOfGold.Archives.Regulation.Read(File.ReadAllBytes(Path.Combine(host, "eldenring.exe")), File.ReadAllBytes(Path.Combine(mod, "regulation.bin")))
+            .Tables.Files.Single(f => f.Name.EndsWith("ActionButtonParam.param", StringComparison.Ordinal)).Bytes);
+        if (talker.TalkID != talkScript || talker.GameEditionDisable != MSBE.Part.GameEditionDisableType.NeverDisable || talkStates.Count != 6
+            || !talkStates[2].Conditions.Single().Evaluator.AsSpan().IndexOf(BitConverter.GetBytes(talkAction)).Equals(2)
+            || string.IsNullOrWhiteSpace(builtPrompt) || string.IsNullOrWhiteSpace(builtResponse)
+            || !sourceWords.Any(t => t.Entries.Any(e => e.Text == builtPrompt)) || !sourceWords.Any(t => t.Entries.Any(e => e.Text == builtResponse))
+            || actionRows.Rows.Count(r => r.ID == talkAction) != 1)
+            throw new Exception("Built Fire Keeper talk lacks its controller, script, source words or action");
         var materials = BND4.Read(Path.Combine(mod, "material/allmaterial.matbinbnd.dcx")).Files
             .ToLookup(f => string.Join('/', f.Name.Replace('\\', '/').Split('/')[^3..]).ToLowerInvariant(), f => f.Bytes);
         var shaders = File.ReadAllBytes(Path.Combine(mod, "shader/shaderbdle.shaderbdlebnd.dcx"));
@@ -129,7 +153,7 @@ internal static class FirelinkBuildInstallCheck
                 surfaces++;
             }
         }
-        if (surfaces != 330 || cutouts != 70 || blends != 33) throw new Exception("Built opaque and cutout surface inventory differs");
+        if (surfaces != 348 || cutouts != 78 || blends != 34) throw new Exception("Built opaque and cutout surface inventory differs");
         var lit = manifest.RootElement.GetProperty("groundFamilies").EnumerateObject().Select(f => f.Name).Order(StringComparer.Ordinal).ToArray();
         if (!lit.SequenceEqual(families.Order(StringComparer.Ordinal))) throw new Exception("Built models do not use exactly the recorded lit ground families");
         foreach (string family in families)

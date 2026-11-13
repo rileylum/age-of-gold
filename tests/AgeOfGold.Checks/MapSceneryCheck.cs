@@ -47,6 +47,22 @@ internal static class MapSceneryCheck
         try { FirelinkMapWriter.AddEffect(placed, effectTemplate, "aog_authored_fire", 1, default, default); throw new Exception("Duplicate effect region was accepted"); }
         catch (InvalidDataException) { }
 
+        // A talking character is an unseen host controller copied from an installed one, with its own identities and talk script.
+        var spoken = MSBE.Read(native);
+        var host = spoken.Parts.Enemies.Single();
+        host.EntityID = 500; host.InstanceID = 4; host.TalkID = 1000; host.EntityGroupIDs[0] = 9;
+        FirelinkMapWriter.AddTalker(spoken, host, "aog_authored_talker", 600, 100190000, new(4, 5, 6), new(0, 30, 0));
+        var talker = MSBE.Read(spoken.Write()).Parts.Enemies.Single(p => p.Name == "aog_authored_talker");
+        if (talker.EntityID != 600 || talker.TalkID != 100190000 || talker.InstanceID != 5 || talker.ModelName != host.ModelName || talker.Position != new Vector3(4, 5, 6)
+            || talker.Rotation != new Vector3(0, 30, 0) || talker.CollisionPartName is not null || talker.EntityGroupIDs.Any(g => g != 0)
+            || talker.GameEditionDisable != MSBE.Part.GameEditionDisableType.NeverDisable || host.TalkID != 1000)
+            throw new Exception("Talking controller differs or changed its template");
+        foreach (var (name, entity) in new[] { ("aog_authored_talker", 601u), ("aog_other", 600u), ("aog_other", 500u) })
+        {
+            try { FirelinkMapWriter.AddTalker(spoken, host, name, entity, 5, default, default); throw new Exception("An occupied talker identity was accepted"); }
+            catch (InvalidDataException) { }
+        }
+
         // Host environment lighting follows the scenery: probes and the one enclosing outdoor volume move, rooms stay.
         var lit = MSBE.Read(native);
         FirelinkMapWriter.MoveEnvironment(lit, new(0, 200, 0), new(-3, 240, 7), new(0, 145, 0));

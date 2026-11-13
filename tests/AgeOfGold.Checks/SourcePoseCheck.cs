@@ -51,6 +51,30 @@ internal static class SourcePoseCheck
         // A placement scales, then turns, then moves.
         var matrix = new SourcePoseReader.Placement(new(1, 2, 3), Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2), new(2, 1, 1)).Matrix;
         Near(Vector3.Transform(new Vector3(1, 0, 0), matrix), new(1, 2, 1), "placement order");
+        // Skinning: a two-node arm bent a quarter turn at its joint carries its vertices with it, by weight.
+        var model = new SoulsFormats.FLVER2();
+        model.Nodes.Add(new() { Name = "root", ParentIndex = -1, Scale = Vector3.One });
+        model.Nodes.Add(new() { Name = "arm", ParentIndex = 0, Translation = new(0, 1, 0), Scale = Vector3.One });
+        model.Nodes.Add(new() { Name = "ornament", ParentIndex = 1, Translation = new(0, 1, 0), Scale = Vector3.One });
+        SourcePoseReader.Bone[] skeleton = [new("root", -1, new(Vector3.Zero, Quaternion.Identity, Vector3.One)), new("arm", 0, new(new(0, 1, 0), Quaternion.Identity, Vector3.One))];
+        var bent = new[] { skeleton[0].Rest, skeleton[1].Rest with { Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI / 2) } };
+        var skin = AgeOfGold.Scene.PosedGeometry.Skin(model, skeleton, bent);
+        var mesh = new SoulsFormats.FLVER2.Mesh { UseBoneWeights = true, BoneIndices = [0, 1, 2] };
+        Vector3 Moved(Vector3 at, int a, float wa, int b, float wb)
+        {
+            var vertex = new SoulsFormats.FLVER.Vertex { Positions = [at] };
+            var indices = new SoulsFormats.FLVER.VertexBoneIndices(); indices[0] = a; indices[1] = b;
+            var weights = new SoulsFormats.FLVER.VertexBoneWeights(); weights[0] = wa; weights[1] = wb;
+            vertex.BoneIndices = indices; vertex.BoneWeights = weights;
+            return Vector3.Transform(at, AgeOfGold.Scene.PosedGeometry.Blend(skin, mesh, vertex));
+        }
+        Near(Moved(new(0, 0.5f, 0), 0, 1, 0, 0), new(0, 0.5f, 0), "a vertex on the still node");
+        Near(Moved(new(0, 2, 0), 1, 1, 0, 0), new(-1, 1, 0), "a vertex on the bent node");
+        Near(Moved(new(0, 1.5f, 0), 0, 0.5f, 1, 0.5f), new(-0.25f, 1.25f, 0), "a vertex shared by both");
+        // A node the skeleton does not name follows its parent.
+        Near(Moved(new(0, 2.5f, 0), 2, 1, 0, 0), new(-1.5f, 1, 0), "a vertex on an unanimated child node");
+        Reject(() => Moved(new(0, 1, 0), 0, 0.5f, 1, 0.25f));
+        Reject(() => Moved(new(0, 1, 0), 7, 1, 0, 0));
         Console.WriteLine("PASS: first-frame poses decode fixed, curved and absent tracks in both rotation packings; unsupported layouts fail");
     }
 
