@@ -21,9 +21,9 @@ What the build contains so far:
 
 - The host map with every installed placement and map effect disabled, the player kept.
 - Terrain collision for the 39 ordinary solid placements, always visible as in the accepted playtest.
-- Scenery for 307 of the 330 source surfaces: opaque one- and two-layer surfaces, cutouts
-  (alpha-tested and blended surfaces, cut at half coverage), foliage and ivy without sway, and
-  the sky dome. All share the host's two-layer family; each layer keeps its own coordinates and
+- Scenery for 311 of the 330 source surfaces: opaque one- and two-layer surfaces, cutouts
+  (alpha-tested and blended surfaces, cut at half coverage), foliage and ivy without sway,
+  view-faded backdrop planes and the sky dome. All share the host's two-layer family; each layer keeps its own coordinates and
   frame. Colour-only surfaces use authored neutral normal and packed textures.
 - A shader family and material per source lighting row, fog row, scattering row and diffuse
   multiplier. The G-buffer pixel program is the installed host program, rewritten by resource
@@ -46,8 +46,7 @@ CPU against independent arithmetic, using an authored evaluator for scalar shade
 A freshly built candidate loads in the host and renders the chapel and cliff views with source
 lighting. That is one private background capture, not a play proof.
 
-Not built yet: 23 surfaces in 8 families (cloud, mist, tree planes, light shafts, water,
-lightmapped), exposure adaptation and bloom, source local lights
+Not built yet: 19 surfaces in 7 families (cloud, mist, light shafts, water, lightmapped), exposure adaptation and bloom, source local lights
 and the light composition stage, the drifting host leaves, effects, the bonfire, characters,
 text, events and tables. Scene baking still differs in the last float digit between native
 Linux and Wine, because rotation uses the platform's sine and cosine.
