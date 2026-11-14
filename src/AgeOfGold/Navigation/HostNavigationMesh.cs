@@ -45,7 +45,8 @@ internal static class HostNavigationMesh
             var (a, b, c) = triangles[face];
             if (new[] { a, b, c }.Any(v => v < 0 || v >= vertices.Count) || a == b || b == c || c == a) throw new InvalidDataException("Invalid navigation triangle");
             // Every installed face is wound so this normal points up; the host walks on that side.
-            if (!(Vector3.Cross(vertices[b] - vertices[a], vertices[c] - vertices[a]).Y > 0)) throw new InvalidDataException("A navigation triangle is wound downward or stands on edge");
+            if (!(Vector3.Cross(vertices[b] - vertices[a], vertices[c] - vertices[a]).Y > 0))
+                throw new InvalidDataException($"Navigation triangle {face} is wound downward or stands on edge");
             foreach (var (edge, from, to) in new[] { (0, a, b), (1, b, c), (2, c, a) })
                 if (!starts.TryAdd((from, to), face * 3 + edge)) throw new InvalidDataException("Two navigation faces run the same way along one edge");
         }

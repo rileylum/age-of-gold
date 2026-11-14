@@ -393,6 +393,8 @@ try
     TalkScriptCheck.Run();
     MessageBundleCheck.Run();
     NavigationTreeCheck.Run();
+    NavigationIndexCheck.Run();
+    SourceNavigationCheck.Run(root);
     SourcePoseCheck.Run();
     TextureCheck.Run(root);
     TextureWriterCheck.Run();

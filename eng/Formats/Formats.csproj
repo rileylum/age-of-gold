@@ -19,7 +19,7 @@
     <Compile Include="$(LibraryRoot)/Formats/PARAM/PARAM/*.cs;$(LibraryRoot)/Formats/PARAM/PARAMDEF/*.cs;$(LibraryRoot)/Formats/PARAM/ParamUtil.cs;$(LibraryRoot)/Utilities/Xml/*.cs" />
     <Compile Include="$(LibraryRoot)/Formats/MSB/*.cs;$(LibraryRoot)/Formats/MSB/MSB1/*.cs;$(LibraryRoot)/Formats/MSB/MSBE/*.cs" />
     <!-- Event scripts, graphics parameters, text, effects and talk scripts for the gameplay and atmosphere stages. -->
-    <Compile Include="$(LibraryRoot)/Formats/EMEVD/**/*.cs;$(LibraryRoot)/Formats/EMELD.cs;$(LibraryRoot)/Formats/GPARAM.cs;$(LibraryRoot)/Formats/FMG.cs;$(LibraryRoot)/Formats/FXR3.cs;$(LibraryRoot)/Formats/FXR1/*.cs;$(LibraryRoot)/Formats/ESD.cs" />
+    <Compile Include="$(LibraryRoot)/Formats/EMEVD/**/*.cs;$(LibraryRoot)/Formats/EMELD.cs;$(LibraryRoot)/Formats/GPARAM.cs;$(LibraryRoot)/Formats/FMG.cs;$(LibraryRoot)/Formats/FXR3.cs;$(LibraryRoot)/Formats/NVM.cs;$(LibraryRoot)/Formats/FXR1/*.cs;$(LibraryRoot)/Formats/ESD.cs" />
     <Compile Include="$(LibraryRoot)/Formats/DCX.cs;$(LibraryRoot)/Formats/MTD.cs;$(LibraryRoot)/Formats/MATBIN.cs;$(LibraryRoot)/Formats/METAPARAM.cs;$(LibraryRoot)/Formats/TPF/DDS.cs" />
     <Compile Include="$(LibraryRoot)/Utilities/*.cs;$(LibraryRoot)/Utilities/Attributes/*.cs;$(LibraryRoot)/Utilities/Collections/*.cs;$(LibraryRoot)/Utilities/Compression/**/*.cs;$(LibraryRoot)/Utilities/Exceptions/*.cs;$(LibraryRoot)/Utilities/Formats/*.cs;$(LibraryRoot)/Utilities/IO/*.cs;$(LibraryRoot)/Utilities/Text/*.cs;$(LibraryRoot)/Utilities/Cryptography/HashHelper.cs" />
     <PackageReference Include="ZstdNet" Version="1.4.5" />
