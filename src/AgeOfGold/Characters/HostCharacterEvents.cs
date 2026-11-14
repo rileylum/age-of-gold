@@ -57,8 +57,21 @@ internal static class HostCharacterEvents
     /// <param name="identity">The host character the events are for, as "c" and four digits.</param>
     /// <param name="also">Host animation numbers to list without events when the source has none of that number.</param>
     /// <param name="only">When given, the source animations to carry and the host number each takes; the rest of the source's are left out.</param>
+    /// <summary>Host moves whose events stay the host's own: what a body does as it dies and once it is dead.</summary>
+    /// <remarks>
+    /// The source says the same things with events of other kinds and its own engine's numbers. Of the exemplar's events
+    /// for such a move, those that play its own sounds, effects and footsteps or throw things are left out.
+    /// lazy: dying where it stands only; the host's other deaths (by fire, blown away, thrown) are not asked for yet.
+    /// </remarks>
+    internal static readonly IReadOnlySet<long> HostsOwn = new SortedSet<long> { 10000, 10001 };
+
+    // Host event kinds that play a character's own sounds, effects and footsteps, or throw things.
+    private static readonly HashSet<int> Shows = [2, 96, 112, 113, 128, 129, 138, 792];
+
     /// <param name="moves">Host animations that take a source animation of another number, by host number.</param>
-    internal static Written Write(byte[] sourceFile, byte[] exemplar, string identity, IEnumerable<long> also, IReadOnlyDictionary<long, long>? only = null, IReadOnlyDictionary<long, long>? moves = null)
+    /// <param name="hostsOwn">Host animations that keep the exemplar's own state events, by host number.</param>
+    internal static Written Write(byte[] sourceFile, byte[] exemplar, string identity, IEnumerable<long> also, IReadOnlyDictionary<long, long>? only = null, IReadOnlyDictionary<long, long>? moves = null,
+        IReadOnlyCollection<long>? hostsOwn = null)
     {
         var source = TAE.Read(sourceFile); var host = TAE.Read(exemplar);
         if (source.Format != TAE.TAEFormat.DS1 || source.BigEndian || host.Format != TAE.TAEFormat.SDT || host.BigEndian) throw new InvalidDataException("Unsupported event file format");
@@ -115,6 +128,17 @@ internal static class HostCharacterEvents
                 animation.Events.Add(new TAE.Event(e.StartTime, e.EndTime, e.Type, 0, parameters, false) { Group = group }); kept++;
             }
             animations.Add(animation);
+        }
+        // Moves left to the host keep the exemplar's own state events for them.
+        var exemplarEvents = host.Animations.ToDictionary(a => a.ID);
+        foreach (var animation in animations.Where(a => hostsOwn?.Contains(a.ID) == true && exemplarEvents.ContainsKey(a.ID)))
+        {
+            animation.Events.Clear(); animation.EventGroups.Clear();
+            foreach (var e in exemplarEvents[animation.ID].Events.Where(e => !Shows.Contains(e.Type)))
+            {
+                if (e.Group is not null && !animation.EventGroups.Contains(e.Group)) animation.EventGroups.Add(e.Group);
+                animation.Events.Add(e);
+            }
         }
         host.Animations = animations;
         return new(host.Write(), animations.Select(a => a.ID).ToArray(), kept, dropped);

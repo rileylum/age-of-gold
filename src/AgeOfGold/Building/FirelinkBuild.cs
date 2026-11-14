@@ -56,7 +56,7 @@ internal static class FirelinkBuild
     // lazy: the noble's AI, health and other row values; see WholeCharacter for what each of a character's files leaves out.
     // Every placement of a model shows the same weapons; the source's spear, axe and bow variants are chosen by its rows'
     // display marks, which are not read yet. The giant skeleton, the crow and the others are not built.
-    private static Living LikeNoble(params string[] shown) => new("c4300", "m60_40_40_00", "c4300_9002", "_Belt_Leather.", "_WP_A_0211_Sword.", shown, "c3020", 4300100, ("Neck", "Head", "Spine", "Spine1"));
+    private static Living LikeNoble(params string[] shown) => new("c4300", "m60_40_40_00", "c4300_9002", CharacterMaterial, CharacterMaterial, shown, "c3020", 4300100, ("Neck", "Head", "Spine", "Spine1"));
     private static readonly SortedDictionary<string, Living> LivingCharacters = new(StringComparer.Ordinal)
     {
         ["c2510"] = LikeNoble("#00#"), ["c2540"] = LikeNoble("#00#", "#02#"), ["c2550"] = LikeNoble("#02#", "#01#"), ["c2900"] = LikeNoble("#00#", "#01#"),
@@ -77,15 +77,24 @@ internal static class FirelinkBuild
     // from knowledge of the source game: its event script decides by flags this tool does not yet follow.
     // lazy: no face front (the source generates it as the game runs) and no hair; one line of talk; only the pose each
     // starts in (see WholeCharacter.WritePerson); the host template's body size.
-    private static LivingPerson Friendly() => new("c4300", "m18_00_00_00", "c4300_9009", "_Belt_Leather.", "_WP_A_0211_Sword.", "m11_10_00_00", "c0000_9010", "c3020", ("Neck", "Head", "Spine", "Spine1"));
+    private static LivingPerson Friendly() => new("c4300", "m18_00_00_00", "c4300_9009", CharacterMaterial, CharacterMaterial, "m11_10_00_00", "c0000_9010", "c3020", ("Neck", "Head", "Spine", "Spine1"));
     private static readonly SortedDictionary<string, LivingPerson> LivingPeople = new(StringComparer.Ordinal) { ["c0000_0011"] = Friendly(), ["c0000_0018"] = Friendly() };
     // What a human holds hangs from the weapon bone of its hand.
     private const string RightHandBone = "R_Weapon", LeftHandBone = "L_Weapon";
     // A person's host identity follows the enemies' block: by its character row's place among the source's human rows.
     private const int FirstPersonIdentity = 6600;
 
-    // The host material inputs a carried body fills: its colour, its surface relief, and a metal map left empty of metal.
-    private const string ColourInput = "_7_AlbedoMap", ReliefInput = "_0_NormalMap", MetalInput = "_3_MetallicMap";
+    // Characters are drawn by the host's plain character material: a colour map, a relief map and a metal map, and nothing
+    // of any host character's own blended in. The inputs a body fills: its colour, its relief, and a metal map left empty.
+    // lazy: no metal and no gloss. The source keeps both in its specular map; carrying them needs textures re-encoded,
+    // which this tool does not do yet, so mail and blades read as dull dark cloth.
+    private const string CharacterMaterial = "\\C[AMSN].matxml";
+    private const string ColourInput = "_AlbedoMap_0", ReliefInput = "_NormalMap_4", MetalInput = "_MetallicMap_0";
+    // The source cuts torn cloth, hair and mail out of flat sheets with materials it names as edged. Those meshes take a
+    // definition of the build's own: the plain one with a coverage threshold.
+    // lazy: half coverage; the source's own threshold is not read.
+    private const string SourceCutout = "_Edge", CutoutDefinition = "aog_character_cutout";
+    private const int CutoutReference = 128;
     // Build-owned character rows follow the host character's own, from this offset within its thousand.
     private const int FirstCharacterRow = 8000;
 
@@ -172,7 +181,7 @@ internal static class FirelinkBuild
                     : throw new InvalidDataException($"Source character material lacks {input}: {c.Key}/{material.Name}");
                 // A mesh marked "#NN#" is drawn only for rows that show that mark.
                 string mark = material.Name.Length >= 4 && material.Name[0] == '#' && material.Name[3] == '#' ? material.Name[..4] : "";
-                return (Mesh: i, Mark: mark, Colour: Texture("g_Diffuse"), Relief: Texture("g_Bumpmap"));
+                return (Mesh: i, Mark: mark, Colour: Texture("g_Diffuse"), Relief: Texture("g_Bumpmap"), Cutout: material.MTD.Contains(SourceCutout, StringComparison.Ordinal));
             }).Where(m => m.Mark == "" || c.Value.Shown.Contains(m.Mark)).ToArray();
             if (c.Value.Shown.Except(meshes.Select(m => m.Mark)).FirstOrDefault() is { } absent) throw new InvalidDataException($"Source character {c.Key} has no mesh marked {absent}");
             return (Model: model, Meshes: meshes);
@@ -278,7 +287,7 @@ internal static class FirelinkBuild
                         : throw new InvalidDataException($"Source part material lacks {input}: {piece.Stem}/{material.Name}");
                     // A material without a relief map (an eye, say) takes a flat one.
                     bool relief = material.Textures.Any(t => t.ParamName == "g_Bumpmap" && t.Path.Length > 0);
-                    return (Mesh: i, Colour: Texture("g_Diffuse"), Relief: relief ? Texture("g_Bumpmap") : NeutralTextures.FlatNormal);
+                    return (Mesh: i, Colour: Texture("g_Diffuse"), Relief: relief ? Texture("g_Bumpmap") : NeutralTextures.FlatNormal, Cutout: material.MTD.Contains(SourceCutout, StringComparison.Ordinal));
                 }).ToArray();
                 var held = binder.Files.Where(f => f.Name.EndsWith(".tpf", StringComparison.OrdinalIgnoreCase)).SelectMany(f => TextureReader.ReadPackage(f.Bytes)).ToArray();
                 return (piece.Stem, piece.Hand, Model: model, Meshes: meshes, Textures: held);
@@ -552,6 +561,8 @@ internal static class FirelinkBuild
         var wholeHuman = LivingPeople.Count == 0 ? null : ModelReader.Read(BND3.Read(source.Read("chr/c0000.chrbnd.dcx")).Files.SingleOrDefault(f => f.Name.EndsWith("c0000.flver", StringComparison.OrdinalIgnoreCase))?.Bytes
             ?? throw new InvalidDataException("Source install has no human skeleton model")).Item1;
         var wholeCharacters = new SortedDictionary<string, object>(StringComparer.Ordinal); var wholePeople = new SortedDictionary<string, object>(StringComparer.Ordinal);
+        // The host definitions whose cut-out twin some mesh is drawn with.
+        var cutoutOf = new SortedSet<string>(StringComparer.Ordinal);
         foreach (string hostName in livingCharacters.Values.Select(l => l.Host).Concat(LivingPeople.Values.Select(l => l.Host)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
         {
             var binder = BND4.Read(archive.Read($"chr/{hostName}.chrbnd.dcx"));
@@ -559,19 +570,21 @@ internal static class FirelinkBuild
             var hostModel = FLVER2.Read(file.Bytes);
             int Exemplar(string fragment) => hostModel.Meshes.FindIndex(m => hostModel.Materials[m.MaterialIndex].MTD.Contains(fragment, StringComparison.Ordinal)) is >= 0 and var found
                 ? found : throw new InvalidDataException($"Host character {hostName} has no material like {fragment}");
-            HostCharacterModel.Part Dress(int mesh, int exemplar, string colour, string relief)
+            HostCharacterModel.Part Dress(int mesh, int exemplar, string colour, string relief, bool cutout)
             {
+                if (cutout) cutoutOf.Add(hostModel.Materials[hostModel.Meshes[exemplar].MaterialIndex].MTD);
                 var inputs = hostModel.Materials[hostModel.Meshes[exemplar].MaterialIndex].Textures.Select(t => t.ParamName).ToArray();
                 string Input(string suffix) => inputs.Count(i => i.EndsWith(suffix, StringComparison.Ordinal)) == 1 ? inputs.Single(i => i.EndsWith(suffix, StringComparison.Ordinal))
                     : throw new InvalidDataException($"Host character material does not have one input ending {suffix}");
-                return new(mesh, exemplar, new Dictionary<string, string> { [Input(ColourInput)] = names[colour], [Input(ReliefInput)] = names[relief], [Input(MetalInput)] = names[NeutralTextures.Neutral] });
+                return new(mesh, exemplar, new Dictionary<string, string> { [Input(ColourInput)] = names[colour], [Input(ReliefInput)] = names[relief], [Input(MetalInput)] = names[NeutralTextures.Neutral] },
+                    cutout ? CutoutDefinition : null);
             }
             foreach (var (name, person) in LivingPeople.Where(p => p.Value.Host == hostName))
             {
                 var placed = sourceLayout.Parts.Enemies.Single(p => p.Name == name);
                 var pieces = peoplePieces[name].Select(piece =>
                 {
-                    var parts = piece.Meshes.Select(mesh => Dress(mesh.Mesh, Exemplar(piece.Hand == "" ? person.Body : person.Held), mesh.Colour, mesh.Relief)).ToArray();
+                    var parts = piece.Meshes.Select(mesh => Dress(mesh.Mesh, Exemplar(piece.Hand == "" ? person.Body : person.Held), mesh.Colour, mesh.Relief, mesh.Cutout)).ToArray();
                     // What is held hangs from the hand's weapon bone: every node of its model is carried there.
                     var pairs = piece.Hand == "" ? null : piece.Model.Nodes.Select(n => n.Name).Distinct(StringComparer.Ordinal).ToDictionary(n => n, _ => piece.Hand, StringComparer.Ordinal);
                     return new HostCharacterModel.Body(piece.Model, pairs, parts, null, null, 1);
@@ -585,7 +598,7 @@ internal static class FirelinkBuild
             // An enemy has files of its own, under its own identity; its meshes take this host's layouts and materials.
             foreach (var (name, living) in livingCharacters.Where(c => c.Value.Host == hostName))
             {
-                var parts = livingModels[name].Meshes.Select(mesh => Dress(mesh.Mesh, Exemplar(mesh.Mark == "" ? living.Body : living.Held), mesh.Colour, mesh.Relief)).ToArray();
+                var parts = livingModels[name].Meshes.Select(mesh => Dress(mesh.Mesh, Exemplar(mesh.Mark == "" ? living.Body : living.Held), mesh.Colour, mesh.Relief, mesh.Cutout)).ToArray();
                 var whole = WholeCharacter.Write(source, archive, name, Identity(name), new(hostName, living.Physics, living.Gaze), livingModels[name].Model, parts);
                 foreach (var (path, bytes) in whole.Files) files.Add("mod/" + path, bytes);
                 wholeCharacters.Add(name, new
@@ -670,6 +683,17 @@ internal static class FirelinkBuild
             if (definitions.Files.Any(f => f.Name.Equals(definitionName, StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidDataException("Ground material identity is occupied");
             definitions.Files.Add(new BinderFile(hostDefinition.Flags, definitions.Files.Max(f => f.ID) + 1, definitionName, definition));
+        }
+        // The characters' cut-out definition: the plain host definition their meshes are laid out for, with a coverage threshold.
+        if (cutoutOf.Count > 1) throw new InvalidDataException("Cut-out character meshes are laid out for more than one host definition");
+        foreach (string plainPath in cutoutOf)
+        {
+            string stem = Path.GetFileNameWithoutExtension(plainPath.Replace('\\', '/'));
+            var plainDefinition = definitions.Files.SingleOrDefault(f => Path.GetFileNameWithoutExtension(f.Name.Replace('\\', '/')).Equals(stem, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidDataException("Host install has no material definition " + stem);
+            string cutoutName = plainDefinition.Name[..^Path.GetFileName(plainDefinition.Name.Replace('\\', '/')).Length] + CutoutDefinition + ".matbin";
+            if (definitions.Files.Any(f => f.Name.Equals(cutoutName, StringComparison.OrdinalIgnoreCase))) throw new InvalidDataException("The character cut-out definition is already installed");
+            definitions.Files.Add(new BinderFile(plainDefinition.Flags, definitions.Files.Max(f => f.ID) + 1, cutoutName, HostCharacterMaterial.Cutout(plainDefinition.Bytes, CutoutReference)));
         }
         files.Add("mod/material/allmaterial.matbinbnd.dcx", definitions.Write());
         definitions = null!;

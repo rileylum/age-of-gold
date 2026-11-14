@@ -169,6 +169,11 @@ internal static class HostCharacterModelCheck
         var third = ownMesh.Vertices[2];
         var weights = Enumerable.Range(0, 4).Where(i => third.BoneWeights[i] > 0).ToDictionary(i => third.BoneIndices[i], i => third.BoneWeights[i]);
         if (weights.Count != 2 || MathF.Abs(weights[2] - 0.4f) > 0.01f || MathF.Abs(weights[3] - 0.6f) > 0.01f) throw new Exception("A whole character's vertex is not weighted to the source's own bones");
+        // A part may be drawn by a material definition of the build's own, named beside the exemplar's; the layout stays the exemplar's.
+        var owned = FLVER2.Read(HostCharacterModel.WriteWhole(hostBytes, source, [new(0, 0, textures, "aog_authored_cutout")], bones)).Materials.Single();
+        if (owned.MTD != @"N:\exemplar\chr\aog_authored_cutout.matxml" || owned.Textures.Single(t => t.ParamName == "X_AlbedoMap").Path != "AUTHORED_colour.tif") throw new Exception("A part does not name the build's own definition beside its exemplar's: " + owned.MTD);
+        try { HostCharacterModel.WriteWhole(hostBytes, source, [new(0, 0, textures, "aog authored")], bones); throw new Exception("A definition name the host cannot file was accepted"); }
+        catch (InvalidDataException) { }
         try { HostCharacterModel.WriteWhole(hostBytes, source, [new(0, 0, textures)], ["Pelvis", "Tail"]); throw new Exception("A skeleton bone the model lacks was accepted"); }
         catch (InvalidDataException) { }
         Console.WriteLine("PASS: a source character built whole keeps its own nodes, attachment points, positions and weights in the host's layout and material");

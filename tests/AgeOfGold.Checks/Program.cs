@@ -414,6 +414,7 @@ try
     HostCharacterModelCheck.Run();
     SourceCharacterCheck.Run(root);
     WholeCharacterCheck.Run();
+    MaterialWriterCheck.Cutout();
     SourceHumanCheck.Run(root);
     SourceTalkCheck.Run(root);
     SourceNavigationCheck.Run(root);

@@ -9,7 +9,8 @@ internal static class HostCharacterModel
     /// <param name="Mesh">The source mesh to carry.</param>
     /// <param name="Exemplar">The host mesh whose vertex layout and material it takes.</param>
     /// <param name="Textures">Texture paths by the exemplar material's input name; an input not named keeps the host material's own.</param>
-    internal sealed record Part(int Mesh, int Exemplar, IReadOnlyDictionary<string, string> Textures);
+    /// <param name="Definition">A material definition of the build's own to draw the mesh with, by name, in place of the exemplar's; null keeps the exemplar's.</param>
+    internal sealed record Part(int Mesh, int Exemplar, IReadOnlyDictionary<string, string> Textures, string? Definition = null);
 
     /// <summary>One source character's body.</summary>
     /// <param name="PairedBones">Source bones carried by a host bone of another name.</param>
@@ -22,6 +23,15 @@ internal static class HostCharacterModel
     /// <summary>The host skeleton's size over a source skeleton's, measured across the bones they share by name.</summary>
     internal static float SizeRatio(byte[] hostModel, FLVER2 source, IReadOnlyDictionary<string, string>? pairedBones = null) =>
         SkeletonFit.Match(Bones(source), Bones(FLVER2.Read(hostModel)), pairedBones).Scale;
+
+    // A model names a material definition by a path; the host files definitions by the path's last name alone.
+    private static string Beside(string definitionPath, string name)
+    {
+        int cut = definitionPath.LastIndexOfAny(['\\', '/']);
+        if (name.Length == 0 || name.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '_') || cut < 0 || !definitionPath.EndsWith(".matxml", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("A material definition is named with letters, digits and underscores beside its exemplar's");
+        return definitionPath[..(cut + 1)] + name + ".matxml";
+    }
 
     private static SkeletonFit.Bone[] Bones(FLVER2 model)
     {
@@ -149,7 +159,7 @@ internal static class HostCharacterModel
             materials.Add(new FLVER2.Material
             {
                 // A name that opens "#NN#" is drawn only for rows that show mark NN; without one the mesh is always drawn.
-                Name = (body.Mark is { } mark ? $"#{mark:D2}#" : "") + $"aog_{materials.Count}", MTD = hostMaterial.MTD, GXIndex = hostMaterial.GXIndex < 0 ? -1 : listIndex, Index = materials.Count,
+                Name = (body.Mark is { } mark ? $"#{mark:D2}#" : "") + $"aog_{materials.Count}", MTD = part.Definition is null ? hostMaterial.MTD : Beside(hostMaterial.MTD, part.Definition), GXIndex = hostMaterial.GXIndex < 0 ? -1 : listIndex, Index = materials.Count,
                 Textures = hostMaterial.Textures.Select(t => new FLVER2.Texture { ParamName = t.ParamName, Path = part.Textures.GetValueOrDefault(t.ParamName, t.Path), TilingScale = t.TilingScale }).ToList(),
             });
 

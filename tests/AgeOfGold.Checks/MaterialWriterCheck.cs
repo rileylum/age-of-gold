@@ -36,6 +36,29 @@ internal static class MaterialWriterCheck
         Console.WriteLine("PASS: material, shader and model texture bindings agree, retain template parameters and repeat; ambiguous/missing inputs fail");
     }
 
+    /// <summary>A character's cut-out material definition: an installed plain one with a coverage threshold.</summary>
+    internal static void Cutout()
+    {
+        byte[] plain = new MATBIN
+        {
+            SourcePath = @"N:\authored\C[AMSN].matxml", ShaderPath = @"N:\authored\C[AMSN].spx", Key = 7,
+            Params = [new() { Name = "g_BlendMode", Key = 1, Type = MATBIN.ParamType.Int, Value = 0 }, new() { Name = "g_AlphaRef", Key = 2, Type = MATBIN.ParamType.Int2, Value = new[] { 0, 0 } }],
+            Samplers = [new() { Type = "C_AMSN__snp_Texture2D_2_AlbedoMap_0", Path = "", Key = 3 }],
+        }.Write();
+        var cut = MATBIN.Read(AgeOfGold.Characters.HostCharacterMaterial.Cutout(plain, 128));
+        if (!((int[])cut.Params.Single(p => p.Name == "g_AlphaRef").Value).SequenceEqual([128, 0]) || (int)cut.Params.Single(p => p.Name == "g_BlendMode").Value != 0 || cut.ShaderPath != @"N:\authored\C[AMSN].spx" || cut.Samplers.Single().Path != "")
+            throw new Exception("A cut-out definition is not its plain one with the threshold set");
+        if (!MATBIN.Read(plain).Write().AsSpan().SequenceEqual(plain)) throw new Exception("Making a cut-out definition changed its input");
+        foreach (var bad in new Action[]
+        {
+            () => AgeOfGold.Characters.HostCharacterMaterial.Cutout(plain, 0),
+            () => AgeOfGold.Characters.HostCharacterMaterial.Cutout(plain, 256),
+            () => AgeOfGold.Characters.HostCharacterMaterial.Cutout(Fixture(1, "authored"), 128),
+        })
+            Reject(bad);
+        Console.WriteLine("PASS: a character's cut-out material is an installed plain definition with a coverage threshold");
+    }
+
     internal static byte[] Fixture(int count, string prefix) => new MATBIN
     {
         SourcePath = "authored.matxml", ShaderPath = "authored.spx", Key = 101,

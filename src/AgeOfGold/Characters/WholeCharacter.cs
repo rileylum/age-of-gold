@@ -117,7 +117,7 @@ internal static class WholeCharacter
         for (int part = 0; archive.Contains($"chr/{exemplar}_div{part:00}.anibnd.dcx"); part++)
             foreach (var file in BND4.Read(archive.Read($"chr/{exemplar}_div{part:00}.anibnd.dcx")).Files)
                 if (HostAnimation.Match(Member(file)) is { Success: true } match) asked.Add(long.Parse(match.Groups[1].Value) * 1000000 + long.Parse(match.Groups[2].Value));
-        var events = HostCharacterEvents.Write(sourceEvents, eventFile.Bytes, identity, asked, only, moves);
+        var events = HostCharacterEvents.Write(sourceEvents, eventFile.Bytes, identity, asked, only, moves, HostCharacterEvents.HostsOwn);
         eventFile.Bytes = events.File;
         if (!own.TryGetValue(0, out var idle)) throw new InvalidDataException("Source character has no idle animation: " + name);
         // lazy: a move the host asks for that the source has no animation of the same number for plays the source's idle.

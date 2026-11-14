@@ -102,6 +102,24 @@ internal static class WholeCharacterCheck
         if (hostWalk.Events.Single().Type != 224 || moved.Animations.Single(a => a.ID == 200).Events.Count != 1 || moved.Animations.Single(a => a.ID == 2001).Events.Count != 0)
             throw new Exception("A host move does not take the events of the source animation that does the same thing");
         source.Animations.RemoveRange(source.Animations.Count - 2, 2);
+        // Dying: the host is told what a body does at death (go limp, lie still) by events of its own; the exemplar's are kept
+        // for those moves, without its sounds and effects, beside the source's animation.
+        var hostDeath = new TAE.Animation(10000, new TAE.Animation.AnimMiniHeader.Standard(), "a000_010000.hkt");
+        foreach (var (kind, bytes) in new (int, byte[])[] { (787, new byte[32]), (129, new byte[32]), (0, [28, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 6, 0, 0, 0]), (112, new byte[16]), (711, new byte[32]) })
+        {
+            var group = new TAE.EventGroup(kind == 787 ? 786 : kind == 711 ? 710 : kind == 129 ? 128 : kind); hostDeath.EventGroups.Add(group);
+            hostDeath.Events.Add(new TAE.Event(0.3f, 100, kind, 0, bytes, false) { Group = group });
+        }
+        host.Animations.Add(hostDeath);
+        var death = new TAE.Animation(2100, new TAE.Animation.AnimMiniHeader.Standard(), "a00_2100.hkxwin"); death.Events.Add(Event(0, 0, 1.8f, 41, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255));
+        source.Animations.Add(death);
+        var died = TAE.Read(HostCharacterEvents.Write(source.Write(), host.Write(), "c6405", [10000, 10001], null, new Dictionary<long, long> { [10000] = 2100 }, [10000, 10001]).File);
+        var dying = died.Animations.Single(a => a.ID == 10000);
+        if (!dying.Events.Select(e => e.Type).Order().SequenceEqual([0, 711, 787]) || dying.Events.Single(e => e.Type == 0).GetParameterBytes(false)[0] != 28 || dying.Events.Any(e => e.Group is null || !dying.EventGroups.Contains(e.Group))
+            || died.Animations.Single(a => a.ID == 10001).Events.Count != 0)
+            throw new Exception("A death move does not keep the exemplar's own state events alone: " + string.Join(",", dying.Events.Select(e => e.Type)));
+        if (!HostCharacterEvents.HostsOwn.Contains(10000) || !HostCharacterEvents.HostsOwn.Contains(10001)) throw new Exception("Dying is not left to the host's own events");
+        source.Animations.Remove(death); host.Animations.Remove(hostDeath);
         foreach (var bad in new Action[]
         {
             () => HostCharacterEvents.Write(hostBytes, hostBytes, "c6405", []),
