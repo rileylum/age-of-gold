@@ -50,7 +50,8 @@ internal static class GameplayTables
     /// <summary>Adds a character row that is an installed row with another body size (how tall and how wide the character stands) or display mark.</summary>
     /// <param name="mark">The one display mark, of the row's first sixteen, whose meshes the row draws; null keeps the template's marks.</param>
     /// <param name="standingRow">An installed row whose standing toward the player the new row takes: with a friendly character's, it is left alone.</param>
-    internal static byte[] AddCharacter(byte[] table, int templateRow, int rowId, string name, (float Height, float Radius)? body, int? mark = null, int? standingRow = null)
+    /// <param name="variation">The behaviour variation whose rows answer the character's attack events; null keeps the template's.</param>
+    internal static byte[] AddCharacter(byte[] table, int templateRow, int rowId, string name, (float Height, float Radius)? body, int? mark = null, int? standingRow = null, int? variation = null)
     {
         if (mark is < 0 or > 15) throw new InvalidDataException("A character row shows one of its first sixteen display marks");
         var rows = Read(table, "NPC_PARAM_ST", 9, 736);
@@ -72,8 +73,51 @@ internal static class GameplayTables
         }
         // Sixteen bits, one for each of the marks a model's mesh names can open with ("#00#" to "#15#").
         if (mark is { } shown) BinaryPrimitives.WriteUInt16LittleEndian(Payload(added).AsSpan(330), (ushort)(1 << shown));
+        // The row opens with four bytes of the host's own; the behaviour variation whose rows answer its attacks follows them.
+        if (variation is <= 0) throw new InvalidDataException("A character's behaviour variation is a positive number");
+        if (variation is { } answers) BinaryPrimitives.WriteInt32LittleEndian(Payload(added).AsSpan(4), answers);
         Insert(rows, added);
         return rows.Write();
+    }
+
+    /// <summary>
+    /// Adds a source character's behaviour rows as they are: both games lay a behaviour row out alike. A row answers an
+    /// attack event's request for its character's variation by naming an attack row.
+    /// </summary>
+    internal static byte[] AddBehaviours(byte[] table, IReadOnlyList<(int Id, byte[] Row)> rows)
+    {
+        var host = Read(table, "BEHAVIOR_PARAM_ST", 2, 32);
+        // A variation the host already answers would mix another character's attacks with these.
+        var variations = host.Rows.Select(r => BinaryPrimitives.ReadInt32LittleEndian(Payload(r))).ToHashSet();
+        foreach (var (id, row) in rows)
+        {
+            if (row.Length != 32) throw new InvalidDataException($"Source behaviour row {id} is not laid out as the host's");
+            if (variations.Contains(BinaryPrimitives.ReadInt32LittleEndian(row))) throw new InvalidDataException($"The host already answers the behaviour variation of source row {id}");
+            var added = Clone(host, host.Rows[0], id, "aog_behaviour");
+            row.CopyTo(Payload(added), 0);
+            Insert(host, added);
+        }
+        return host.Write();
+    }
+
+    /// <summary>
+    /// Adds attack rows that are an installed row of a like attack under a source row's values. The start of an attack
+    /// row means the same in both games; of it, what describes the hit itself is taken from the source.
+    /// </summary>
+    internal static byte[] AddAttacks(byte[] table, int templateRow, IReadOnlyList<(int Id, byte[] Row)> rows)
+    {
+        var host = Read(table, "ATK_PARAM_ST", 4, 456);
+        var template = host.Rows.SingleOrDefault(r => r.ID == templateRow) ?? throw new InvalidDataException($"Attack template row {templateRow} is absent");
+        foreach (var (id, row) in rows)
+        {
+            if (row.Length != 128) throw new InvalidDataException($"Source attack row {id} is not of the known layout");
+            var added = Clone(host, template, id, "aog_attack");
+            // lazy: hit sizes and reach, the attachment points each hit spans, and the damage values. The effects an attack
+            // applies, its guard, stagger and material values stay the template's until each is matched between the games.
+            foreach (var (from, length) in new[] { (0, 24), (44, 16), (80, 12) }) row.AsSpan(from, length).CopyTo(Payload(added).AsSpan(from));
+            Insert(host, added);
+        }
+        return host.Write();
     }
 
     /// <summary>Clears the effect a host visual-effect row plays, so whatever applies the row shows nothing.</summary>

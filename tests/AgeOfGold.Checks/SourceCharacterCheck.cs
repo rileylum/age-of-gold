@@ -43,5 +43,46 @@ internal static class SourceCharacterCheck
             catch (InvalidDataException) { }
         }
         Console.WriteLine("PASS: source characters' body sizes are read from the character table, leaving out rows without a body; other layouts fail");
+
+        // A character's attacks: its row names a behaviour variation; the behaviour rows of that variation each name an attack row.
+        byte[] Rows(string type, int size, params (int Id, Action<byte[]> Fill)[] rows)
+        {
+            var definition = new PARAMDEF { ParamType = type };
+            definition.Fields.Add(new PARAMDEF.Field(definition, PARAMDEF.DefType.dummy8, "raw") { ArrayLength = size });
+            var table = new PARAM { ParamType = type, Rows = [] };
+            table.ApplyParamdef(definition);
+            foreach (var (id, fill) in rows) { var row = new PARAM.Row(id, "", definition); var raw = new byte[size]; fill(raw); row["raw"].Value = raw; table.Rows.Add(row); }
+            return table.Write();
+        }
+        Action<byte[]> Behaviour(int variation, int asked, byte kind, int refers) => raw =>
+            { BinaryPrimitives.WriteInt32LittleEndian(raw, variation); BinaryPrimitives.WriteInt32LittleEndian(raw.AsSpan(4), asked); raw[9] = kind; BinaryPrimitives.WriteInt32LittleEndian(raw.AsSpan(12), refers); };
+        void InstallAttacks(byte[] behaviourTable, byte[] attackTable)
+        {
+            var bundle = new BND3();
+            bundle.Files.Add(new(Binder.FileFlags.Flag1, 1, @"N:\authored\param\GameParam\NpcParam.param", Rows("NPC_PARAM_ST", 336, (254000, raw => BinaryPrimitives.WriteInt32LittleEndian(raw, 25400)), (254002, raw => BinaryPrimitives.WriteInt32LittleEndian(raw, 25400)), (290000, raw => BinaryPrimitives.WriteInt32LittleEndian(raw, 29000)))));
+            bundle.Files.Add(new(Binder.FileFlags.Flag1, 2, @"N:\authored\param\GameParam\BehaviorParam.param", behaviourTable));
+            bundle.Files.Add(new(Binder.FileFlags.Flag1, 3, @"N:\authored\param\GameParam\AtkParam_Npc.param", attackTable));
+            File.WriteAllBytes(Path.Combine(source, "param/GameParam/GameParam.parambnd.dcx"), bundle.Write());
+        }
+        var attackTable = Rows("ATK_PARAM_ST", 128, (254000, raw => raw[0] = 7), (254001, raw => raw[0] = 8), (290000, raw => raw[0] = 9));
+        // Two behaviours share one attack row; one names a projectile, which is not an attack row; one belongs to another character.
+        InstallAttacks(Rows("BEHAVIOR_PARAM_ST", 32, (225400100, Behaviour(25400, 100, 0, 254000)), (225400110, Behaviour(25400, 110, 0, 254001)), (225400120, Behaviour(25400, 120, 0, 254000)),
+            (225400180, Behaviour(25400, 180, 1, 254001)), (229000100, Behaviour(29000, 100, 0, 290000))), attackTable);
+        var attacks = SourceCharacterReader.Attacks(new Install(source, "DarkSoulsRemastered.exe"), 254002);
+        if (attacks.Variation != 25400 || !attacks.Behaviours.Select(b => b.Id).SequenceEqual([225400100, 225400110, 225400120, 225400180]) || attacks.Behaviours.Any(b => b.Row.Length != 32)
+            || !attacks.Hits.Select(h => (h.Id, h.Row[0])).SequenceEqual([(254000, (byte)7), (254001, (byte)8)]) || attacks.Projectiles != 1)
+            throw new Exception("A source character's behaviour and attack rows were not gathered");
+        foreach (var bad in new Action[]
+        {
+            () => SourceCharacterReader.Attacks(new Install(source, "DarkSoulsRemastered.exe"), 5),
+            () => { InstallAttacks(Rows("BEHAVIOR_PARAM_ST", 32, (225400100, Behaviour(25400, 100, 0, 777))), attackTable); SourceCharacterReader.Attacks(new Install(source, "DarkSoulsRemastered.exe"), 254000); },
+            () => { InstallAttacks(Rows("BEHAVIOR_PARAM_ST", 32, (225400100, Behaviour(25400, 100, 2, 254000))), attackTable); SourceCharacterReader.Attacks(new Install(source, "DarkSoulsRemastered.exe"), 254000); },
+            () => { InstallAttacks(Rows("BEHAVIOR_PARAM_ST", 36, (225400100, Behaviour(25400, 100, 0, 254000))), attackTable); SourceCharacterReader.Attacks(new Install(source, "DarkSoulsRemastered.exe"), 254000); },
+        })
+        {
+            try { bad(); throw new Exception("Invalid source attack rows were accepted"); }
+            catch (InvalidDataException) { }
+        }
+        Console.WriteLine("PASS: a source character's behaviour rows and the attack rows they name are gathered by its variation; missing or unclassified rows fail");
     }
 }

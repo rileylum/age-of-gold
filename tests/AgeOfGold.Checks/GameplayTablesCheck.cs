@@ -102,6 +102,43 @@ internal static class GameplayTablesCheck
         Reject(() => GameplayTables.AddCharacter(characterBytes, 42, 73, "authored", (0, 0.35f)), "a body without height");
         Reject(() => GameplayTables.AddCharacter(characterBytes, 42, 73, "authored", (1.5f, float.NaN)), "a body without width");
         Reject(() => GameplayTables.AddCharacter(Fixture("NPC_PARAM_ST", 9, 740).Write(), 42, 73, "authored", (1.5f, 0.35f)), "unsupported character row size");
+        // A character row may name the behaviour variation whose rows answer its attacks: four bytes in, after the host's own.
+        var varied = Payload(Read(GameplayTables.AddCharacter(characterBytes, 42, 73, "authored character", null, null, null, 25400), 736).Rows.Single(r => r.ID == 73));
+        var expectedVaried = Payload(characters.Rows[1]).ToArray(); BinaryPrimitives.WriteInt32LittleEndian(expectedVaried.AsSpan(4), 25400);
+        Require(varied.SequenceEqual(expectedVaried), "character row does not name its behaviour variation, or changed elsewhere");
+        Reject(() => GameplayTables.AddCharacter(characterBytes, 42, 73, "authored", null, null, null, 0), "a behaviour variation of nothing");
+        Console.WriteLine("PASS: a character row names the behaviour variation it is given and is otherwise its template");
+
+        // A source character's behaviour rows go into the host's table as they are: the two games lay them out alike.
+        var behaviours = Fixture("BEHAVIOR_PARAM_ST", 2, 32);
+        var behaviourBytes = behaviours.Write();
+        byte[] Behaviour(int variation, int asked, int refers) { var row = new byte[32]; BinaryPrimitives.WriteInt32LittleEndian(row, variation); BinaryPrimitives.WriteInt32LittleEndian(row.AsSpan(4), asked); row[8] = 2; BinaryPrimitives.WriteInt32LittleEndian(row.AsSpan(12), refers); return row; }
+        var asked = new[] { (225400110, Behaviour(25400, 110, 254001)), (30, Behaviour(25400, 100, 254000)) };
+        var answered = Read(GameplayTables.AddBehaviours(behaviourBytes, asked), 32);
+        Require(answered.Rows.Select(r => r.ID).SequenceEqual([30, 41, 42, 225400110]) && Payload(answered.Rows[0]).SequenceEqual(asked[1].Item2) && Payload(answered.Rows[3]).SequenceEqual(asked[0].Item2)
+            && Payload(answered.Rows[1]).SequenceEqual(Payload(behaviours.Rows[0])) && Payload(answered.Rows[2]).SequenceEqual(Payload(behaviours.Rows[1])), "behaviour rows were not added as given, in ascending order");
+        Reject(() => GameplayTables.AddBehaviours(behaviourBytes, [(41, Behaviour(25400, 100, 254000))]), "an occupied behaviour row");
+        Reject(() => GameplayTables.AddBehaviours(behaviourBytes, [(30, new byte[31])]), "a behaviour row of another length");
+        // A variation the host already answers would mix two characters' attacks.
+        var taken = Fixture("BEHAVIOR_PARAM_ST", 2, 32); BinaryPrimitives.WriteInt32LittleEndian(Payload(taken.Rows[0]), 25400);
+        Reject(() => GameplayTables.AddBehaviours(taken.Write(), [(30, Behaviour(25400, 100, 254000))]), "a behaviour variation the host already uses");
+        Reject(() => GameplayTables.AddBehaviours(Fixture("BEHAVIOR_PARAM_ST", 2, 36).Write(), asked), "unsupported behaviour row size");
+        Console.WriteLine("PASS: source behaviour rows join the host table unchanged; occupied rows and variations fail");
+
+        // An attack row is a host row of a like attack with the source's hit sizes, attachment points and damage laid over it.
+        var attacks = Fixture("ATK_PARAM_ST", 4, 456);
+        var attackBytes = attacks.Write();
+        var sourceAttack = Enumerable.Range(0, 128).Select(i => (byte)(200 - i)).ToArray();
+        var hit = Payload(Read(GameplayTables.AddAttacks(attackBytes, 42, [(254000, sourceAttack)]), 456).Rows.Single(r => r.ID == 254000));
+        var expectedHit = Payload(attacks.Rows[1]).ToArray();
+        foreach (var (from, length) in new[] { (0, 24), (44, 16), (80, 12) }) sourceAttack.AsSpan(from, length).CopyTo(expectedHit.AsSpan(from));
+        Require(hit.SequenceEqual(expectedHit), "attack row does not take the source's hit sizes, attachment points and damage over its template");
+        Reject(() => GameplayTables.AddAttacks(attackBytes, 999, [(254000, sourceAttack)]), "a missing attack template");
+        Reject(() => GameplayTables.AddAttacks(attackBytes, 42, [(41, sourceAttack)]), "an occupied attack row");
+        Reject(() => GameplayTables.AddAttacks(attackBytes, 42, [(254000, new byte[124])]), "a source attack row of another length");
+        Reject(() => GameplayTables.AddAttacks(Fixture("ATK_PARAM_ST", 4, 460).Write(), 42, [(254000, sourceAttack)]), "unsupported attack row size");
+        Console.WriteLine("PASS: an attack row is its host template under the source's hit sizes, attachment points and damage");
+
         var wider = Fixture("ACTIONBUTTON_PARAM_ST", 2, 104);
         Reject(() => GameplayTables.AddInteraction(wider.Write(), 41, 73, "authored", 187), "unexpected row length");
         wider = Fixture("ACTIONBUTTON_PARAM_ST", 2, 100);

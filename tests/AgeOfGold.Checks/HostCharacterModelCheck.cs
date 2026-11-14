@@ -146,5 +146,31 @@ internal static class HostCharacterModelCheck
             catch (InvalidDataException) { }
         }
         Console.WriteLine("PASS: a source character's meshes are carried on a host skeleton with host bones, weights, layout and material");
+
+        // The same source built whole: its own nodes and attachment points, nothing moved or resized; only layout and material are the host's.
+        source.Dummies.Add(new() { Position = new(0.1f, 0.4f, 0), ReferenceID = 11, ParentBoneIndex = 2, AttachBoneIndex = 3 });
+        string[] bones = ["Pelvis", "L Thigh", "L Calf", "L Finger0"];
+        var ownBytes = HostCharacterModel.WriteWhole(hostBytes, source, [new(0, 0, textures)], bones);
+        var own = FLVER2.Read(ownBytes);
+        if (!ownBytes.SequenceEqual(HostCharacterModel.WriteWhole(hostBytes, source, [new(0, 0, textures)], bones)) || !hostBytes.SequenceEqual(host.Write())) throw new Exception("Whole character model write changed its inputs or differs across runs");
+        if (own.Header.Version != 0x2001a || !own.Nodes.Select(n => (n.Name, n.ParentIndex, n.Translation)).SequenceEqual(source.Nodes.Select(n => (n.Name, n.ParentIndex, n.Translation))))
+            throw new Exception("A whole character does not keep the source's nodes");
+        const FLVER.Node.NodeFlags Bone = FLVER.Node.NodeFlags.Bone, Owner = FLVER.Node.NodeFlags.DummyOwner;
+        if (!own.Nodes.Select(n => n.Flags).SequenceEqual([Bone, Bone, Bone | Owner, Bone | Owner, FLVER.Node.NodeFlags.Mesh])) throw new Exception("A whole character's nodes are not told apart: " + string.Join(", ", own.Nodes.Select(n => n.Flags)));
+        foreach (var set in new[] { own.Skeletons.BaseSkeleton, own.Skeletons.AllSkeletons })
+            if (!set.Select(b => (b.NodeIndex, (int)b.ParentIndex)).SequenceEqual(source.Nodes.Select((n, i) => (i, (int)n.ParentIndex)))) throw new Exception("A whole character's node lists do not hold every node in order");
+        if (own.Dummies.Count != 1 || own.Dummies[0].ReferenceID != 11 || own.Dummies[0].AttachBoneIndex != 3 || own.Dummies[0].ParentBoneIndex != 2) throw new Exception("A whole character does not keep the source's attachment points");
+        var ownMesh = own.Meshes.Single();
+        if (ownMesh.NodeIndex != 4 || !own.BufferLayouts[ownMesh.VertexBuffers.Single().LayoutIndex].Select(m => m.Semantic).SequenceEqual(host.BufferLayouts[0].Select(m => m.Semantic)) || own.Materials.Single().MTD != host.Materials[0].MTD
+            || own.Materials.Single().Textures.Single(t => t.ParamName == "X_AlbedoMap").Path != "AUTHORED_colour.tif")
+            throw new Exception("A whole character's mesh does not sit on its own node in the host's layout and material");
+        for (int i = 0; i < 4; i++) Near(ownMesh.Vertices[i].Position, body.Vertices[i].Position, "whole vertex " + i);
+        // Weights name the source's own nodes: the calf and the finger, as the source weighted them.
+        var third = ownMesh.Vertices[2];
+        var weights = Enumerable.Range(0, 4).Where(i => third.BoneWeights[i] > 0).ToDictionary(i => third.BoneIndices[i], i => third.BoneWeights[i]);
+        if (weights.Count != 2 || MathF.Abs(weights[2] - 0.4f) > 0.01f || MathF.Abs(weights[3] - 0.6f) > 0.01f) throw new Exception("A whole character's vertex is not weighted to the source's own bones");
+        try { HostCharacterModel.WriteWhole(hostBytes, source, [new(0, 0, textures)], ["Pelvis", "Tail"]); throw new Exception("A skeleton bone the model lacks was accepted"); }
+        catch (InvalidDataException) { }
+        Console.WriteLine("PASS: a source character built whole keeps its own nodes, attachment points, positions and weights in the host's layout and material");
     }
 }

@@ -38,6 +38,11 @@ try
         HostCharacterModelCheck.Run();
         return;
     }
+    if (args.SequenceEqual(new[] { "whole-character-installs" }))
+    {
+        WholeCharacterCheck.Installs();
+        return;
+    }
     if (args.SequenceEqual(new[] { "navigation-installs" }))
     {
         NavigationInstallCheck.Run();
@@ -408,6 +413,7 @@ try
     SkeletonFitCheck.Run();
     HostCharacterModelCheck.Run();
     SourceCharacterCheck.Run(root);
+    WholeCharacterCheck.Run();
     SourceHumanCheck.Run(root);
     SourceTalkCheck.Run(root);
     SourceNavigationCheck.Run(root);

@@ -1,4 +1,4 @@
-"""Adapt the pinned MIT-licensed HKLib reader to use each file's serialized metadata."""
+"""Adapt the pinned MIT-licensed HKLib reader to use each file's serialized metadata, and to write files the host resolves."""
 
 from pathlib import Path
 
@@ -51,7 +51,17 @@ def apply(checkout: Path):
     }
 
 """ + code[end:]
+    # A type's alignment may carry flag bits above it; objects are laid out by the alignment alone.
+    code = replace_once(code, "builder.WithSizeAlignment((int)reader.ReadHavokVarUInt(), (int)reader.ReadHavokVarUInt());",
+                        "builder.WithSizeAlignment((int)reader.ReadHavokVarUInt(), (int)(reader.ReadHavokVarUInt() & 0xfff));")
     serializer.write_text(code, encoding="utf-8", newline="\n")
+
+    # An inline array is reached through an item reference like any other; the host resolves it only if it is listed.
+    arrays = checkout / "HKLib.Serialization/hk2018/Binary/FormatHandlers/ArrayFormatHandler.cs"
+    code = arrays.read_text(encoding="utf-8-sig")
+    code = replace_once(code, "        ulong pointer = EnqueueList(writer, type, context, list);\n        writer.WriteUInt32((uint)pointer);",
+                        "        ulong pointer = EnqueueList(writer, type, context, list);\n        context.RegisterPatch(type, writer.Position);\n        writer.WriteUInt32((uint)pointer);")
+    arrays.write_text(code, encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

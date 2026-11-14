@@ -44,9 +44,39 @@ internal static class HostCharacterModel
     /// host bones that carry them and is weighted to those.
     /// </summary>
     /// <remarks>Several bodies may share the model: each is drawn for the rows that show its mark.</remarks>
-    internal static byte[] Write(byte[] hostModel, IReadOnlyList<Body> bodies)
+    internal static byte[] Write(byte[] hostModel, IReadOnlyList<Body> bodies) => Write(FLVER2.Read(hostModel), bodies, false);
+
+    /// <summary>
+    /// The source's body whole, in the host's model format: the source's own nodes and attachment points, so its own
+    /// skeleton, animations and hit points apply and nothing is re-posed or resized. Only the meshes' vertex layouts and
+    /// materials are a host model's.
+    /// </summary>
+    /// <param name="hostModel">A host character model whose meshes the parts name as exemplars.</param>
+    /// <param name="bones">The names of the source skeleton's bones; the model's other nodes carry meshes or attachment points.</param>
+    internal static byte[] WriteWhole(byte[] hostModel, FLVER2 source, IReadOnlyList<Part> parts, IReadOnlyCollection<string> bones)
     {
         var host = FLVER2.Read(hostModel);
+        if (bones.Except(source.Nodes.Select(n => n.Name)).FirstOrDefault() is { } absent) throw new InvalidDataException("The source model has no node for its skeleton's bone " + absent);
+        var owners = source.Dummies.SelectMany(d => new[] { (int)d.AttachBoneIndex, (int)d.ParentBoneIndex }).Where(i => i >= 0).ToHashSet();
+        if (owners.Any(i => i >= source.Nodes.Count)) throw new InvalidDataException("A source attachment point names a missing node");
+        var meshNodes = source.Meshes.Select(m => m.NodeIndex).ToHashSet();
+        host.Nodes = source.Nodes.Select((node, i) => new FLVER.Node
+        {
+            Name = node.Name, ParentIndex = node.ParentIndex, FirstChildIndex = node.FirstChildIndex, NextSiblingIndex = node.NextSiblingIndex, PreviousSiblingIndex = node.PreviousSiblingIndex,
+            Translation = node.Translation, Rotation = node.Rotation, Scale = node.Scale, BoundingBoxMin = node.BoundingBoxMin, BoundingBoxMax = node.BoundingBoxMax,
+            // The host is told what each node is for; the source's format does not say.
+            Flags = bones.Contains(node.Name) ? FLVER.Node.NodeFlags.Bone | (owners.Contains(i) ? FLVER.Node.NodeFlags.DummyOwner : 0)
+                : meshNodes.Contains(i) ? FLVER.Node.NodeFlags.Mesh : owners.Contains(i) ? FLVER.Node.NodeFlags.DummyOwner : FLVER.Node.NodeFlags.Disabled,
+        }).ToList();
+        host.Dummies = source.Dummies.ToList();
+        // The host lists a model's node tree twice over; both lists hold every node in order.
+        FLVER2.SkeletonSet.Bone Link(FLVER.Node node, int i) => new(i) { ParentIndex = node.ParentIndex, FirstChildIndex = node.FirstChildIndex, NextSiblingIndex = node.NextSiblingIndex, PreviousSiblingIndex = node.PreviousSiblingIndex };
+        host.Skeletons = new FLVER2.SkeletonSet { BaseSkeleton = host.Nodes.Select(Link).ToList(), AllSkeletons = host.Nodes.Select(Link).ToList() };
+        return Write(host, [new(source, null, parts, null)], true);
+    }
+
+    private static byte[] Write(FLVER2 host, IReadOnlyList<Body> bodies, bool whole)
+    {
         if (host.Header.Version != 0x2001a || host.Header.BigEndian) throw new InvalidDataException("Unsupported host character model revision");
         if (bodies.Count == 0 || bodies.Any(b => b.Parts.Count == 0)) throw new InvalidDataException("A character model needs at least one mesh for each body");
         // A body may come as several models (armour pieces, a face, what it holds) under one mark; an unmarked model is
@@ -62,7 +92,9 @@ internal static class HostCharacterModel
         foreach (var body in bodies)
         {
         var source = body.Source;
-        var fit = SkeletonFit.Match(Bones(source), hostBones, body.PairedBones, body.Riders, body.Scale);
+        // A whole body stays on its own nodes, where it is; a carried one is fitted to the host's.
+        var fit = whole ? new SkeletonFit.Fit(Enumerable.Range(0, source.Nodes.Count).ToArray(), Enumerable.Repeat(Matrix4x4.Identity, source.Nodes.Count).ToArray(), 1)
+            : SkeletonFit.Match(Bones(source), hostBones, body.PairedBones, body.Riders, body.Scale);
         foreach (var part in body.Parts)
         {
             if (part.Mesh < 0 || part.Mesh >= source.Meshes.Count || part.Exemplar < 0 || part.Exemplar >= host.Meshes.Count) throw new InvalidDataException("A character part names a missing mesh");
@@ -143,7 +175,7 @@ internal static class HostCharacterModel
             var low = vertices.Select(v => v.Position).Aggregate(Vector3.Min); var high = vertices.Select(v => v.Position).Aggregate(Vector3.Max);
             meshes.Add(new FLVER2.Mesh
             {
-                UseBoneWeights = true, NodeIndex = exemplar.NodeIndex, MaterialIndex = materials.Count - 1, VertexBuffers = [new(layoutIndex)], Vertices = vertices,
+                UseBoneWeights = true, NodeIndex = whole ? from.NodeIndex : exemplar.NodeIndex, MaterialIndex = materials.Count - 1, VertexBuffers = [new(layoutIndex)], Vertices = vertices,
                 // The host picks a face set by distance; each level draws the source's full detail.
                 FaceSets = new[] { FLVER2.FaceSet.FSFlags.None, FLVER2.FaceSet.FSFlags.LodLevel1, FLVER2.FaceSet.FSFlags.LodLevel2 }
                     .Select(level => new FLVER2.FaceSet { Flags = level, CullBackfaces = faces.CullBackfaces, Indices = indices.ToList() }).ToList(),
