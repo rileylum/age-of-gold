@@ -75,23 +75,30 @@ internal static class GameplayTablesCheck
         // A build-owned character row: an installed row with another body size, under its own identity.
         var characters = Fixture("NPC_PARAM_ST", 9, 736);
         var characterBytes = characters.Write();
-        var sized = Read(GameplayTables.AddCharacter(characterBytes, 42, 73, "authored character", 1.5f, 0.35f), 736);
+        var sized = Read(GameplayTables.AddCharacter(characterBytes, 42, 73, "authored character", (1.5f, 0.35f)), 736);
         var body = Payload(characters.Rows[1]).ToArray();
         // Both of the row's body-size pairs take the new size: the one the map sees and the one other characters see.
         foreach (int at in new[] { 20, 340 }) { BinaryPrimitives.WriteSingleLittleEndian(body.AsSpan(at), 1.5f); BinaryPrimitives.WriteSingleLittleEndian(body.AsSpan(at + 4), 0.35f); }
         Require(sized.Rows.Count == 3 && sized.Rows.Single(r => r.ID == 73).Name == "authored character" && Payload(sized.Rows.Single(r => r.ID == 73)).SequenceEqual(body)
             && Payload(sized.Rows.Single(r => r.ID == 42)).SequenceEqual(Payload(characters.Rows[1])), "character row is not its template with the new body size");
-        Require(GameplayTables.AddCharacter(characterBytes, 42, 73, "authored character", 1.5f, 0.35f).SequenceEqual(GameplayTables.AddCharacter(characterBytes, 42, 73, "authored character", 1.5f, 0.35f)), "character row edit is not deterministic");
+        Require(GameplayTables.AddCharacter(characterBytes, 42, 73, "authored character", (1.5f, 0.35f)).SequenceEqual(GameplayTables.AddCharacter(characterBytes, 42, 73, "authored character", (1.5f, 0.35f))), "character row edit is not deterministic");
         // With a display mark the row draws that mark's meshes alone, of its first sixteen.
-        var marked = Read(GameplayTables.AddCharacter(characterBytes, 42, 73, "authored character", 1.5f, 0.35f, 10), 736);
+        var marked = Read(GameplayTables.AddCharacter(characterBytes, 42, 73, "authored character", (1.5f, 0.35f), 10), 736);
         BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(330), 1 << 10);
         Require(Payload(marked.Rows.Single(r => r.ID == 73)).SequenceEqual(body), "character row does not show its one display mark");
-        Reject(() => GameplayTables.AddCharacter(characterBytes, 42, 73, "authored", 1.5f, 0.35f, 16), "a display mark outside the row's field");
-        Reject(() => GameplayTables.AddCharacter(characterBytes, 999, 73, "authored", 1.5f, 0.35f), "missing character template");
-        Reject(() => GameplayTables.AddCharacter(characterBytes, 42, 41, "authored", 1.5f, 0.35f), "occupied character row");
-        Reject(() => GameplayTables.AddCharacter(characterBytes, 42, 73, "authored", 0, 0.35f), "a body without height");
-        Reject(() => GameplayTables.AddCharacter(characterBytes, 42, 73, "authored", 1.5f, float.NaN), "a body without width");
-        Reject(() => GameplayTables.AddCharacter(Fixture("NPC_PARAM_ST", 9, 740).Write(), 42, 73, "authored", 1.5f, 0.35f), "unsupported character row size");
+        // Without a body size the row keeps its template's and takes only the mark.
+        var kept = Payload(characters.Rows[1]).ToArray(); BinaryPrimitives.WriteUInt16LittleEndian(kept.AsSpan(330), 1 << 14);
+        Require(Payload(Read(GameplayTables.AddCharacter(characterBytes, 42, 73, "authored character", null, 14), 736).Rows.Single(r => r.ID == 73)).SequenceEqual(kept), "character row without a size changed its template's body");
+        // With another row's standing the new row takes that row's kind and side, and nothing else of it.
+        kept[304] = Payload(characters.Rows[0])[304]; kept[307] = Payload(characters.Rows[0])[307];
+        Require(Payload(Read(GameplayTables.AddCharacter(characterBytes, 42, 73, "authored character", null, 14, 41), 736).Rows.Single(r => r.ID == 73)).SequenceEqual(kept), "character row does not take another row's standing alone");
+        Reject(() => GameplayTables.AddCharacter(characterBytes, 42, 73, "authored", null, 14, 999), "a missing standing row");
+        Reject(() => GameplayTables.AddCharacter(characterBytes, 42, 73, "authored", (1.5f, 0.35f), 16), "a display mark outside the row's field");
+        Reject(() => GameplayTables.AddCharacter(characterBytes, 999, 73, "authored", (1.5f, 0.35f)), "missing character template");
+        Reject(() => GameplayTables.AddCharacter(characterBytes, 42, 41, "authored", (1.5f, 0.35f)), "occupied character row");
+        Reject(() => GameplayTables.AddCharacter(characterBytes, 42, 73, "authored", (0, 0.35f)), "a body without height");
+        Reject(() => GameplayTables.AddCharacter(characterBytes, 42, 73, "authored", (1.5f, float.NaN)), "a body without width");
+        Reject(() => GameplayTables.AddCharacter(Fixture("NPC_PARAM_ST", 9, 740).Write(), 42, 73, "authored", (1.5f, 0.35f)), "unsupported character row size");
         var wider = Fixture("ACTIONBUTTON_PARAM_ST", 2, 104);
         Reject(() => GameplayTables.AddInteraction(wider.Write(), 41, 73, "authored", 187), "unexpected row length");
         wider = Fixture("ACTIONBUTTON_PARAM_ST", 2, 100);

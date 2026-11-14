@@ -47,19 +47,28 @@ internal static class GameplayTables
         return rows.Write();
     }
 
-    /// <summary>Adds a character row that is an installed row with another body size: how tall and how wide the character stands.</summary>
+    /// <summary>Adds a character row that is an installed row with another body size (how tall and how wide the character stands) or display mark.</summary>
     /// <param name="mark">The one display mark, of the row's first sixteen, whose meshes the row draws; null keeps the template's marks.</param>
-    internal static byte[] AddCharacter(byte[] table, int templateRow, int rowId, string name, float height, float radius, int? mark = null)
+    /// <param name="standingRow">An installed row whose standing toward the player the new row takes: with a friendly character's, it is left alone.</param>
+    internal static byte[] AddCharacter(byte[] table, int templateRow, int rowId, string name, (float Height, float Radius)? body, int? mark = null, int? standingRow = null)
     {
         if (mark is < 0 or > 15) throw new InvalidDataException("A character row shows one of its first sixteen display marks");
         var rows = Read(table, "NPC_PARAM_ST", 9, 736);
-        if (!(height > 0) || !(radius > 0) || !float.IsFinite(height) || !float.IsFinite(radius)) throw new InvalidDataException("A character needs a body height and radius");
+        if (body is { } size && (!(size.Height > 0) || !(size.Radius > 0) || !float.IsFinite(size.Height) || !float.IsFinite(size.Radius))) throw new InvalidDataException("A character needs a body height and radius");
         var template = rows.Rows.SingleOrDefault(r => r.ID == templateRow) ?? throw new InvalidDataException($"Character template row {templateRow} is absent");
         var added = Clone(rows, template, rowId, name);
         // The row holds the body size twice: against the map (and for finding routes), and against other characters.
-        foreach (int at in new[] { 20, 340 })
+        // Without a size the template's own is kept.
+        if (body is { } given)
+            foreach (int at in new[] { 20, 340 })
+            {
+                BinaryPrimitives.WriteSingleLittleEndian(Payload(added).AsSpan(at), given.Height); BinaryPrimitives.WriteSingleLittleEndian(Payload(added).AsSpan(at + 4), given.Radius);
+            }
+        if (standingRow is { } standing)
         {
-            BinaryPrimitives.WriteSingleLittleEndian(Payload(added).AsSpan(at), height); BinaryPrimitives.WriteSingleLittleEndian(Payload(added).AsSpan(at + 4), radius);
+            var friend = rows.Rows.SingleOrDefault(r => r.ID == standing) ?? throw new InvalidDataException($"Character standing row {standing} is absent");
+            // Two bytes tell the host what kind of character this is and whose side it is on.
+            foreach (int at in new[] { 304, 307 }) Payload(added)[at] = Payload(friend)[at];
         }
         // Sixteen bits, one for each of the marks a model's mesh names can open with ("#00#" to "#15#").
         if (mark is { } shown) BinaryPrimitives.WriteUInt16LittleEndian(Payload(added).AsSpan(330), (ushort)(1 << shown));

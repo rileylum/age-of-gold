@@ -14,7 +14,26 @@ internal static class HostCharacterModel
     /// <summary>One source character's body.</summary>
     /// <param name="PairedBones">Source bones carried by a host bone of another name.</param>
     /// <param name="Mark">The display mark its meshes carry, so only rows that show the mark draw it; null draws it always.</param>
-    internal sealed record Body(FLVER2 Source, IReadOnlyDictionary<string, string>? PairedBones, IReadOnlyList<Part> Parts, int? Mark);
+    /// <param name="Riders">Source bones that ride another source bone: attachments with no host counterpart.</param>
+    /// <param name="Scale">The size ratio of the whole body, when this model is one part of it; null measures it from this model.</param>
+    internal sealed record Body(FLVER2 Source, IReadOnlyDictionary<string, string>? PairedBones, IReadOnlyList<Part> Parts, int? Mark,
+        IReadOnlyDictionary<string, string>? Riders = null, float? Scale = null);
+
+    /// <summary>The host skeleton's size over a source skeleton's, measured across the bones they share by name.</summary>
+    internal static float SizeRatio(byte[] hostModel, FLVER2 source, IReadOnlyDictionary<string, string>? pairedBones = null) =>
+        SkeletonFit.Match(Bones(source), Bones(FLVER2.Read(hostModel)), pairedBones).Scale;
+
+    private static SkeletonFit.Bone[] Bones(FLVER2 model)
+    {
+        var world = new Matrix4x4?[model.Nodes.Count];
+        Matrix4x4 World(int node, int depth = 0)
+        {
+            if (node < 0) return Matrix4x4.Identity;
+            if (node >= model.Nodes.Count || depth > model.Nodes.Count) throw new InvalidDataException("Model node hierarchy is invalid or cyclic");
+            return world[node] ??= model.Nodes[node].ComputeLocalTransform() * World(model.Nodes[node].ParentIndex, depth + 1);
+        }
+        return model.Nodes.Select((node, i) => new SkeletonFit.Bone(node.Name, node.ParentIndex, World(i))).ToArray();
+    }
 
     /// <summary>The highest display mark a host character row can show or hide in the field this build writes.</summary>
     internal const int HighestMark = 15;
@@ -30,19 +49,10 @@ internal static class HostCharacterModel
         var host = FLVER2.Read(hostModel);
         if (host.Header.Version != 0x2001a || host.Header.BigEndian) throw new InvalidDataException("Unsupported host character model revision");
         if (bodies.Count == 0 || bodies.Any(b => b.Parts.Count == 0)) throw new InvalidDataException("A character model needs at least one mesh for each body");
-        if (bodies.Any(b => b.Mark is < 0 or > HighestMark) || bodies.Count > 1 && (bodies.Any(b => b.Mark is null) || bodies.Select(b => b.Mark).Distinct().Count() != bodies.Count))
-            throw new InvalidDataException("Bodies sharing a host character need distinct display marks");
-        static SkeletonFit.Bone[] Bones(FLVER2 model)
-        {
-            var world = new Matrix4x4?[model.Nodes.Count];
-            Matrix4x4 World(int node, int depth = 0)
-            {
-                if (node < 0) return Matrix4x4.Identity;
-                if (node >= model.Nodes.Count || depth > model.Nodes.Count) throw new InvalidDataException("Model node hierarchy is invalid or cyclic");
-                return world[node] ??= model.Nodes[node].ComputeLocalTransform() * World(model.Nodes[node].ParentIndex, depth + 1);
-            }
-            return model.Nodes.Select((node, i) => new SkeletonFit.Bone(node.Name, node.ParentIndex, World(i))).ToArray();
-        }
+        // A body may come as several models (armour pieces, a face, what it holds) under one mark; an unmarked model is
+        // always drawn, so it cannot share the character with marked ones.
+        if (bodies.Any(b => b.Mark is < 0 or > HighestMark) || bodies.Any(b => b.Mark is null) && bodies.Any(b => b.Mark is not null))
+            throw new InvalidDataException("Bodies sharing a host character need display marks the host can show");
         var hostBones = Bones(host);
 
         var layouts = new List<FLVER2.BufferLayout>(); var layoutOf = new Dictionary<int, int>();
@@ -52,7 +62,7 @@ internal static class HostCharacterModel
         foreach (var body in bodies)
         {
         var source = body.Source;
-        var fit = SkeletonFit.Match(Bones(source), hostBones, body.PairedBones);
+        var fit = SkeletonFit.Match(Bones(source), hostBones, body.PairedBones, body.Riders, body.Scale);
         foreach (var part in body.Parts)
         {
             if (part.Mesh < 0 || part.Mesh >= source.Meshes.Count || part.Exemplar < 0 || part.Exemplar >= host.Meshes.Count) throw new InvalidDataException("A character part names a missing mesh");
@@ -87,13 +97,18 @@ internal static class HostCharacterModel
             var indices = faces.Triangulate(from.Vertices.Count < 65536);
             if (indices.Count == 0 || indices.Count % 3 != 0 || indices.Any(i => i < 0 || i >= from.Vertices.Count)) throw new InvalidDataException("Invalid triangles in a source character mesh");
             int normalW = exemplar.Vertices[0].NormalW;
+            bool slotted = from.VertexBuffers.SelectMany(b => source.BufferLayouts[b.LayoutIndex]).Any(m => m.Semantic == FLVER.LayoutSemantic.BoneIndices);
             var vertices = from.Vertices.Select(vertex =>
             {
                 // The source bones a vertex follows, through the mesh's own bone list.
                 var follows = new List<(int Node, float Weight)>();
                 int Node(int slot) => slot >= 0 && slot < from.BoneIndices.Count && from.BoneIndices[slot] >= 0 && from.BoneIndices[slot] < source.Nodes.Count
                     ? from.BoneIndices[slot] : throw new InvalidDataException("Source character vertex references an absent bone");
-                if (!from.UseBoneWeights) follows.Add((Node(vertex.NormalW), 1));
+                // A rigid mesh follows one bone: the one its vertex names in the mesh's list (in its bone slot when the layout
+                // has one, else beside its normal), or, with no list, the mesh's own node.
+                if (!from.UseBoneWeights)
+                    follows.Add((from.BoneIndices.Count > 0 ? Node(slotted ? vertex.BoneIndices[0] : vertex.NormalW) : from.NodeIndex >= 0 && from.NodeIndex < source.Nodes.Count ? from.NodeIndex
+                        : throw new InvalidDataException("Source character mesh names an absent node"), 1));
                 else for (int i = 0; i < 4; i++) if (vertex.BoneWeights[i] != 0) follows.Add((Node(vertex.BoneIndices[i]), vertex.BoneWeights[i]));
                 float total = follows.Sum(f => f.Weight);
                 if (follows.Count == 0 || MathF.Abs(total - 1) > 0.002f) throw new InvalidDataException("Source character skin weights do not sum to one");

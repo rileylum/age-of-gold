@@ -45,6 +45,12 @@ internal static class HostCharacterModelCheck
         source.Nodes.Add(new() { Name = "L Calf", ParentIndex = 1, Translation = new(0, -0.5f, 0), Scale = Vector3.One });
         source.Nodes.Add(new() { Name = "L Finger0", ParentIndex = 2, Translation = new(0, -0.1f, 0), Scale = Vector3.One });
         source.Nodes.Add(new() { Name = "loose", ParentIndex = -1, Scale = Vector3.One });
+        // The source's layout: weighted vertices name their bones by slot in the mesh's bone list.
+        source.BufferLayouts.Add([
+            new(FLVER.LayoutType.Float3, FLVER.LayoutSemantic.Position), new(FLVER.LayoutType.UByte4, FLVER.LayoutSemantic.BoneIndices),
+            new(FLVER.LayoutType.Short4Norm, FLVER.LayoutSemantic.BoneWeights), new(FLVER.LayoutType.UByte4Norm, FLVER.LayoutSemantic.Normal),
+            new(FLVER.LayoutType.UByte4Norm, FLVER.LayoutSemantic.Tangent), new(FLVER.LayoutType.UByte4Norm, FLVER.LayoutSemantic.VertexColor), new(FLVER.LayoutType.Short2, FLVER.LayoutSemantic.UV),
+        ]);
         FLVER.Vertex SourceVertex(Vector3 p, Vector2 uv, params (int Slot, float Weight)[] bones)
         {
             var vertex = new FLVER.Vertex { Positions = [p], Normals = [Vector3.UnitZ], NormalWs = [0], Tangents = [new(1, 0, 0, -1)], Colors = [new(1f, 1f, 1f, 1f)], UVs = [new(uv, 0)] };
@@ -105,6 +111,24 @@ internal static class HostCharacterModelCheck
         if (shared.Meshes.Count != 3 || !shared.Meshes.Select(m => shared.Materials[m.MaterialIndex].Name[..4]).SequenceEqual(["#10#", "#11#", "#11#"])
             || shared.Materials.Select(m => m.Name).Distinct().Count() != 3 || shared.Nodes.Count != 4) throw new Exception("Bodies sharing a host character are not told apart by display mark");
 
+        // A body may come as several models under one mark, each a part of it placed with the whole body's size ratio.
+        float whole = HostCharacterModel.SizeRatio(hostBytes, source);
+        var pieces = FLVER2.Read(HostCharacterModel.Write(hostBytes, [new(source, null, [new(0, 0, textures)], 14, null, whole), new(source, null, [new(0, 0, textures)], 14, null, 2)]));
+        if (MathF.Abs(whole - 1.2f) > 1e-5f || pieces.Meshes.Count != 2 || pieces.Materials.Any(m => !m.Name.StartsWith("#14#", StringComparison.Ordinal))) throw new Exception("Parts of one body do not share its mark");
+        Near(pieces.Meshes[0].Vertices[3].Position, new(0.24f, 0.48f, 0), "vertex of a part at the body's size");
+        Near(pieces.Meshes[1].Vertices[3].Position, new(0.32f, 0.4f, 0), "vertex of a part at a given size");
+
+        // A rigid source mesh with no bone list follows its own node: here the thigh, so its vertices move with the thigh.
+        source.Meshes.Add(new FLVER2.Mesh
+        {
+            UseBoneWeights = false, NodeIndex = 1, MaterialIndex = 0, VertexBuffers = [new(0)], FaceSets = [new() { Indices = [0, 1, 2] }],
+            Vertices = [SourceVertex(new(0.1f, 1, 0), default), SourceVertex(new(0.15f, 0.9f, 0), default), SourceVertex(new(0.1f, 0.9f, 0), default)],
+        });
+        var rigid = FLVER2.Read(HostCharacterModel.Write(hostBytes, [new(source, null, [new(1, 0, textures)], null)])).Meshes.Single();
+        Near(rigid.Vertices[1].Position, new(0.18f, 1.08f, 0), "vertex of a rigid mesh");
+        if (!Bones(rigid.Vertices[1]).SequenceEqual([(1, 255)])) throw new Exception("A rigid mesh is not weighted to the bone that carries its node");
+        source.Meshes.RemoveAt(1);
+
         foreach (var bad in new Action[]
         {
             // A vertex that follows a node no host bone carries.
@@ -113,8 +137,7 @@ internal static class HostCharacterModelCheck
             () => HostCharacterModel.Write(hostBytes, [new(source, null, [new(1, 0, textures)], null)]),
             () => HostCharacterModel.Write(hostBytes, [new(source, null, [], null)]),
             () => HostCharacterModel.Write(hostBytes, []),
-            // Two bodies need two marks, within what a row can show.
-            () => HostCharacterModel.Write(hostBytes, [new(source, null, [new(0, 0, textures)], 3), new(source, null, [new(0, 0, textures)], 3)]),
+            // An unmarked model is always drawn, so it cannot share the character with marked ones; marks stay within what a row can show.
             () => HostCharacterModel.Write(hostBytes, [new(source, null, [new(0, 0, textures)], null), new(source, null, [new(0, 0, textures)], 4)]),
             () => HostCharacterModel.Write(hostBytes, [new(source, null, [new(0, 0, textures)], 16)]),
         })

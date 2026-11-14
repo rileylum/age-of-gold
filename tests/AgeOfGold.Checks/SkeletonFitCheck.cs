@@ -38,8 +38,17 @@ internal static class SkeletonFitCheck
         if (fit.Move[4] != fit.Move[2]) throw new Exception("An unpaired bone does not follow its parent");
         // Directions turn without growing.
         Near(Vector3.TransformNormal(Vector3.UnitY, SkeletonFit.Turn(fit.Move[2])), new(-1, 0, 0), "direction on the turned calf");
+        // An attachment with no bone above it rides a named source bone; a part of a body takes the whole body's size ratio.
+        var part = SkeletonFit.Match(source, host, new Dictionary<string, string> { ["LCalfTwist"] = "L_Calf" }, new Dictionary<string, string> { ["model"] = "L Thigh" }, 2);
+        if (part.Host[5] != 3 || part.Scale != 2) throw new Exception("A rider is not carried by the bone it rides, or the given size ratio is not used");
+        Near(Vector3.Transform(new Vector3(0.15f, 0.9f, 0), part.Move[5]), new(0.12f + 0.1f, 1.2f - 0.2f, 0), "point on a rider");
+        // A lone bone with nothing to measure fits only with a given size ratio.
+        if (SkeletonFit.Match([At("blade", -1, 0, 0, 0)], host, new Dictionary<string, string> { ["blade"] = "L_Thigh" }, null, 1.2f).Host[0] != 3) throw new Exception("A single paired bone does not fit");
         foreach (var bad in new Action[]
         {
+            () => SkeletonFit.Match([At("blade", -1, 0, 0, 0)], host, new Dictionary<string, string> { ["blade"] = "L_Thigh" }),
+            () => SkeletonFit.Match(source, host, null, new Dictionary<string, string> { ["model"] = "Missing" }),
+            () => SkeletonFit.Match(source, host, null, null, 0),
             () => SkeletonFit.Match(source, host, new Dictionary<string, string> { ["LCalfTwist"] = "Missing" }),
             () => SkeletonFit.Match(source, [.. host, At("Pelvis", 0, 0, 1, 0)]),
             () => SkeletonFit.Match([At("Other", -1, 0, 0, 0)], host),

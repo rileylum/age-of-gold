@@ -50,8 +50,8 @@ internal static class FirelinkBuildInstallCheck
         var pieces = layout.Parts.MapPieces.Where(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable).ToArray();
         if (pieces.Length == 0 || pieces.Any(p => !p.ModelName.StartsWith("m81", StringComparison.Ordinal))
             || layout.Parts.Collisions.Count(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable) != 38
-            // The enabled characters are the build's two unseen controllers and the enemies its manifest lists.
-            || layout.Parts.Enemies.Count(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable) != 2 + manifest.RootElement.GetProperty("enemies").GetArrayLength())
+            // The enabled characters are the build's two unseen controllers and the enemies and people its manifest lists.
+            || layout.Parts.Enemies.Count(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable) != 2 + manifest.RootElement.GetProperty("enemies").GetArrayLength() + manifest.RootElement.GetProperty("people").GetArrayLength())
             throw new Exception("Built map retains host placements or lacks source terrain and scenery");
         // A resting point: marker, controller and respawn region placed together and registered with the build's flag.
         var rest = manifest.RootElement.GetProperty("restingPoint");
@@ -163,8 +163,27 @@ internal static class FirelinkBuildInstallCheck
             if (!body.Materials.Any(m => m.Name.StartsWith($"#{mark:D2}#", StringComparison.Ordinal))) throw new Exception($"Built enemy {placed.Name} shows a display mark no mesh carries");
             marksOf[placed.ModelName].Add(mark);
         }
-        if (marksOf.Values.Sum(m => m.Count) != enemyModels.Length || bodyFiles.Sum(b => b.Value.Materials.Select(m => m.Name[..4]).Distinct().Count()) != enemyModels.Length)
-            throw new Exception("Built enemy bodies and display marks are not one for each source model");
+        // People: each source human the manifest lists stands in the built map on a built collision, under its own row, which
+        // shows a display mark of its own that meshes of the body carry and has the standing of an installed friendly character.
+        var people = manifest.RootElement.GetProperty("people").EnumerateArray().ToArray();
+        var peopleMarks = new HashSet<int>();
+        foreach (var person in people)
+        {
+            var placed = layout.Parts.Enemies.Single(p => p.Name == person.GetProperty("name").GetString());
+            var from = sourceEnemies[person.GetProperty("source").GetString()!];
+            var raw = (byte[])builtCharacters.Rows.Single(r => r.ID == placed.NPCParamID)["raw"].Value;
+            int shown = BitConverter.ToUInt16(raw, 330), mark = System.Numerics.BitOperations.TrailingZeroCount(shown);
+            if (from.ModelName != "c0000" || placed.Name != "aog_" + from.Name || placed.EntityID != 0 || layout.Parts.Collisions.Count(c => c.Name == placed.CollisionPartName) != 1
+                || (placed.Position - enemyOffset - from.Position).Length() > 1e-3f || placed.Rotation != from.Rotation || System.Numerics.BitOperations.PopCount((uint)shown) != 1
+                || !peopleMarks.Add(mark) || marksOf[placed.ModelName].Contains(mark) || !bodyFiles[placed.ModelName].Materials.Any(m => m.Name.StartsWith($"#{mark:D2}#", StringComparison.Ordinal))
+                // Enemies' rows carry side 6; a person's row does not.
+                || raw[307] == 6 || person.GetProperty("parts").GetArrayLength() < 5)
+                throw new Exception($"Built person {placed.Name} differs from its source placement, its row or its body");
+        }
+        if (people.Length != 2 || manifest.RootElement.GetProperty("unbuiltCharacters").GetProperty("c0000").GetInt32() != sourceEnemies.Values.Count(p => p.ModelName == "c0000") - people.Length)
+            throw new Exception("Built people are not the two humans present from the start");
+        if (marksOf.Values.Sum(m => m.Count) != enemyModels.Length || bodyFiles.Sum(b => b.Value.Materials.Select(m => m.Name[..4]).Distinct().Count()) != enemyModels.Length + people.Length)
+            throw new Exception("Built bodies and display marks are not one for each source model and person");
         // Navigation: one mesh for each source mesh, numbered after the built collision it lies on and listed in the map's index.
         var walk = manifest.RootElement.GetProperty("navigation");
         var meshes = BND4.Read(Path.Combine(mod, "map/m10/m10_01_00_00/m10_01_00_00.nvmhktbnd.dcx")).Files;

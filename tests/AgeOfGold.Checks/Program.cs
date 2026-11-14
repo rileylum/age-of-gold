@@ -408,6 +408,8 @@ try
     SkeletonFitCheck.Run();
     HostCharacterModelCheck.Run();
     SourceCharacterCheck.Run(root);
+    SourceHumanCheck.Run(root);
+    SourceTalkCheck.Run(root);
     SourceNavigationCheck.Run(root);
     NavigationBorderCheck.Run();
     NavigationPiecesCheck.Run();

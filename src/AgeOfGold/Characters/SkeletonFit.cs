@@ -17,8 +17,12 @@ internal static class SkeletonFit
     internal sealed record Fit(int[] Host, Matrix4x4[] Move, float Scale);
 
     /// <param name="named">Source bones paired with a host bone of another name.</param>
-    internal static Fit Match(IReadOnlyList<Bone> source, IReadOnlyList<Bone> host, IReadOnlyDictionary<string, string>? named = null)
+    /// <param name="riders">Source bones that ride another source bone rigidly, by name: attachments with no host counterpart.</param>
+    /// <param name="scale">The size ratio to use, when the source model is one part of a body whose whole skeleton gave it.</param>
+    internal static Fit Match(IReadOnlyList<Bone> source, IReadOnlyList<Bone> host, IReadOnlyDictionary<string, string>? named = null,
+        IReadOnlyDictionary<string, string>? riders = null, float? scale = null)
     {
+        if (scale is { } given && (!(given > 0) || !float.IsFinite(given))) throw new InvalidDataException("A skeleton's size ratio must be a positive number");
         // Names differ only in spacing and case between the games.
         static string Key(string name) => new string(name.Where(c => char.IsLetterOrDigit(c) || c is '[' or ']').ToArray()).ToLowerInvariant();
         // A host model may name helper nodes twice; that only matters for a name a source bone pairs with.
@@ -40,25 +44,28 @@ internal static class SkeletonFit
             sourceLength += (source[s].World.Translation - source[parent].World.Translation).Length();
             hostLength += (host[paired[s]].World.Translation - host[paired[parent]].World.Translation).Length();
         }
-        if (!(sourceLength > 0) || !(hostLength > 0)) throw new InvalidDataException("Skeletons share no paired bone lengths to compare");
-        float scale = hostLength / sourceLength;
+        if (scale is null && (!(sourceLength > 0) || !(hostLength > 0))) throw new InvalidDataException("Skeletons share no paired bone lengths to compare");
+        float ratio = scale ?? hostLength / sourceLength;
+        var byName = source.Select((bone, index) => (bone.Name, index)).GroupBy(b => b.Name, b => b.index, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
         var carrier = new int[source.Count]; var move = new Matrix4x4[source.Count];
         for (int s = 0; s < source.Count; s++)
         {
-            // An unpaired bone is carried, rigidly, by the nearest paired bone above it.
+            // An unpaired bone is carried, rigidly, by the nearest paired bone above it, or by the bone it is said to ride.
             int from = s;
             for (int depth = 0; from >= 0 && paired[from] < 0; depth++)
             {
                 if (depth > source.Count) throw new InvalidDataException("Source skeleton hierarchy is cyclic");
-                from = source[from].Parent;
+                from = riders is not null && riders.TryGetValue(source[from].Name, out string? ridden)
+                    ? byName.TryGetValue(ridden, out int mount) ? mount : throw new InvalidDataException("Source skeleton lacks the bone ridden by " + source[from].Name)
+                    : source[from].Parent;
             }
             if (from < 0) { carrier[s] = -1; move[s] = Matrix4x4.Identity; continue; }
             if (!Matrix4x4.Invert(source[from].World, out var around)) throw new InvalidDataException("Source bone placement is singular: " + source[from].Name);
             carrier[s] = paired[from];
             // Into the source bone's own space, grown by the size ratio, then out through the host bone's rest placement.
-            move[s] = around * Matrix4x4.CreateScale(scale) * host[paired[from]].World;
+            move[s] = around * Matrix4x4.CreateScale(ratio) * host[paired[from]].World;
         }
-        return new(carrier, move, scale);
+        return new(carrier, move, ratio);
     }
 
     /// <summary>A move without its growth or shift, for directions.</summary>
