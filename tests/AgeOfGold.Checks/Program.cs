@@ -34,6 +34,8 @@ try
         NavigationPiecesCheck.Run();
         NavigationIndexCheck.Run();
         SourceEventCheck.Run();
+        SkeletonFitCheck.Run();
+        HostCharacterModelCheck.Run();
         return;
     }
     if (args.SequenceEqual(new[] { "navigation-installs" }))
@@ -403,6 +405,9 @@ try
     NavigationTreeCheck.Run();
     NavigationIndexCheck.Run();
     SourceEventCheck.Run();
+    SkeletonFitCheck.Run();
+    HostCharacterModelCheck.Run();
+    SourceCharacterCheck.Run(root);
     SourceNavigationCheck.Run(root);
     NavigationBorderCheck.Run();
     NavigationPiecesCheck.Run();

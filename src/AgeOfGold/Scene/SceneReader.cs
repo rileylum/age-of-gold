@@ -80,13 +80,19 @@ internal sealed class SceneReader
         return JsonSerializer.SerializeToUtf8Bytes(Model(name, Member("chrbnd", name + ".flver"), model => PosedGeometry.Skin(model, skeleton, pose)));
     }
 
-    /// <summary>A character's textures: its own packages and the body textures all characters share.</summary>
+    /// <summary>
+    /// A character's textures: those held in its binder, those in the package beside it, and the body textures all
+    /// characters share. Some characters hold only textures, which the models of their family wear.
+    /// </summary>
     internal (string Name, byte[] Bytes)[] ReadCharacterTextures(string name)
     {
-        var header = BND3.Read(source.Read($"chr/{Install.Relative(name)}.chrbnd.dcx")).Files.Where(f => f.Name.EndsWith(".chrtpfbhd", StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (header.Length != 1) throw new InvalidDataException($"Source character {name} does not have one texture package");
-        var packages = BXF3.Read(header[0].Bytes, source.Read($"chr/{Install.Relative(name)}.chrtpfbdt"));
-        return packages.Files.SelectMany(f => TextureReader.ReadPackage(f.Bytes)).Concat(TextureReader.ReadPackage(source.Read("parts/Common_Body.tpf"))).ToArray();
+        var binder = BND3.Read(source.Read($"chr/{Install.Relative(name)}.chrbnd.dcx"));
+        var held = binder.Files.Where(f => f.Name.EndsWith(".tpf", StringComparison.OrdinalIgnoreCase)).SelectMany(f => TextureReader.ReadPackage(f.Bytes)).ToList();
+        var header = binder.Files.Where(f => f.Name.EndsWith(".chrtpfbhd", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (header.Length > 1) throw new InvalidDataException($"Source character {name} has more than one texture package");
+        if (header.Length == 1) held.AddRange(BXF3.Read(header[0].Bytes, source.Read($"chr/{Install.Relative(name)}.chrtpfbdt")).Files.SelectMany(f => TextureReader.ReadPackage(f.Bytes)));
+        if (held.Count == 0) throw new InvalidDataException($"Source character {name} holds no textures");
+        return held.Concat(TextureReader.ReadPackage(source.Read("parts/Common_Body.tpf"))).ToArray();
     }
 
     /// <summary>Character placements in the shape of <see cref="ReadPlacements"/>.</summary>

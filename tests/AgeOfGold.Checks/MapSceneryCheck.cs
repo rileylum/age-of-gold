@@ -63,6 +63,28 @@ internal static class MapSceneryCheck
             catch (InvalidDataException) { }
         }
 
+        // An enemy is an installed enemy placement moved to where the source stands one, with a build-owned row, the behaviour
+        // asked for and the built collision it stands on; nothing else of the installed placement's script ties is kept.
+        var fought = MSBE.Read(native);
+        fought.Models.Collisions.Add(new() { Name = "h800005" }); fought.Parts.Collisions.Add(new() { Name = "h800005_0000", ModelName = "h800005" });
+        // The installed placement comes from another map, with ties to that map's own parts.
+        var soldier = new MSBE.Part.Enemy { Name = "c4300_9002", ModelName = "c4300", EntityID = 500, InstanceID = 4, NPCParamID = 111, ThinkParamID = 222, TalkID = 1000,
+            WalkRouteName = "authored-route", CollisionPartName = "authored-collision" };
+        soldier.EntityGroupIDs[0] = 9;
+        FirelinkMapWriter.AddEnemy(fought, soldier, "aog_authored_enemy", 43008000, 43000000, "h800005_0000", new(4, 5, 6), new(0, 30, 0));
+        FirelinkMapWriter.AddEnemy(fought, soldier, "aog_authored_enemy_2", 43008001, 43000000, "h800005_0000", new(7, 5, 6), new(0, 40, 0));
+        var enemies = MSBE.Read(fought.Write()).Parts.Enemies.Where(p => p.Name.StartsWith("aog_authored_enemy")).OrderBy(p => p.Name).ToArray();
+        if (enemies.Length != 2 || enemies[0].NPCParamID != 43008000 || enemies[0].ThinkParamID != 43000000 || enemies[0].CollisionPartName != "h800005_0000" || enemies[0].EntityID != 0
+            || enemies[0].TalkID != 0 || enemies[0].WalkRouteName is not null || enemies[0].EntityGroupIDs.Any(g => g != 0) || enemies[0].Position != new Vector3(4, 5, 6) || enemies[0].Rotation != new Vector3(0, 30, 0)
+            || enemies[0].InstanceID != 0 || enemies[1].InstanceID != 1 || enemies[0].ModelName != "c4300" || MSBE.Read(fought.Write()).Models.Enemies.Count(m => m.Name == "c4300") != 1 || enemies[0].GameEditionDisable != MSBE.Part.GameEditionDisableType.NeverDisable
+            || enemies[0].Unk1.DisplayGroups.Any(g => g != uint.MaxValue) || soldier.NPCParamID != 111 || soldier.WalkRouteName != "authored-route")
+            throw new Exception("Placed enemy differs or changed its template");
+        foreach (var (name, collision) in new[] { ("aog_authored_enemy", "h800005_0000"), ("aog_other_enemy", "") })
+        {
+            try { FirelinkMapWriter.AddEnemy(fought, soldier, name, 1, 2, collision, default, default); throw new Exception("An enemy with an occupied name or no collision was accepted"); }
+            catch (InvalidDataException) { }
+        }
+
         // Host environment lighting follows the scenery: probes and the one enclosing outdoor volume move, rooms stay.
         var lit = MSBE.Read(native);
         FirelinkMapWriter.MoveEnvironment(lit, new(0, 200, 0), new(-3, 240, 7), new(0, 145, 0));

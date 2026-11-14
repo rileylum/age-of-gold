@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AgeOfGold.Archives;
+using AgeOfGold.Characters;
 using AgeOfGold.Collision;
 using AgeOfGold.Effects;
 using AgeOfGold.Maps;
@@ -36,6 +37,31 @@ internal static class FirelinkBuild
     // other languages are not translated.
     private const int SourceKeeperTalk = 102606, SourceKeeperPrompt = 10010200, SourceKeeperResponse = 10010191;
     private const int KeeperTalk = 100190000, KeeperAction = 9100000, KeeperPrompt = 9100000, KeeperMessage = 9100001, HostTalkAction = 6000;
+    /// <summary>A source enemy carried by a host character: the host's skeleton, animations and behaviour under the source's body.</summary>
+    /// <param name="Template">An installed placement of the host character whose row and behaviour the enemy takes.</param>
+    /// <param name="Body">A host material, by name fragment, whose mesh layout and inputs the source's body takes; <paramref name="Held"/> likewise for what it holds.</param>
+    /// <param name="Shown">The source's optional meshes, by display mark, that are drawn.</param>
+    /// <param name="Paired">Source bones carried by a host bone of another name.</param>
+    /// <param name="Mark">The display mark that tells this body from others carried by the same host character.</param>
+    private sealed record Living(string Host, int Mark, string TemplateMap, string TemplatePart, string Body, string Held, string[] Shown, (string Source, string Host)[] Paired);
+
+    // The source's human-sized sword fighters on the host's wandering noble: a slow, weak sword fighter of about the same
+    // build. Each body takes its own display mark; each shows the sword and, where it has one, the shield of its model.
+    // lazy: every placement of a model carries the same weapons; the source's spear, axe and bow variants, chosen by its
+    // rows' display marks, need those marks read and a host behaviour for each. The giant skeleton is not carried: a host
+    // body of its size is needed.
+    private static Living OnNoble(int mark, params string[] shown) => new("c4300", mark, "m60_40_40_00", "c4300_9002", "_Belt_Leather.", "_WP_A_0211_Sword.", shown,
+        [("L ForeTwist", "L_Forearm"), ("R ForeTwist", "R_Forearm"), ("LCalfTwist", "L_Calf"), ("RCalfTwist", "R_Calf"),
+         ("R_Weapon", "R_Weapon01"), ("R_weapon", "R_Weapon01"), ("R Weapon", "R_Weapon01"), ("L_shield", "L_Weapon01")]);
+    private static readonly SortedDictionary<string, Living> LivingCharacters = new(StringComparer.Ordinal)
+    {
+        ["c2510"] = OnNoble(12, "#00#"), ["c2540"] = OnNoble(10, "#00#", "#02#"), ["c2550"] = OnNoble(11, "#02#", "#01#"), ["c2900"] = OnNoble(13, "#00#", "#01#"),
+    };
+    // The host material inputs a carried body fills: its colour, its surface relief, and a metal map left empty of metal.
+    private const string ColourInput = "_7_AlbedoMap", ReliefInput = "_0_NormalMap", MetalInput = "_3_MetallicMap";
+    // Build-owned character rows follow the host character's own, from this offset within its thousand.
+    private const int FirstCharacterRow = 8000;
+
     // How far the walkable border moves out toward the walls: the source's own margin from them is about this.
     private const float WalkableReach = 0.5f;
     private const int SourceBonfireFire = 90001, BonfireFire = 990100300, BonfireFireTextures = 990300;
@@ -101,8 +127,27 @@ internal static class FirelinkBuild
         var sceneryCharacters = new SortedDictionary<string, string>(StringComparer.Ordinal) { ["c2750"] = "a00_0000" };
         using var characterDocument = JsonDocument.Parse(reader.ReadCharacterPlacements());
         var characterPlacements = characterDocument.RootElement.EnumerateArray().ToLookup(p => sceneryCharacters.ContainsKey(p.GetProperty("model").GetString()!));
-        var unbuiltCharacters = new SortedDictionary<string, int>(characterPlacements[false].GroupBy(p => p.GetProperty("model").GetString()!)
-            .ToDictionary(g => g.Key, g => g.Count()), StringComparer.Ordinal);
+        var livingCharacters = LivingCharacters;
+        var unbuiltCharacters = new SortedDictionary<string, int>(characterPlacements[false].Where(p => !livingCharacters.ContainsKey(p.GetProperty("model").GetString()!))
+            .GroupBy(p => p.GetProperty("model").GetString()!).ToDictionary(g => g.Key, g => g.Count()), StringComparer.Ordinal);
+        // A living character's meshes: its body, and the optional meshes shown. Each names the source textures it wears.
+        var livingModels = livingCharacters.ToDictionary(c => c.Key, c =>
+        {
+            var file = BND3.Read(source.Read($"chr/{c.Key}.chrbnd.dcx")).Files.SingleOrDefault(f => f.Name.EndsWith(c.Key + ".flver", StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidDataException("Source character has no model: " + c.Key);
+            var (model, _) = ModelReader.Read(file.Bytes);
+            var meshes = Enumerable.Range(0, model.Meshes.Count).Select(i =>
+            {
+                var material = model.Materials[model.Meshes[i].MaterialIndex];
+                string Texture(string input) => material.Textures.SingleOrDefault(t => t.ParamName == input) is { Path.Length: > 0 } t ? Path.GetFileNameWithoutExtension(t.Path.Replace('\\', '/'))
+                    : throw new InvalidDataException($"Source character material lacks {input}: {c.Key}/{material.Name}");
+                // A mesh marked "#NN#" is drawn only for rows that show that mark.
+                string mark = material.Name.Length >= 4 && material.Name[0] == '#' && material.Name[3] == '#' ? material.Name[..4] : "";
+                return (Mesh: i, Mark: mark, Colour: Texture("g_Diffuse"), Relief: Texture("g_Bumpmap"));
+            }).Where(m => m.Mark == "" || c.Value.Shown.Contains(m.Mark)).ToArray();
+            if (c.Value.Shown.Except(meshes.Select(m => m.Mark)).FirstOrDefault() is { } absent) throw new InvalidDataException($"Source character {c.Key} has no mesh marked {absent}");
+            return (Model: model, Meshes: meshes);
+        }, StringComparer.Ordinal);
         var placements = placementDocument.RootElement.EnumerateArray().Concat(objectPlacements[true]).Concat(characterPlacements[true]).ToArray();
         byte[] ReadModel(string name) => sceneryCharacters.TryGetValue(name, out var held) ? reader.ReadCharacter(name, held)
             : sceneryObjects.Contains(name) ? reader.ReadObject(name) : reader.ReadModel(name);
@@ -202,6 +247,34 @@ internal static class FirelinkBuild
         uint keeperEntity = Enumerable.Range(0, 40).Select(i => (uint)(10010990 - i)).First(id => !occupied.Contains(id));
         FirelinkMapWriter.AddTalker(spoken, spoken.Parts.Enemies.Single(p => p.EntityID == restingEntity - 1000), "aog_firekeeper_talk", keeperEntity, KeeperTalk,
             keepers[0].Position + terrain.Offset, keepers[0].Rotation);
+        // Living enemies stand where the source places them, on the built collision the source names, each under a build-owned
+        // row that is the host template's with the source's body size. A source space is sized for the source's bodies.
+        var bodySizes = SourceCharacterReader.BodySizes(source);
+        var characterRows = new List<(int Row, int Template, string Name, float Height, float Radius, int Mark)>();
+        var enemies = new List<object>();
+        foreach (var (name, living) in livingCharacters)
+        {
+            var donor = MSBE.Read(archive.Read($"map/mapstudio/{living.TemplateMap}.msb.dcx"));
+            var template = donor.Parts.Enemies.SingleOrDefault(p => p.Name == living.TemplatePart && p.ModelName == living.Host)
+                ?? throw new InvalidDataException($"Host map {living.TemplateMap} has no placement {living.TemplatePart} of {living.Host}");
+            if (!spoken.Models.Enemies.Any(m => m.Name == living.Host)) spoken.Models.Enemies.Add((MSBE.Model.Enemy)donor.Models.Enemies.Single(m => m.Name == living.Host).DeepCopy());
+            foreach (var placed in sourceLayout.Parts.Enemies.Where(p => p.ModelName == name).OrderBy(p => p.Name, StringComparer.Ordinal))
+            {
+                if (!bodySizes.TryGetValue(placed.NPCParamID, out var size)) throw new InvalidDataException($"Source placement {placed.Name} names a character row that is missing or has no body size");
+                int known = characterRows.FindIndex(r => r.Template == template.NPCParamID && r.Height == size.Height && r.Radius == size.Radius && r.Mark == living.Mark);
+                if (known < 0)
+                {
+                    known = characterRows.Count;
+                    characterRows.Add((template.NPCParamID / 10000 * 10000 + FirstCharacterRow + known, template.NPCParamID, $"aog_{name}_{known}", size.Height, size.Radius, living.Mark));
+                }
+                int stoodOn = Array.IndexOf(terrain.Sources, placed.CollisionName);
+                if (stoodOn < 0) throw new InvalidDataException($"Source placement {placed.Name} stands on a collision that is not built: {placed.CollisionName}");
+                string floor = $"h{terrain.Low[stoodOn].Model}_0000";
+                FirelinkMapWriter.AddEnemy(spoken, template, "aog_" + placed.Name, characterRows[known].Row, template.ThinkParamID, floor, placed.Position + terrain.Offset, placed.Rotation);
+                enemies.Add(new { name = "aog_" + placed.Name, source = placed.Name, body = living.Host, row = characterRows[known].Row, behaviour = template.ThinkParamID, collision = floor,
+                    height = size.Height, radius = size.Radius });
+            }
+        }
         files.Add($"mod/map/mapstudio/{Map}.msb.dcx", spoken.Write());
         files.Add($"mod/event/{Map}.emevd.dcx", restingEvents);
         // Her talk script joins the map's own talk bundle, or an emptied copy of the resting template map's when the map has none.
@@ -294,7 +367,11 @@ internal static class FirelinkBuild
             if (textures.Length != 1) throw new InvalidDataException("Lighting row lacks one diffuse environment texture");
             return $"EnvDif_m10_{textures[0]:D3}";
         }, StringComparer.Ordinal);
-        var required = models.SelectMany(m => m.Textures).Concat(environments.Values)
+        // A living character's colour is read by the host's own character program, which expects display-encoded colour.
+        var displayColours = livingModels.Values.SelectMany(m => m.Meshes.Select(x => x.Colour)).ToHashSet(StringComparer.Ordinal);
+        var livingTextures = displayColours.Concat(livingModels.Values.SelectMany(m => m.Meshes.Select(x => x.Relief))).Append(NeutralTextures.Neutral).ToArray();
+        if (models.SelectMany(m => m.Textures).Intersect(displayColours).FirstOrDefault() is { } shared) throw new InvalidDataException("A texture is read both as scenery and as a living character's colour: " + shared);
+        var required = models.SelectMany(m => m.Textures).Concat(environments.Values).Concat(livingModels.Count == 0 ? [] : livingTextures)
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         var environmentBinder = BND4.Read(archive.Read($"map/m10/{Map}/{Map}_envmap_00_high_00.tpfbnd.dcx"));
         var textureTemplate = environmentBinder.Files.Select(f => DCX.Is(f.Bytes) ? DCX.Decompress(f.Bytes) : f.Bytes)
@@ -304,7 +381,9 @@ internal static class FirelinkBuild
         DCX.Decompress(archive.Read($"map/m10/{Map}/{Map}_000000.mapbnd.dcx"), out var packageCompression);
         var textureWriter = new TextureWriter(textureTemplate, packageCompression);
         // An object's textures come from its own binder; every other name is looked up in the map's packages.
-        var raw = sceneryObjects.SelectMany(reader.ReadObjectTextures).Concat(sceneryCharacters.Keys.SelectMany(reader.ReadCharacterTextures))
+        // A living character may wear textures held by another character of its family, named in the texture's own name.
+        var textureHolders = livingCharacters.Keys.Concat(livingTextures.Select(t => Regex.Match(t, @"^c\d{4}")).Where(m => m.Success).Select(m => m.Value)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
+        var raw = sceneryObjects.SelectMany(reader.ReadObjectTextures).Concat(sceneryCharacters.Keys.Concat(textureHolders).SelectMany(reader.ReadCharacterTextures))
             .Where(t => required.Contains(t.Name)).DistinctBy(t => t.Name, StringComparer.Ordinal).ToDictionary(t => t.Name, t => t.Bytes, StringComparer.Ordinal);
         foreach (var texture in TextureReader.Read(source, required.Where(n => !NeutralTextures.Is(n) && !raw.ContainsKey(n)).ToArray())) raw.Add(texture.Name, texture.Bytes);
         foreach (string neutral in required.Where(NeutralTextures.Is)) raw.Add(neutral, NeutralTextures.Bytes(neutral));
@@ -315,8 +394,34 @@ internal static class FirelinkBuild
             // lazy: one reserved namespace of a thousand textures; split across namespaces when a larger area needs more.
             string stem = $"aet950_{i:D3}", name = stem.ToUpperInvariant() + "_a";
             foreach (string suffix in new[] { "", "_l" })
-                Add($"asset/aet/aet950/{stem}{suffix}.tpf.dcx", textureWriter.Write(name + suffix, raw[required[i]], false));
+                Add($"asset/aet/aet950/{stem}{suffix}.tpf.dcx", textureWriter.Write(name + suffix, raw[required[i]], displayColours.Contains(required[i])));
             names.Add(required[i], name + ".tif");
+        }
+        // The living characters a host character carries replace its own meshes in its model file; each body is drawn for
+        // the rows that show its display mark.
+        foreach (var carried in livingCharacters.GroupBy(c => c.Value.Host, StringComparer.Ordinal).OrderBy(g => g.Key, StringComparer.Ordinal))
+        {
+            var binder = BND4.Read(archive.Read($"chr/{carried.Key}.chrbnd.dcx"));
+            var file = binder.Files.SingleOrDefault(f => f.Name.EndsWith(carried.Key + ".flver", StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidDataException("Host character has no model: " + carried.Key);
+            var hostModel = FLVER2.Read(file.Bytes);
+            int Exemplar(string fragment) => hostModel.Meshes.FindIndex(m => hostModel.Materials[m.MaterialIndex].MTD.Contains(fragment, StringComparison.Ordinal)) is >= 0 and var found
+                ? found : throw new InvalidDataException($"Host character {carried.Key} has no material like {fragment}");
+            var bodies = carried.Select(c =>
+            {
+                var (name, living) = (c.Key, c.Value);
+                var parts = livingModels[name].Meshes.Select(mesh =>
+                {
+                    int exemplar = Exemplar(mesh.Mark == "" ? living.Body : living.Held);
+                    var inputs = hostModel.Materials[hostModel.Meshes[exemplar].MaterialIndex].Textures.Select(t => t.ParamName).ToArray();
+                    string Input(string suffix) => inputs.Count(i => i.EndsWith(suffix, StringComparison.Ordinal)) == 1 ? inputs.Single(i => i.EndsWith(suffix, StringComparison.Ordinal))
+                        : throw new InvalidDataException($"Host character material does not have one input ending {suffix}");
+                    return new HostCharacterModel.Part(mesh.Mesh, exemplar, new Dictionary<string, string>
+                        { [Input(ColourInput)] = names[mesh.Colour], [Input(ReliefInput)] = names[mesh.Relief], [Input(MetalInput)] = names[NeutralTextures.Neutral] });
+                }).ToArray();
+                return new HostCharacterModel.Body(livingModels[name].Model, living.Paired.ToDictionary(p => p.Source, p => p.Host), parts, living.Mark);
+            }).ToArray();
+            file.Bytes = HostCharacterModel.Write(file.Bytes, bodies);
+            files.Add($"mod/chr/{carried.Key}.chrbnd.dcx", binder.Write());
         }
 
         var shaders = archive.Read("shader/shaderbdle.shaderbdlebnd.dcx");
@@ -506,6 +611,8 @@ internal static class FirelinkBuild
             new(restingFlag, "aog_bonfire", restingEntity, (uint)restingFlag, 10, 1, 0, resting.Position, destinationTemplate.Text));
         var actions = regulation.Tables.Files.Single(f => Path.GetFileName(f.Name.Replace('\\', '/')) == "ActionButtonParam.param");
         actions.Bytes = GameplayTables.AddInteraction(actions.Bytes, HostTalkAction, KeeperAction, "aog_firekeeper_talk", KeeperPrompt);
+        var characterTable = regulation.Tables.Files.Single(f => Path.GetFileName(f.Name.Replace('\\', '/')) == "NpcParam.param");
+        foreach (var row in characterRows) characterTable.Bytes = GameplayTables.AddCharacter(characterTable.Bytes, row.Template, row.Row, row.Name, row.Height, row.Radius, row.Mark);
         files.Add("mod/regulation.bin", regulation.Write());
 
         files.Add("age-of-gold.me3", System.Text.Encoding.UTF8.GetBytes(
@@ -531,6 +638,7 @@ internal static class FirelinkBuild
             unbuiltSurfaces = unbuilt,
             unbuiltObjects,
             unbuiltCharacters,
+            enemies,
             characters = characterSupports.ToDictionary(c => c.Key, c => new { collision = c.Value, rows = selections[c.Value] }),
             navigation = new { vertices = walkable.Vertices.Length, faces = walkable.Triangles.Length, dropped = walkable.Dropped,
                 border = new { reach = WalkableReach, moved = widened.Moved, furthest = widened.Furthest }, joins = walkPieces.Joins.Length,

@@ -50,7 +50,8 @@ internal static class FirelinkBuildInstallCheck
         var pieces = layout.Parts.MapPieces.Where(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable).ToArray();
         if (pieces.Length == 0 || pieces.Any(p => !p.ModelName.StartsWith("m81", StringComparison.Ordinal))
             || layout.Parts.Collisions.Count(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable) != 38
-            || layout.Parts.Enemies.Count(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable) != 2)
+            // The enabled characters are the build's two unseen controllers and the enemies its manifest lists.
+            || layout.Parts.Enemies.Count(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable) != 2 + manifest.RootElement.GetProperty("enemies").GetArrayLength())
             throw new Exception("Built map retains host placements or lacks source terrain and scenery");
         // A resting point: marker, controller and respawn region placed together and registered with the build's flag.
         var rest = manifest.RootElement.GetProperty("restingPoint");
@@ -111,6 +112,59 @@ internal static class FirelinkBuildInstallCheck
             || !sourceWords.Any(t => t.Entries.Any(e => e.Text == builtPrompt)) || !sourceWords.Any(t => t.Entries.Any(e => e.Text == builtResponse))
             || actionRows.Rows.Count(r => r.ID == talkAction) != 1)
             throw new Exception("Built Fire Keeper talk lacks its controller, script, source words or action");
+        // Living enemies: each source enemy the manifest lists stands in the built map as the host character that carries it,
+        // on a built collision, under a build-owned row with the source's body size and the display mark of its own body.
+        var enemies = manifest.RootElement.GetProperty("enemies").EnumerateArray().ToArray();
+        var sourceEnemies = MSB1.Read(Path.Combine(source, "map/MapStudio/m10_02_00_00.msb")).Parts.Enemies.ToDictionary(p => p.Name, StringComparer.Ordinal);
+        var sourceBodies = AgeOfGold.Characters.SourceCharacterReader.BodySizes(new Install(source, "DarkSoulsRemastered.exe"));
+        var builtRegulation = AgeOfGold.Archives.Regulation.Read(File.ReadAllBytes(Path.Combine(host, "eldenring.exe")), File.ReadAllBytes(Path.Combine(mod, "regulation.bin")));
+        var builtCharacters = PARAM.Read(builtRegulation.Tables.Files.Single(f => Path.GetFileName(f.Name.Replace('\\', '/')) == "NpcParam.param").Bytes);
+        var characterDefinition = new PARAMDEF { ParamType = builtCharacters.ParamType, DataVersion = builtCharacters.ParamdefDataVersion };
+        characterDefinition.Fields.Add(new PARAMDEF.Field(characterDefinition, PARAMDEF.DefType.dummy8, "raw") { ArrayLength = (int)builtCharacters.DetectedSize });
+        builtCharacters.ApplyParamdef(characterDefinition);
+        var enemyModels = enemies.Select(e => sourceEnemies[e.GetProperty("source").GetString()!].ModelName).Distinct().ToArray();
+        // Every placement of a carried source model is built, and none of those models is still counted as unbuilt.
+        if (enemies.Length < 10 || enemies.Length != sourceEnemies.Values.Count(p => enemyModels.Contains(p.ModelName)) || !enemyModels.Contains("c2540") || !enemyModels.Contains("c2900")
+            || enemyModels.Any(m => manifest.RootElement.GetProperty("unbuiltCharacters").TryGetProperty(m, out _))) throw new Exception("Built enemies are not one for each placement of the source models carried");
+        // Every enemy is moved from its source place by the one displacement the whole map shares.
+        var enemyOffset = layout.Parts.Enemies.Single(p => p.Name == enemies[0].GetProperty("name").GetString()).Position - sourceEnemies[enemies[0].GetProperty("source").GetString()!].Position;
+        var bodyFiles = new Dictionary<string, FLVER2>(StringComparer.Ordinal); var marksOf = new Dictionary<string, HashSet<int>>(StringComparer.Ordinal);
+        var hostArchive = new AgeOfGold.Archives.HostArchive(new Install(host, "eldenring.exe"));
+        foreach (var enemy in enemies)
+        {
+            var placed = layout.Parts.Enemies.Single(p => p.Name == enemy.GetProperty("name").GetString());
+            var from = sourceEnemies[enemy.GetProperty("source").GetString()!];
+            var rows = builtCharacters.Rows.Where(r => r.ID == placed.NPCParamID).ToArray();
+            var raw = rows.Length == 1 ? (byte[])rows[0]["raw"].Value : throw new Exception("A built enemy's row is missing or repeated");
+            var size = sourceBodies[from.NPCParamID];
+            int shown = BitConverter.ToUInt16(raw, 330);
+            if (placed.ModelName != enemy.GetProperty("body").GetString() || placed.Name != "aog_" + from.Name || placed.EntityID != 0 || placed.WalkRouteName is not null
+                || placed.GameEditionDisable != MSBE.Part.GameEditionDisableType.NeverDisable || layout.Parts.Collisions.Count(c => c.Name == placed.CollisionPartName) != 1
+                || !layout.Models.Enemies.Any(m => m.Name == placed.ModelName) || (placed.Position - enemyOffset - from.Position).Length() > 1e-3f || placed.Rotation != from.Rotation
+                || !rows[0].Name.StartsWith("aog_", StringComparison.Ordinal) || BitConverter.ToSingle(raw, 20) != size.Height || BitConverter.ToSingle(raw, 24) != size.Radius
+                || BitConverter.ToSingle(raw, 340) != size.Height || BitConverter.ToSingle(raw, 344) != size.Radius || System.Numerics.BitOperations.PopCount((uint)shown) != 1)
+                throw new Exception($"Built enemy {placed.Name} differs from its source placement, its collision or its row");
+            if (!bodyFiles.TryGetValue(placed.ModelName, out var body))
+            {
+                bodyFiles[placed.ModelName] = body = FLVER2.Read(BND4.Read(Path.Combine(mod, $"chr/{placed.ModelName}.chrbnd.dcx")).Files.Single(f => f.Name.EndsWith(".flver", StringComparison.OrdinalIgnoreCase)).Bytes);
+                var hostBody = FLVER2.Read(BND4.Read(hostArchive.Read($"chr/{placed.ModelName}.chrbnd.dcx")).Files.Single(f => f.Name.EndsWith(".flver", StringComparison.OrdinalIgnoreCase)).Bytes);
+                // The host's skeleton is kept whole; no host mesh remains; every vertex is weighted to host bones and every texture named is built.
+                if (body.Nodes.Count != hostBody.Nodes.Count || !body.Nodes.Select(n => n.Name).SequenceEqual(hostBody.Nodes.Select(n => n.Name)) || body.Dummies.Count != hostBody.Dummies.Count
+                    || body.Materials.Any(m => !Regex.IsMatch(m.Name, @"^#\d\d#aog_\d+$")) || body.Meshes.Any(m => !m.UseBoneWeights || m.Vertices.Count == 0)
+                    || body.Meshes.SelectMany(m => m.Vertices).Any(v => Enumerable.Range(0, 4).Sum(i => (int)MathF.Round(v.BoneWeights[i] * 255)) != 255)
+                    || body.Materials.Any(m => m.Textures.Count(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)) != 3)
+                    || body.Materials.SelectMany(m => m.Textures).Where(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)).Select(t => t.Path).Distinct()
+                        .Any(t => !File.Exists(Path.Combine(mod, "asset/aet/aet950", Path.GetFileNameWithoutExtension(t)[..^2].ToLowerInvariant() + ".tpf.dcx"))))
+                    throw new Exception("Built enemy body is not source meshes on the host's skeleton with built textures");
+                marksOf[placed.ModelName] = [];
+            }
+            // The row shows a mark that some mesh of the body carries, and placements of one source model share it.
+            int mark = System.Numerics.BitOperations.TrailingZeroCount(shown);
+            if (!body.Materials.Any(m => m.Name.StartsWith($"#{mark:D2}#", StringComparison.Ordinal))) throw new Exception($"Built enemy {placed.Name} shows a display mark no mesh carries");
+            marksOf[placed.ModelName].Add(mark);
+        }
+        if (marksOf.Values.Sum(m => m.Count) != enemyModels.Length || bodyFiles.Sum(b => b.Value.Materials.Select(m => m.Name[..4]).Distinct().Count()) != enemyModels.Length)
+            throw new Exception("Built enemy bodies and display marks are not one for each source model");
         // Navigation: one mesh for each source mesh, numbered after the built collision it lies on and listed in the map's index.
         var walk = manifest.RootElement.GetProperty("navigation");
         var meshes = BND4.Read(Path.Combine(mod, "map/m10/m10_01_00_00/m10_01_00_00.nvmhktbnd.dcx")).Files;
