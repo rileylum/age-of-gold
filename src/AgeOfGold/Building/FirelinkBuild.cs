@@ -37,36 +37,29 @@ internal static class FirelinkBuild
     // other languages are not translated.
     private const int SourceKeeperTalk = 102606, SourceKeeperPrompt = 10010200, SourceKeeperResponse = 10010191;
     private const int KeeperTalk = 100190000, KeeperAction = 9100000, KeeperPrompt = 9100000, KeeperMessage = 9100001, HostTalkAction = 6000;
-    /// <summary>A source enemy carried by a host character: the host's skeleton, animations and behaviour under the source's body.</summary>
-    /// <param name="Template">An installed placement of the host character whose row and behaviour the enemy takes.</param>
+    /// <summary>
+    /// A source enemy built whole — its own body, skeleton, animations, physics and attack timing — with what the source
+    /// has no counterpart for lent by host characters.
+    /// </summary>
+    /// <param name="Host">The host character that lends its behaviour, action script and mesh exemplars.</param>
+    /// <param name="TemplateMap">A host map with a placement, <paramref name="TemplatePart"/>, of the host character, whose row and AI the enemy takes.</param>
     /// <param name="Body">A host material, by name fragment, whose mesh layout and inputs the source's body takes; <paramref name="Held"/> likewise for what it holds.</param>
     /// <param name="Shown">The source's optional meshes, by display mark, that are drawn.</param>
-    /// <param name="Paired">Source bones carried by a host bone of another name.</param>
-    /// <param name="Mark">The display mark that tells this body from others carried by the same host character.</param>
-    /// <param name="Whole">Set for a character built whole, as itself: then <paramref name="Host"/> lends only its behaviour, action script and mesh exemplars, and no mark or bone pairing applies.</param>
-    private sealed record Living(string Host, int Mark, string TemplateMap, string TemplatePart, string Body, string Held, string[] Shown, (string Source, string Host)[] Paired, Whole? Whole = null);
-
-    /// <summary>What a character built whole needs beyond its own files.</summary>
     /// <param name="Physics">A host character whose physics file uses every kind of object the source's needs.</param>
     /// <param name="Attack">A host attack row of a like attack; the source's hit sizes, attachment points and damage are laid over it.</param>
     /// <param name="Gaze">The source bones the host turns to look at something: the neck's first and last, the spine's first and last.</param>
-    private sealed record Whole(string Physics, int Attack, (string NeckFrom, string NeckTo, string SpineFrom, string SpineTo)? Gaze);
+    private sealed record Living(string Host, string TemplateMap, string TemplatePart, string Body, string Held, string[] Shown, string Physics, int Attack,
+        (string NeckFrom, string NeckTo, string SpineFrom, string SpineTo)? Gaze);
 
-    // The source's human-sized sword fighters on the host's wandering noble: a slow, weak sword fighter of about the same
-    // build. Each body takes its own display mark; each shows the sword and, where it has one, the shield of its model.
-    // lazy: every placement of a model carries the same weapons; the source's spear, axe and bow variants, chosen by its
-    // rows' display marks, need those marks read and a host behaviour for each. The giant skeleton is not carried: a host
-    // body of its size is needed.
-    private static Living OnNoble(int mark, params string[] shown) => new("c4300", mark, "m60_40_40_00", "c4300_9002", "_Belt_Leather.", "_WP_A_0211_Sword.", shown,
-        [("L ForeTwist", "L_Forearm"), ("R ForeTwist", "R_Forearm"), ("LCalfTwist", "L_Calf"), ("RCalfTwist", "R_Calf"),
-         ("R_Weapon", "R_Weapon01"), ("R_weapon", "R_Weapon01"), ("R Weapon", "R_Weapon01"), ("L_shield", "L_Weapon01")]);
-    // The hollow soldier is built whole: its own skeleton, animations, physics and attack timing, on the noble's behaviour
-    // and AI. The host's `c3020` lends its physics file's kinds of object; the noble's sword swing lends its attack row.
-    // lazy: the noble's AI, health and other row values; see WholeCharacter for what each of its files leaves out.
-    private static Living WholeOnNoble(params string[] shown) => OnNoble(0, shown) with { Paired = [], Whole = new("c3020", 4300100, ("Neck", "Head", "Spine", "Spine1")) };
+    // The source's human-sized fighters take the behaviour and AI of the host's wandering noble, a slow, weak sword fighter
+    // of about their build; the host's `c3020` lends its physics file's kinds of object, and the noble's sword swing its attack row.
+    // lazy: the noble's AI, health and other row values; see WholeCharacter for what each of a character's files leaves out.
+    // Every placement of a model shows the same weapons; the source's spear, axe and bow variants are chosen by its rows'
+    // display marks, which are not read yet. The giant skeleton, the crow and the others are not built.
+    private static Living LikeNoble(params string[] shown) => new("c4300", "m60_40_40_00", "c4300_9002", "_Belt_Leather.", "_WP_A_0211_Sword.", shown, "c3020", 4300100, ("Neck", "Head", "Spine", "Spine1"));
     private static readonly SortedDictionary<string, Living> LivingCharacters = new(StringComparer.Ordinal)
     {
-        ["c2510"] = OnNoble(12, "#00#"), ["c2540"] = WholeOnNoble("#00#", "#02#"), ["c2550"] = OnNoble(11, "#02#", "#01#"), ["c2900"] = OnNoble(13, "#00#", "#01#"),
+        ["c2510"] = LikeNoble("#00#"), ["c2540"] = LikeNoble("#00#", "#02#"), ["c2550"] = LikeNoble("#02#", "#01#"), ["c2900"] = LikeNoble("#00#", "#01#"),
     };
     // Build-owned host characters take identities from here on; the host has none between c6321 and c6999.
     private const int FirstCharacterIdentity = 6400;
@@ -333,8 +326,8 @@ internal static class FirelinkBuild
         var bodySizes = SourceCharacterReader.BodySizes(source);
         var characterRows = new List<(int Row, int Template, string Name, (float Height, float Radius)? Body, int? Mark, int? Standing, int? Variation)>();
         var enemies = new List<object>();
-        // A character built whole takes a host identity by its place among the source's character models, so each source
-        // character has one identity however many are built.
+        // A source enemy takes a host identity by its place among the source's character models, so each source character
+        // has one identity however many are built.
         var sourceModels = Directory.GetFiles(Path.GetDirectoryName(source.Locate("chr/c0000.chrbnd.dcx"))!, "c????.chrbnd.dcx").Select(f => Path.GetFileName(f)[..5])
             .Where(n => Regex.IsMatch(n, @"^c\d{4}$")).Order(StringComparer.Ordinal).ToArray();
         string Identity(string name)
@@ -343,52 +336,44 @@ internal static class FirelinkBuild
             if (place < 0 || FirstCharacterIdentity + place > 6999) throw new InvalidDataException("No host identity for the source character " + name);
             return $"c{FirstCharacterIdentity + place:D4}";
         }
-        // What answers whole characters' attack events: the source's behaviour rows, and the attack rows they name by the host row each is laid over.
+        // What answers the enemies' attack events: the source's behaviour rows, and the attack rows they name by the host row each is laid over.
         var behaviourRows = new SortedDictionary<int, byte[]>(); var attackRows = new SortedDictionary<int, (int Template, byte[] Row)>();
         var attacksOf = new Dictionary<int, SourceCharacterReader.SourceAttacks>();
         foreach (var (name, living) in livingCharacters)
         {
-            string? identity = living.Whole is null ? null : Identity(name);
+            string identity = Identity(name);
             var donor = MSBE.Read(archive.Read($"map/mapstudio/{living.TemplateMap}.msb.dcx"));
             var template = donor.Parts.Enemies.SingleOrDefault(p => p.Name == living.TemplatePart && p.ModelName == living.Host)
                 ?? throw new InvalidDataException($"Host map {living.TemplateMap} has no placement {living.TemplatePart} of {living.Host}");
             // A map lists each character model it places; an entry names its character by name and again in a path.
             // A whole character's entry is its host's under its own identity.
-            if (!spoken.Models.Enemies.Any(m => m.Name == (identity ?? living.Host)))
+            if (!spoken.Models.Enemies.Any(m => m.Name == identity))
             {
                 var listed = (MSBE.Model.Enemy)donor.Models.Enemies.Single(m => m.Name == living.Host).DeepCopy();
-                if (identity is not null)
-                {
-                    if (listed.SibPath?.Contains(living.Host, StringComparison.Ordinal) != true) throw new InvalidDataException("Host model entry does not name its character in its path: " + living.Host);
-                    listed.Name = identity; listed.SibPath = listed.SibPath.Replace(living.Host, identity, StringComparison.Ordinal);
-                }
+                if (listed.SibPath?.Contains(living.Host, StringComparison.Ordinal) != true) throw new InvalidDataException("Host model entry does not name its character in its path: " + living.Host);
+                listed.Name = identity; listed.SibPath = listed.SibPath.Replace(living.Host, identity, StringComparison.Ordinal);
                 spoken.Models.Enemies.Add(listed);
             }
             foreach (var placed in sourceLayout.Parts.Enemies.Where(p => p.ModelName == name).OrderBy(p => p.Name, StringComparer.Ordinal))
             {
                 if (!bodySizes.TryGetValue(placed.NPCParamID, out var size)) throw new InvalidDataException($"Source placement {placed.Name} names a character row that is missing or has no body size");
-                int? mark = living.Whole is null ? living.Mark : null, variation = null;
-                if (living.Whole is { } whole)
+                if (!attacksOf.TryGetValue(placed.NPCParamID, out var attacks))
                 {
-                    if (!attacksOf.TryGetValue(placed.NPCParamID, out var attacks))
-                    {
-                        attacksOf[placed.NPCParamID] = attacks = SourceCharacterReader.Attacks(source, placed.NPCParamID);
-                        foreach (var (id, row) in attacks.Behaviours) behaviourRows[id] = row;
-                        foreach (var (id, row) in attacks.Hits) attackRows[id] = (whole.Attack, row);
-                    }
-                    variation = attacks.Variation;
+                    attacksOf[placed.NPCParamID] = attacks = SourceCharacterReader.Attacks(source, placed.NPCParamID);
+                    foreach (var (id, row) in attacks.Behaviours) behaviourRows[id] = row;
+                    foreach (var (id, row) in attacks.Hits) attackRows[id] = (living.Attack, row);
                 }
-                int known = characterRows.FindIndex(r => r.Template == template.NPCParamID && r.Body == size && r.Mark == mark && r.Variation == variation);
+                int known = characterRows.FindIndex(r => r.Template == template.NPCParamID && r.Body == size && r.Mark is null && r.Variation == attacks.Variation);
                 if (known < 0)
                 {
                     known = characterRows.Count;
-                    characterRows.Add((template.NPCParamID / 10000 * 10000 + FirstCharacterRow + known, template.NPCParamID, $"aog_{name}_{known}", size, mark, null, variation));
+                    characterRows.Add((template.NPCParamID / 10000 * 10000 + FirstCharacterRow + known, template.NPCParamID, $"aog_{name}_{known}", size, null, null, attacks.Variation));
                 }
                 int stoodOn = Array.IndexOf(terrain.Sources, placed.CollisionName);
                 if (stoodOn < 0) throw new InvalidDataException($"Source placement {placed.Name} stands on a collision that is not built: {placed.CollisionName}");
                 string floor = $"h{terrain.Low[stoodOn].Model}_0000";
                 FirelinkMapWriter.AddEnemy(spoken, template, "aog_" + placed.Name, characterRows[known].Row, template.ThinkParamID, floor, placed.Position + terrain.Offset, placed.Rotation, 0, identity);
-                enemies.Add(new { name = "aog_" + placed.Name, source = placed.Name, body = identity ?? living.Host, whole = identity is not null, row = characterRows[known].Row, behaviour = template.ThinkParamID, collision = floor,
+                enemies.Add(new { name = "aog_" + placed.Name, source = placed.Name, body = identity, row = characterRows[known].Row, behaviour = template.ThinkParamID, collision = floor,
                     height = size.Height, radius = size.Radius });
             }
         }
@@ -548,8 +533,8 @@ internal static class FirelinkBuild
                 Add($"asset/aet/aet950/{stem}{suffix}.tpf.dcx", textureWriter.Write(name + suffix, raw[required[i]], displayColours.Contains(required[i])));
             names.Add(required[i], name + ".tif");
         }
-        // The living characters a host character carries replace its own meshes in its model file; each body is drawn for
-        // the rows that show its display mark.
+        // The people a host character carries replace its own meshes in its model file; each body is drawn for the rows
+        // that show its display mark. Enemies are written whole, as characters of their own.
         var wholeHuman = LivingPeople.Count == 0 ? null : ModelReader.Read(BND3.Read(source.Read("chr/c0000.chrbnd.dcx")).Files.SingleOrDefault(f => f.Name.EndsWith("c0000.flver", StringComparison.OrdinalIgnoreCase))?.Bytes
             ?? throw new InvalidDataException("Source install has no human skeleton model")).Item1;
         var wholeCharacters = new SortedDictionary<string, object>(StringComparer.Ordinal);
@@ -567,12 +552,7 @@ internal static class FirelinkBuild
                     : throw new InvalidDataException($"Host character material does not have one input ending {suffix}");
                 return new(mesh, exemplar, new Dictionary<string, string> { [Input(ColourInput)] = names[colour], [Input(ReliefInput)] = names[relief], [Input(MetalInput)] = names[NeutralTextures.Neutral] });
             }
-            var bodies = livingCharacters.Where(c => c.Value.Host == hostName && c.Value.Whole is null).Select(c =>
-            {
-                var (name, living) = (c.Key, c.Value);
-                var parts = livingModels[name].Meshes.Select(mesh => Dress(mesh.Mesh, Exemplar(mesh.Mark == "" ? living.Body : living.Held), mesh.Colour, mesh.Relief)).ToArray();
-                return new HostCharacterModel.Body(livingModels[name].Model, living.Paired.ToDictionary(p => p.Source, p => p.Host), parts, living.Mark);
-            }).ToList();
+            var bodies = new List<HostCharacterModel.Body>();
             // A person's pieces share one mark and the size ratio of the whole human skeleton, so they meet as they do in the source.
             float? humanRatio = LivingPeople.Values.Any(p => p.Host == hostName) ? HostCharacterModel.SizeRatio(file.Bytes, wholeHuman!, PersonPaired) : null;
             foreach (var (name, person) in LivingPeople.Where(p => p.Value.Host == hostName))
@@ -583,15 +563,15 @@ internal static class FirelinkBuild
                     var pairs = piece.Hand == "" ? PersonPaired : piece.Model.Nodes.Select(n => n.Name).Distinct(StringComparer.Ordinal).ToDictionary(n => n, _ => piece.Hand, StringComparer.Ordinal);
                     bodies.Add(new(piece.Model, pairs, parts, person.Mark, PersonRiders, humanRatio));
                 }
-            // A character built whole has files of its own, under its own identity; its meshes take this host's layouts and materials.
-            foreach (var (name, living) in livingCharacters.Where(c => c.Value.Host == hostName && c.Value.Whole is not null))
+            // An enemy has files of its own, under its own identity; its meshes take this host's layouts and materials.
+            foreach (var (name, living) in livingCharacters.Where(c => c.Value.Host == hostName))
             {
                 var parts = livingModels[name].Meshes.Select(mesh => Dress(mesh.Mesh, Exemplar(mesh.Mark == "" ? living.Body : living.Held), mesh.Colour, mesh.Relief)).ToArray();
-                var whole = WholeCharacter.Write(source, archive, name, Identity(name), new(hostName, living.Whole!.Physics, living.Whole.Gaze), livingModels[name].Model, parts);
+                var whole = WholeCharacter.Write(source, archive, name, Identity(name), new(hostName, living.Physics, living.Gaze), livingModels[name].Model, parts);
                 foreach (var (path, bytes) in whole.Files) files.Add("mod/" + path, bytes);
                 wholeCharacters.Add(name, new
                 {
-                    identity = Identity(name), behaviour = hostName, physics = living.Whole.Physics, bones = whole.Bones, animations = whole.Animations, standing = whole.Stood,
+                    identity = Identity(name), behaviour = hostName, physics = living.Physics, bones = whole.Bones, animations = whole.Animations, standing = whole.Stood,
                     events = new { kept = whole.Events.Kept, dropped = whole.Events.Dropped },
                     bodies = whole.Physics.Bodies, boxesAsCapsules = whole.Physics.Boxes, joints = whole.Physics.Joints, breakableJointsHeld = whole.Physics.Held, jointValuesKept = whole.Physics.Kept,
                 });
