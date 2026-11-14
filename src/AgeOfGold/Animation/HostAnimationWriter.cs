@@ -83,6 +83,12 @@ internal static class HostAnimationWriter
                 m_referenceFrameSamples = motion.Field("referenceFrameSamples").Elements().Select(Vector).ToList(),
             };
         }
+        // A source animation that goes nowhere may state no path at all; every host animation states one, so it is told to stay put.
+        else animation.m_extractedMotion = new hkaDefaultAnimatedReferenceFrame
+        {
+            m_up = new(0, 1, 0, 0), m_forward = new(0, 0, 1, 0), m_duration = animation.m_duration,
+            m_referenceFrameSamples = Enumerable.Repeat(Vector4.Zero, Math.Max(2, animation.m_numFrames)).ToList(),
+        };
         var bound = bindings[0];
         if (bound.Field("floatTrackToFloatSlotIndices").Elements().Length != 0 || bound.Field("partitionIndices").Elements().Length != 0) throw new InvalidDataException("Unsupported source animation binding");
         var tracks = bound.Field("transformTrackToBoneIndices").Elements().Select(v => checked((short)v.Integer())).ToList();

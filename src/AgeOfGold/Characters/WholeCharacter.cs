@@ -30,15 +30,53 @@ internal static class WholeCharacter
     /// <param name="parts">The source meshes to draw, each with the exemplar mesh of the behaviour host's model whose layout and material it takes.</param>
     internal static Built Write(Install source, HostArchive archive, string name, string identity, Hosts hosts, FLVER2 model, IReadOnlyList<HostCharacterModel.Part> parts)
     {
+        var animations = BND3.Read(source.Read($"chr/{name}.anibnd.dcx"));
+        var own = new SortedDictionary<long, byte[]>();
+        foreach (var file in animations.Files)
+            if (SourceAnimation.Match(Member(file)) is { Success: true } match) own.Add(HostCharacterEvents.HostNumber(long.Parse(match.Groups[1].Value) * 10000 + long.Parse(match.Groups[2].Value)), file.Bytes);
+        return Assemble(archive, name, identity, hosts, One(animations, "skeleton.hkx", name, "skeleton"), One(BND3.Read(source.Read($"chr/{name}.chrbnd.dcx")), name + ".hkx", name, "physics file"),
+            animations.Files.SingleOrDefault(f => Member(f).EndsWith(".tae", StringComparison.OrdinalIgnoreCase))?.Bytes ?? throw new InvalidDataException("Source character has no event file: " + name),
+            own, null, (hostModel, bones) => HostCharacterModel.WriteWhole(hostModel, model, parts, bones));
+    }
+
+    /// <summary>
+    /// A source human whole. Every human shares one skeleton, one physics file and one great stock of animations; a
+    /// person is that skeleton under the models of what it wears and holds, standing in the pose it starts in.
+    /// </summary>
+    /// <param name="skeleton">The source human's model: the skeleton's nodes and attachment points, with no mesh.</param>
+    /// <param name="pieces">The models of what the person wears and holds.</param>
+    /// <param name="pose">The source animation the person starts in; it stands as the host's idle.</param>
+    internal static Built WritePerson(Install source, HostArchive archive, string identity, Hosts hosts, FLVER2 skeleton, IReadOnlyList<HostCharacterModel.Body> pieces, int pose)
+    {
+        const string human = "c0000";
+        var main = BND3.Read(source.Read($"chr/{human}.anibnd.dcx"));
+        // The first set of the human's animations is kept in three binders by how much detail each is worth.
+        string clip = $"a00_{pose:D4}.hkx";
+        byte[] posed = new[] { "hi", "md", "lo" }.Select(detail => BND3.Read(source.Read($"chr/{human}_a00_{detail}.anibnd.dcx")).Files.SingleOrDefault(f => Member(f).Equals(clip, StringComparison.OrdinalIgnoreCase))?.Bytes)
+            .FirstOrDefault(bytes => bytes is not null) ?? throw new InvalidDataException("The source human has no animation " + clip);
+        // lazy: only the pose a person starts in, as every move. People do not walk, fight or flinch until the human's
+        // sets of animations, chosen by what it holds, are matched to the host's moves.
+        return Assemble(archive, human, identity, hosts, One(main, "skeleton.hkx", human, "skeleton"), One(BND3.Read(source.Read($"chr/{human}.chrbnd.dcx")), human + ".hkx", human, "physics file"),
+            One(main, "a00.tae", human, "first event file"), new SortedDictionary<long, byte[]> { [0] = posed }, new Dictionary<long, long> { [pose] = 0 },
+            (hostModel, bones) => HostCharacterModel.WritePieces(hostModel, skeleton, pieces, bones));
+    }
+
+    private static string Member(BinderFile file) => file.Name.Replace('\\', '/').Split('/')[^1];
+
+    private static byte[] One(BND3 binder, string member, string name, string what) =>
+        binder.Files.SingleOrDefault(f => Member(f).Equals(member, StringComparison.OrdinalIgnoreCase))?.Bytes ?? throw new InvalidDataException($"Source character has no {what}: {name}");
+
+    /// <param name="own">The source's animations, by host number; number nought is its idle.</param>
+    /// <param name="only">When given, the source animations whose events are carried and the host number each takes.</param>
+    /// <param name="model">Writes the body into the behaviour host's model, given the names of the skeleton's bones.</param>
+    private static Built Assemble(HostArchive archive, string name, string identity, Hosts hosts, byte[] sourceSkeleton, byte[] sourcePhysics, byte[] sourceEvents,
+        SortedDictionary<long, byte[]> own, IReadOnlyDictionary<long, long>? only, Func<byte[], IReadOnlyCollection<string>, byte[]> model)
+    {
         foreach (string kind in new[] { "chrbnd", "anibnd", "behbnd" })
             if (archive.Contains($"chr/{identity}.{kind}.dcx")) throw new InvalidDataException("The host already has a character " + identity);
         string exemplar = hosts.Behaviour;
         string Renamed(string path) => path.Replace(exemplar, identity, StringComparison.OrdinalIgnoreCase);
-        static string Member(BinderFile file) => file.Name.Replace('\\', '/').Split('/')[^1];
         var files = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
-
-        var sourceAnimations = BND3.Read(source.Read($"chr/{name}.anibnd.dcx"));
-        byte[] sourceSkeleton = sourceAnimations.Files.SingleOrDefault(f => Member(f).Equals("skeleton.hkx", StringComparison.OrdinalIgnoreCase))?.Bytes ?? throw new InvalidDataException("Source character has no skeleton: " + name);
         var bones = SourcePoseReader.ReadSkeleton(sourceSkeleton).Select(b => b.Name).ToList();
         int Bone(string bone) => bones.IndexOf(bone) is >= 0 and var found ? found : throw new InvalidDataException($"Source character {name} has no bone {bone}");
 
@@ -48,9 +86,7 @@ internal static class WholeCharacter
         var binder = BND4.Read(archive.Read($"chr/{exemplar}.chrbnd.dcx"));
         var modelFile = binder.Files.SingleOrDefault(f => Member(f).Equals(exemplar + ".flver", StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidDataException("Host character has no model: " + exemplar);
         var physicsFile = binder.Files.SingleOrDefault(f => Member(f).Equals(exemplar + ".hkx", StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidDataException("Host character has no physics file: " + exemplar);
-        modelFile.Bytes = HostCharacterModel.WriteWhole(modelFile.Bytes, model, parts, bones);
-        var sourceBinder = BND3.Read(source.Read($"chr/{name}.chrbnd.dcx"));
-        byte[] sourcePhysics = sourceBinder.Files.SingleOrDefault(f => Member(f).Equals(name + ".hkx", StringComparison.OrdinalIgnoreCase))?.Bytes ?? throw new InvalidDataException("Source character has no physics file: " + name);
+        modelFile.Bytes = model(modelFile.Bytes, bones);
         byte[] physicsExemplar = BND4.Read(archive.Read($"chr/{hosts.Physics}.chrbnd.dcx")).Files.SingleOrDefault(f => Member(f).Equals(hosts.Physics + ".hkx", StringComparison.OrdinalIgnoreCase))?.Bytes
             ?? throw new InvalidDataException("Host character has no physics file: " + hosts.Physics);
         var physics = HostCharacterPhysics.Write(sourcePhysics, physicsExemplar);
@@ -76,12 +112,8 @@ internal static class WholeCharacter
         for (int part = 0; archive.Contains($"chr/{exemplar}_div{part:00}.anibnd.dcx"); part++)
             foreach (var file in BND4.Read(archive.Read($"chr/{exemplar}_div{part:00}.anibnd.dcx")).Files)
                 if (HostAnimation.Match(Member(file)) is { Success: true } match) asked.Add(long.Parse(match.Groups[1].Value) * 1000000 + long.Parse(match.Groups[2].Value));
-        var events = HostCharacterEvents.Write(sourceAnimations.Files.SingleOrDefault(f => Member(f).EndsWith(".tae", StringComparison.OrdinalIgnoreCase))?.Bytes ?? throw new InvalidDataException("Source character has no event file: " + name),
-            eventFile.Bytes, identity, asked);
+        var events = HostCharacterEvents.Write(sourceEvents, eventFile.Bytes, identity, asked, only);
         eventFile.Bytes = events.File;
-        var own = new SortedDictionary<long, byte[]>();
-        foreach (var file in sourceAnimations.Files)
-            if (SourceAnimation.Match(Member(file)) is { Success: true } match) own.Add(HostCharacterEvents.HostNumber(long.Parse(match.Groups[1].Value) * 10000 + long.Parse(match.Groups[2].Value)), file.Bytes);
         if (!own.TryGetValue(0, out var idle)) throw new InvalidDataException("Source character has no idle animation: " + name);
         // lazy: a move the host asks for that the source has no animation of the same number for plays the source's idle.
         // Match each such move (being struck, dying, turning on the spot) to the source's own once the shared graph's moves are read.

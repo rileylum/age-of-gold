@@ -63,25 +63,26 @@ internal static class FirelinkBuild
     };
     // Build-owned host characters take identities from here on; the host has none between c6321 and c6999.
     private const int FirstCharacterIdentity = 6400;
-    /// <summary>A source human carried by a host character, assembled from the part models of what the source dresses it in.</summary>
+    /// <summary>
+    /// A source human built whole: the source human's skeleton and physics under the part models of what the source
+    /// dresses it in, standing in the pose it starts in, with what the source has no counterpart for lent by host characters.
+    /// </summary>
+    /// <param name="Host">The host character that lends its behaviour, action script and mesh exemplars.</param>
     /// <param name="FriendMap">A host map with a placement, <paramref name="FriendPart"/>, of a character that leaves the player alone; the person takes its standing.</param>
-    private sealed record LivingPerson(string Host, int Mark, string TemplateMap, string TemplatePart, string Body, string Held, string FriendMap, string FriendPart);
+    private sealed record LivingPerson(string Host, string TemplateMap, string TemplatePart, string Body, string Held, string FriendMap, string FriendPart, string Physics,
+        (string NeckFrom, string NeckTo, string SpineFrom, string SpineTo)? Gaze);
 
-    // The humans who are at Firelink from the start, by source placement, on the host's wandering noble, with the standing
-    // of a host character who leaves the player alone. Which humans are present at the start is authored from knowledge of the source game:
-    // its event script decides by flags this tool does not yet follow.
-    // lazy: no face front (the source generates it as the game runs) and no hair; one line of talk; the host's standing
-    // idle rather than the source's own pose; the host template's body size.
-    private static readonly SortedDictionary<string, LivingPerson> LivingPeople = new(StringComparer.Ordinal)
-    {
-        ["c0000_0011"] = new("c4300", 15, "m18_00_00_00", "c4300_9009", "_Belt_Leather.", "_WP_A_0211_Sword.", "m11_10_00_00", "c0000_9010"),
-        ["c0000_0018"] = new("c4300", 14, "m18_00_00_00", "c4300_9009", "_Belt_Leather.", "_WP_A_0211_Sword.", "m11_10_00_00", "c0000_9010"),
-    };
-    // A source human's twist bones lie where host limb bones do; its shoulder pads have no host bone and ride the upper arms.
-    private static readonly Dictionary<string, string> PersonPaired = new(StringComparer.Ordinal)
-        { ["LUpArmTwist"] = "L_UpperArm", ["RUpArmTwist"] = "R_UpperArm", ["L_ForeTwist"] = "L_Forearm", ["R_ForeTwist"] = "R_Forearm", ["LCalfTwist"] = "L_Calf", ["RCalfTwist"] = "R_Calf" };
-    private static readonly Dictionary<string, string> PersonRiders = new(StringComparer.Ordinal) { ["L_Shoulderpad"] = "L_UpperArm", ["R_Shoulderpad"] = "R_UpperArm" };
-    private const string RightHandBone = "R_Weapon01", LeftHandBone = "L_Weapon01";
+    // The humans who are at Firelink from the start, by source placement, on the behaviour of the host's wandering noble,
+    // with the standing of a host character who leaves the player alone. Which humans are present at the start is authored
+    // from knowledge of the source game: its event script decides by flags this tool does not yet follow.
+    // lazy: no face front (the source generates it as the game runs) and no hair; one line of talk; only the pose each
+    // starts in (see WholeCharacter.WritePerson); the host template's body size.
+    private static LivingPerson Friendly() => new("c4300", "m18_00_00_00", "c4300_9009", "_Belt_Leather.", "_WP_A_0211_Sword.", "m11_10_00_00", "c0000_9010", "c3020", ("Neck", "Head", "Spine", "Spine1"));
+    private static readonly SortedDictionary<string, LivingPerson> LivingPeople = new(StringComparer.Ordinal) { ["c0000_0011"] = Friendly(), ["c0000_0018"] = Friendly() };
+    // What a human holds hangs from the weapon bone of its hand.
+    private const string RightHandBone = "R_Weapon", LeftHandBone = "L_Weapon";
+    // A person's host identity follows the enemies' block: by its character row's place among the source's human rows.
+    private const int FirstPersonIdentity = 6600;
 
     // The host material inputs a carried body fills: its colour, its surface relief, and a metal map left empty of metal.
     private const string ColourInput = "_7_AlbedoMap", ReliefInput = "_0_NormalMap", MetalInput = "_3_MetallicMap";
@@ -378,6 +379,13 @@ internal static class FirelinkBuild
             }
         }
         var people = new List<object>();
+        var humanRows = LivingPeople.Count == 0 ? [] : SourceCharacterReader.HumanRows(source);
+        string PersonIdentity(int row)
+        {
+            int place = Array.IndexOf(humanRows, row);
+            if (place < 0 || FirstPersonIdentity + place > 6999) throw new InvalidDataException("No host identity for the source human row " + row);
+            return $"c{FirstPersonIdentity + place:D4}";
+        }
         // A person runs a one-message talk script of its own that shows the source's opening line. (An unseen controller
         // standing in the same place, as the Fire Keeper has, is not offered to the player while the person stands there.)
         var peopleTalk = new List<(string Name, int Script, int Action, int Message, string Line)>();
@@ -386,20 +394,26 @@ internal static class FirelinkBuild
             var donor = MSBE.Read(archive.Read($"map/mapstudio/{person.TemplateMap}.msb.dcx"));
             var template = donor.Parts.Enemies.SingleOrDefault(p => p.Name == person.TemplatePart && p.ModelName == person.Host)
                 ?? throw new InvalidDataException($"Host map {person.TemplateMap} has no placement {person.TemplatePart} of {person.Host}");
-            if (!spoken.Models.Enemies.Any(m => m.Name == person.Host)) spoken.Models.Enemies.Add((MSBE.Model.Enemy)donor.Models.Enemies.Single(m => m.Name == person.Host).DeepCopy());
             var placed = sourceLayout.Parts.Enemies.Single(p => p.Name == name);
+            string identity = PersonIdentity(placed.NPCParamID);
+            if (spoken.Models.Enemies.Any(m => m.Name == identity)) throw new InvalidDataException("Two people share the character row of " + name);
+            var listed = (MSBE.Model.Enemy)donor.Models.Enemies.Single(m => m.Name == person.Host).DeepCopy();
+            if (listed.SibPath?.Contains(person.Host, StringComparison.Ordinal) != true) throw new InvalidDataException("Host model entry does not name its character in its path: " + person.Host);
+            listed.Name = identity; listed.SibPath = listed.SibPath.Replace(person.Host, identity, StringComparison.Ordinal);
+            spoken.Models.Enemies.Add(listed);
             // lazy: the source's human rows carry no body size (humans take theirs elsewhere); a person keeps the host template's.
             (float Height, float Radius)? size = bodySizes.TryGetValue(placed.NPCParamID, out var read) ? read : null;
             int friend = MSBE.Read(archive.Read($"map/mapstudio/{person.FriendMap}.msb.dcx")).Parts.Enemies.SingleOrDefault(p => p.Name == person.FriendPart)?.NPCParamID
                 ?? throw new InvalidDataException($"Host map {person.FriendMap} has no placement {person.FriendPart}");
-            characterRows.Add((template.NPCParamID / 10000 * 10000 + FirstCharacterRow + characterRows.Count, template.NPCParamID, $"aog_{name}", size, person.Mark, friend, null));
+            characterRows.Add((template.NPCParamID / 10000 * 10000 + FirstCharacterRow + characterRows.Count, template.NPCParamID, $"aog_{name}", size, null, friend, null));
             int stoodOn = Array.IndexOf(terrain.Sources, placed.CollisionName);
             if (stoodOn < 0) throw new InvalidDataException($"Source placement {placed.Name} stands on a collision that is not built: {placed.CollisionName}");
             string floor = $"h{terrain.Low[stoodOn].Model}_0000";
             int said = peopleTalk.Count + 1;
             peopleTalk.Add(("aog_" + placed.Name, KeeperTalk + said, KeeperAction + said, KeeperMessage + said, SourceTalkReader.OpeningLine(source, "m10_02_00_00", placed.TalkID)));
-            FirelinkMapWriter.AddEnemy(spoken, template, "aog_" + placed.Name, characterRows[^1].Row, template.ThinkParamID, floor, placed.Position + terrain.Offset, placed.Rotation, peopleTalk[^1].Script);
-            people.Add(new { name = "aog_" + placed.Name, source = placed.Name, body = person.Host, row = characterRows[^1].Row, behaviour = template.ThinkParamID, collision = floor,
+            FirelinkMapWriter.AddEnemy(spoken, template, "aog_" + placed.Name, characterRows[^1].Row, template.ThinkParamID, floor, placed.Position + terrain.Offset, placed.Rotation, peopleTalk[^1].Script, identity);
+            // A person stands as it starts in the source: the animation its placement names, or the human's plain idle.
+            people.Add(new { name = "aog_" + placed.Name, source = placed.Name, body = identity, pose = Math.Max(0, placed.InitAnimID), row = characterRows[^1].Row, behaviour = template.ThinkParamID, collision = floor,
                 parts = peoplePieces[name].Select(piece => piece.Stem) });
         }
         files.Add($"mod/map/mapstudio/{Map}.msb.dcx", spoken.Write());
@@ -533,11 +547,11 @@ internal static class FirelinkBuild
                 Add($"asset/aet/aet950/{stem}{suffix}.tpf.dcx", textureWriter.Write(name + suffix, raw[required[i]], displayColours.Contains(required[i])));
             names.Add(required[i], name + ".tif");
         }
-        // The people a host character carries replace its own meshes in its model file; each body is drawn for the rows
-        // that show its display mark. Enemies are written whole, as characters of their own.
+        // Enemies and people are written whole, as characters of their own. A person's body is the source human's
+        // skeleton model under the pieces it wears and holds.
         var wholeHuman = LivingPeople.Count == 0 ? null : ModelReader.Read(BND3.Read(source.Read("chr/c0000.chrbnd.dcx")).Files.SingleOrDefault(f => f.Name.EndsWith("c0000.flver", StringComparison.OrdinalIgnoreCase))?.Bytes
             ?? throw new InvalidDataException("Source install has no human skeleton model")).Item1;
-        var wholeCharacters = new SortedDictionary<string, object>(StringComparer.Ordinal);
+        var wholeCharacters = new SortedDictionary<string, object>(StringComparer.Ordinal); var wholePeople = new SortedDictionary<string, object>(StringComparer.Ordinal);
         foreach (string hostName in livingCharacters.Values.Select(l => l.Host).Concat(LivingPeople.Values.Select(l => l.Host)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
         {
             var binder = BND4.Read(archive.Read($"chr/{hostName}.chrbnd.dcx"));
@@ -552,17 +566,22 @@ internal static class FirelinkBuild
                     : throw new InvalidDataException($"Host character material does not have one input ending {suffix}");
                 return new(mesh, exemplar, new Dictionary<string, string> { [Input(ColourInput)] = names[colour], [Input(ReliefInput)] = names[relief], [Input(MetalInput)] = names[NeutralTextures.Neutral] });
             }
-            var bodies = new List<HostCharacterModel.Body>();
-            // A person's pieces share one mark and the size ratio of the whole human skeleton, so they meet as they do in the source.
-            float? humanRatio = LivingPeople.Values.Any(p => p.Host == hostName) ? HostCharacterModel.SizeRatio(file.Bytes, wholeHuman!, PersonPaired) : null;
             foreach (var (name, person) in LivingPeople.Where(p => p.Value.Host == hostName))
-                foreach (var piece in peoplePieces[name])
+            {
+                var placed = sourceLayout.Parts.Enemies.Single(p => p.Name == name);
+                var pieces = peoplePieces[name].Select(piece =>
                 {
                     var parts = piece.Meshes.Select(mesh => Dress(mesh.Mesh, Exemplar(piece.Hand == "" ? person.Body : person.Held), mesh.Colour, mesh.Relief)).ToArray();
                     // What is held hangs from the hand's weapon bone: every node of its model is carried there.
-                    var pairs = piece.Hand == "" ? PersonPaired : piece.Model.Nodes.Select(n => n.Name).Distinct(StringComparer.Ordinal).ToDictionary(n => n, _ => piece.Hand, StringComparer.Ordinal);
-                    bodies.Add(new(piece.Model, pairs, parts, person.Mark, PersonRiders, humanRatio));
-                }
+                    var pairs = piece.Hand == "" ? null : piece.Model.Nodes.Select(n => n.Name).Distinct(StringComparer.Ordinal).ToDictionary(n => n, _ => piece.Hand, StringComparer.Ordinal);
+                    return new HostCharacterModel.Body(piece.Model, pairs, parts, null, null, 1);
+                }).ToArray();
+                string identity = PersonIdentity(placed.NPCParamID); int pose = Math.Max(0, placed.InitAnimID);
+                var whole = WholeCharacter.WritePerson(source, archive, identity, new(hostName, person.Physics, person.Gaze), wholeHuman!, pieces, pose);
+                foreach (var (path, bytes) in whole.Files) files.Add("mod/" + path, bytes);
+                wholePeople.Add(name, new { identity, behaviour = hostName, physics = person.Physics, bones = whole.Bones, pose, standing = whole.Stood, events = new { kept = whole.Events.Kept, dropped = whole.Events.Dropped },
+                    bodies = whole.Physics.Bodies, joints = whole.Physics.Joints });
+            }
             // An enemy has files of its own, under its own identity; its meshes take this host's layouts and materials.
             foreach (var (name, living) in livingCharacters.Where(c => c.Value.Host == hostName))
             {
@@ -576,9 +595,6 @@ internal static class FirelinkBuild
                     bodies = whole.Physics.Bodies, boxesAsCapsules = whole.Physics.Boxes, joints = whole.Physics.Joints, breakableJointsHeld = whole.Physics.Held, jointValuesKept = whole.Physics.Kept,
                 });
             }
-            if (bodies.Count == 0) continue;
-            file.Bytes = HostCharacterModel.Write(file.Bytes, bodies);
-            files.Add($"mod/chr/{hostName}.chrbnd.dcx", binder.Write());
         }
 
         var shaders = archive.Read("shader/shaderbdle.shaderbdlebnd.dcx");
@@ -807,6 +823,7 @@ internal static class FirelinkBuild
             unbuiltCharacters,
             enemies,
             wholeCharacters,
+            wholePeople,
             attacks = new { behaviours = behaviourRows.Keys, hits = attackRows.Keys, projectiles = attacksOf.Values.Sum(a => a.Projectiles) },
             people,
             characters = characterSupports.ToDictionary(c => c.Key, c => new { collision = c.Value, rows = selections[c.Value] }),

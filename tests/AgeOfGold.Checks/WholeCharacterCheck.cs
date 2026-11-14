@@ -77,6 +77,12 @@ internal static class WholeCharacterCheck
         if (events.Animations[2].EventGroups.Count != 4 || written.Kept != 5 || written.Dropped.Count != 1 || written.Dropped[128] != 1) throw new Exception("Events were not grouped by kind, or the count of kept and dropped events is wrong");
         if (!written.File.SequenceEqual(HostCharacterEvents.Write(sourceBytes, hostBytes, "c6405", [0, 2000, 3000]).File)) throw new Exception("Event file differs across runs");
         if (HostCharacterEvents.HostNumber(13001) != 1003001 || HostCharacterEvents.HostName(1003001) != "a001_003001" || HostCharacterEvents.HostName(3000) != "a000_003000") throw new Exception("Animation numbering differs");
+        // Chosen animations only, each under the host number given: a person's starting pose stands as its idle.
+        var posed = TAE.Read(HostCharacterEvents.Write(sourceBytes, hostBytes, "c6405", [0, 2000], new Dictionary<long, long> { [3000] = 0 }).File);
+        if (!posed.Animations.Select(a => (a.ID, a.AnimFileName, a.Events.Count)).SequenceEqual([(0L, "a000_000000.hkt", 5), (2000L, "a000_002000.hkt", 0)]))
+            throw new Exception("Chosen animations were not carried alone under their given numbers: " + string.Join(",", posed.Animations.Select(a => $"{a.ID}/{a.Events.Count}")));
+        try { HostCharacterEvents.Write(sourceBytes, hostBytes, "c6405", [], new Dictionary<long, long> { [4000] = 0 }); throw new Exception("A chosen animation the source lacks was accepted"); }
+        catch (InvalidDataException) { }
         foreach (var bad in new Action[]
         {
             () => HostCharacterEvents.Write(hostBytes, hostBytes, "c6405", []),

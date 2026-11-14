@@ -75,4 +75,18 @@ internal static class SourceCharacterReader
         }
         return new(variation, behaviours, hits.Select(h => (h.Key, h.Value)).ToArray(), projectiles);
     }
+
+    /// <summary>
+    /// The character rows of the source's humans, ascending. Every other character's row is its model's number times a
+    /// hundred, and more; the humans share one model and their rows lie below the first such model's.
+    /// </summary>
+    internal static int[] HumanRows(Install source)
+    {
+        var bundle = BND3.Read(source.Read("param/GameParam/GameParam.parambnd.dcx"));
+        var file = bundle.Files.SingleOrDefault(f => f.Name.Replace('\\', '/').EndsWith("/NpcParam.param", StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidDataException("Source install has no character table");
+        var table = PARAM.Read(file.Bytes);
+        if (table.ParamType != "NPC_PARAM_ST" || table.DetectedSize != RowSize || table.BigEndian) throw new InvalidDataException($"Unsupported source character table: {table.ParamType}, row size {table.DetectedSize}");
+        // The first model that is not the human is numbered one thousand.
+        return table.Rows.Select(r => r.ID).Where(id => id is >= 0 and < 1000 * 100).Order().ToArray();
+    }
 }

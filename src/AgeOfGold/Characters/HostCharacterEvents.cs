@@ -22,7 +22,8 @@ internal static class HostCharacterEvents
     /// <param name="exemplar">A host character's event file; the new file takes its header.</param>
     /// <param name="identity">The host character the events are for, as "c" and four digits.</param>
     /// <param name="also">Host animation numbers to list without events when the source has none of that number.</param>
-    internal static Written Write(byte[] sourceFile, byte[] exemplar, string identity, IEnumerable<long> also)
+    /// <param name="only">When given, the source animations to carry and the host number each takes; the rest of the source's are left out.</param>
+    internal static Written Write(byte[] sourceFile, byte[] exemplar, string identity, IEnumerable<long> also, IReadOnlyDictionary<long, long>? only = null)
     {
         var source = TAE.Read(sourceFile); var host = TAE.Read(exemplar);
         if (source.Format != TAE.TAEFormat.DS1 || source.BigEndian || host.Format != TAE.TAEFormat.SDT || host.BigEndian) throw new InvalidDataException("Unsupported event file format");
@@ -32,7 +33,8 @@ internal static class HostCharacterEvents
             throw new InvalidDataException("A host event file is numbered after its character");
         host.ID = 200000 + number; host.SibName = host.SibName.Replace(named, identity, StringComparison.Ordinal);
 
-        var bySource = source.Animations.ToDictionary(a => HostNumber(a.ID));
+        if (only?.Keys.Except(source.Animations.Select(a => a.ID)).Any() == true) throw new InvalidDataException("The source event file lacks a chosen animation");
+        var bySource = only is null ? source.Animations.ToDictionary(a => HostNumber(a.ID)) : source.Animations.Where(a => only.ContainsKey(a.ID)).ToDictionary(a => only[a.ID]);
         var dropped = new SortedDictionary<int, int>(); int kept = 0;
         var animations = new List<TAE.Animation>();
         foreach (long listed in also.Concat(bySource.Keys).Distinct().Order())

@@ -84,5 +84,13 @@ internal static class SourceCharacterCheck
             catch (InvalidDataException) { }
         }
         Console.WriteLine("PASS: a source character's behaviour rows and the attack rows they name are gathered by its variation; missing or unclassified rows fail");
+
+        // The humans' rows: every other character's row is its model's number times a hundred and more, so the humans' lie below the first such model's.
+        InstallAttacks(Rows("BEHAVIOR_PARAM_ST", 32, (225400100, Behaviour(25400, 100, 0, 254000))), attackTable);
+        var bundleWithHumans = BND3.Read(File.ReadAllBytes(Path.Combine(source, "param/GameParam/GameParam.parambnd.dcx")));
+        bundleWithHumans.Files.Single(f => f.Name.EndsWith("NpcParam.param", StringComparison.Ordinal)).Bytes = Rows("NPC_PARAM_ST", 336, (6030, _ => { }), (6270, _ => { }), (99999, _ => { }), (100000, _ => { }), (254000, _ => { }));
+        File.WriteAllBytes(Path.Combine(source, "param/GameParam/GameParam.parambnd.dcx"), bundleWithHumans.Write());
+        if (!SourceCharacterReader.HumanRows(new Install(source, "DarkSoulsRemastered.exe")).SequenceEqual([6030, 6270, 99999])) throw new Exception("The source's human rows were not told from its other characters'");
+        Console.WriteLine("PASS: the source's human rows are those below every other model's");
     }
 }

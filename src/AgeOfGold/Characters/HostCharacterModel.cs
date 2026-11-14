@@ -56,10 +56,16 @@ internal static class HostCharacterModel
     internal static byte[] WriteWhole(byte[] hostModel, FLVER2 source, IReadOnlyList<Part> parts, IReadOnlyCollection<string> bones)
     {
         var host = FLVER2.Read(hostModel);
+        Stand(host, source, bones, source.Meshes.Select(m => m.NodeIndex).ToHashSet());
+        return Write(host, [new(source, null, parts, null)], true);
+    }
+
+    // Gives a host model a source model's nodes and attachment points in place of its own.
+    private static void Stand(FLVER2 host, FLVER2 source, IReadOnlyCollection<string> bones, HashSet<int> meshNodes)
+    {
         if (bones.Except(source.Nodes.Select(n => n.Name)).FirstOrDefault() is { } absent) throw new InvalidDataException("The source model has no node for its skeleton's bone " + absent);
         var owners = source.Dummies.SelectMany(d => new[] { (int)d.AttachBoneIndex, (int)d.ParentBoneIndex }).Where(i => i >= 0).ToHashSet();
         if (owners.Any(i => i >= source.Nodes.Count)) throw new InvalidDataException("A source attachment point names a missing node");
-        var meshNodes = source.Meshes.Select(m => m.NodeIndex).ToHashSet();
         host.Nodes = source.Nodes.Select((node, i) => new FLVER.Node
         {
             Name = node.Name, ParentIndex = node.ParentIndex, FirstChildIndex = node.FirstChildIndex, NextSiblingIndex = node.NextSiblingIndex, PreviousSiblingIndex = node.PreviousSiblingIndex,
@@ -69,14 +75,36 @@ internal static class HostCharacterModel
                 : meshNodes.Contains(i) ? FLVER.Node.NodeFlags.Mesh : owners.Contains(i) ? FLVER.Node.NodeFlags.DummyOwner : FLVER.Node.NodeFlags.Disabled,
         }).ToList();
         host.Dummies = source.Dummies.ToList();
-        // The host lists a model's node tree twice over; both lists hold every node in order.
-        FLVER2.SkeletonSet.Bone Link(FLVER.Node node, int i) => new(i) { ParentIndex = node.ParentIndex, FirstChildIndex = node.FirstChildIndex, NextSiblingIndex = node.NextSiblingIndex, PreviousSiblingIndex = node.PreviousSiblingIndex };
-        host.Skeletons = new FLVER2.SkeletonSet { BaseSkeleton = host.Nodes.Select(Link).ToList(), AllSkeletons = host.Nodes.Select(Link).ToList() };
-        return Write(host, [new(source, null, parts, null)], true);
     }
 
-    private static byte[] Write(FLVER2 host, IReadOnlyList<Body> bodies, bool whole)
+    // The host lists a model's node tree twice over; both lists hold every node in order.
+    private static void ListNodes(FLVER2 host)
     {
+        FLVER2.SkeletonSet.Bone Link(FLVER.Node node, int i) => new(i) { ParentIndex = node.ParentIndex, FirstChildIndex = node.FirstChildIndex, NextSiblingIndex = node.NextSiblingIndex, PreviousSiblingIndex = node.PreviousSiblingIndex };
+        host.Skeletons = new FLVER2.SkeletonSet { BaseSkeleton = host.Nodes.Select(Link).ToList(), AllSkeletons = host.Nodes.Select(Link).ToList() };
+    }
+
+    /// <summary>
+    /// A source body that comes as several models sharing one skeleton — a human's armour pieces and what it holds — whole
+    /// on that skeleton's nodes. Each piece's vertices follow their bones from where the piece rests them to where the
+    /// skeleton does.
+    /// </summary>
+    /// <param name="skeleton">The source model that has the skeleton's nodes and attachment points.</param>
+    /// <param name="pieces">The piece models, unmarked and at the skeleton's own size.</param>
+    internal static byte[] WritePieces(byte[] hostModel, FLVER2 skeleton, IReadOnlyList<Body> pieces, IReadOnlyCollection<string> bones)
+    {
+        if (pieces.Any(p => p.Mark is not null || p.Scale != 1)) throw new InvalidDataException("A whole body's pieces are unmarked and at their skeleton's own size");
+        var host = FLVER2.Read(hostModel);
+        Stand(host, skeleton, bones, []);
+        // The pieces' own mesh nodes are not the skeleton's; one node after the skeleton's carries every mesh.
+        if (host.Nodes.FindLastIndex(n => n.ParentIndex < 0) is >= 0 and var last) host.Nodes[last].NextSiblingIndex = (short)host.Nodes.Count;
+        host.Nodes.Add(new FLVER.Node { Name = "aog_meshes", ParentIndex = -1, FirstChildIndex = -1, NextSiblingIndex = -1, PreviousSiblingIndex = (short)host.Nodes.FindLastIndex(n => n.ParentIndex < 0), Scale = Vector3.One, Flags = FLVER.Node.NodeFlags.Mesh });
+        return Write(host, pieces, false, host.Nodes.Count - 1);
+    }
+
+    private static byte[] Write(FLVER2 host, IReadOnlyList<Body> bodies, bool whole, int? meshNode = null)
+    {
+        if (whole || meshNode is not null) ListNodes(host);
         if (host.Header.Version != 0x2001a || host.Header.BigEndian) throw new InvalidDataException("Unsupported host character model revision");
         if (bodies.Count == 0 || bodies.Any(b => b.Parts.Count == 0)) throw new InvalidDataException("A character model needs at least one mesh for each body");
         // A body may come as several models (armour pieces, a face, what it holds) under one mark; an unmarked model is
@@ -89,6 +117,8 @@ internal static class HostCharacterModel
         var lists = new List<FLVER2.GXList>(); var listOf = new Dictionary<int, int>();
         var meshes = new List<FLVER2.Mesh>(); var materials = new List<FLVER2.Material>();
         var all = new List<Vector3>();
+        // What each bone carries, in the bone's own space at rest.
+        var extents = new SortedDictionary<int, (Vector3 Low, Vector3 High)>(); var fromRest = new Dictionary<int, Matrix4x4>();
         foreach (var body in bodies)
         {
         var source = body.Source;
@@ -169,13 +199,19 @@ internal static class HostCharacterModel
                     UVs = Enumerable.Repeat(vertex.UVs.Count > 0 ? vertex.UVs[0] : Vector3.Zero, coordinates).ToList(),
                 };
                 for (int i = 0; i < kept.Length; i++) { written.BoneIndices[i] = kept[i].Key; written.BoneWeights[i] = bytes[i] / 255f; }
+                foreach (var (bone, _) in kept)
+                {
+                    if (!fromRest.TryGetValue(bone, out var toBone)) fromRest[bone] = toBone = Matrix4x4.Invert(hostBones[bone].World, out var inverse) ? inverse : throw new InvalidDataException("A bone's rest placement cannot be undone: " + host.Nodes[bone].Name);
+                    var within = Vector3.Transform(position, toBone);
+                    extents[bone] = extents.TryGetValue(bone, out var extent) ? (Vector3.Min(extent.Low, within), Vector3.Max(extent.High, within)) : (within, within);
+                }
                 all.Add(position);
                 return written;
             }).ToList();
             var low = vertices.Select(v => v.Position).Aggregate(Vector3.Min); var high = vertices.Select(v => v.Position).Aggregate(Vector3.Max);
             meshes.Add(new FLVER2.Mesh
             {
-                UseBoneWeights = true, NodeIndex = whole ? from.NodeIndex : exemplar.NodeIndex, MaterialIndex = materials.Count - 1, VertexBuffers = [new(layoutIndex)], Vertices = vertices,
+                UseBoneWeights = true, NodeIndex = whole ? from.NodeIndex : meshNode ?? exemplar.NodeIndex, MaterialIndex = materials.Count - 1, VertexBuffers = [new(layoutIndex)], Vertices = vertices,
                 // The host picks a face set by distance; each level draws the source's full detail.
                 FaceSets = new[] { FLVER2.FaceSet.FSFlags.None, FLVER2.FaceSet.FSFlags.LodLevel1, FLVER2.FaceSet.FSFlags.LodLevel2 }
                     .Select(level => new FLVER2.FaceSet { Flags = level, CullBackfaces = faces.CullBackfaces, Indices = indices.ToList() }).ToList(),
@@ -186,6 +222,11 @@ internal static class HostCharacterModel
         }
         host.Meshes = meshes; host.Materials = materials; host.BufferLayouts = layouts; host.GXLists = lists;
         host.Header.BoundingBoxMin = all.Aggregate(Vector3.Min); host.Header.BoundingBoxMax = all.Aggregate(Vector3.Max);
+        // A skeleton model that comes without meshes states no extents. Each bone states the extent of what follows it,
+        // and a node that carries nothing an empty one; the host draws nothing for a body whose bones state none.
+        if (meshNode is not null)
+            for (int i = 0; i < host.Nodes.Count; i++)
+                (host.Nodes[i].BoundingBoxMin, host.Nodes[i].BoundingBoxMax) = extents.TryGetValue(i, out var extent) ? extent : (new Vector3(float.MaxValue), new Vector3(float.MinValue));
         return host.Write();
     }
 }

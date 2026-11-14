@@ -172,5 +172,49 @@ internal static class HostCharacterModelCheck
         try { HostCharacterModel.WriteWhole(hostBytes, source, [new(0, 0, textures)], ["Pelvis", "Tail"]); throw new Exception("A skeleton bone the model lacks was accepted"); }
         catch (InvalidDataException) { }
         Console.WriteLine("PASS: a source character built whole keeps its own nodes, attachment points, positions and weights in the host's layout and material");
+
+        // A body that comes as several models sharing one skeleton (a human's armour pieces): the skeleton model has the nodes
+        // and attachment points and no mesh; each piece names the bones it uses in its own order and may rest them elsewhere.
+        var frame = new FLVER2 { Skeletons = new() }; frame.Header.Version = 0x2000c;
+        foreach (var node in source.Nodes) frame.Nodes.Add(new() { Name = node.Name, ParentIndex = node.ParentIndex, Translation = node.Translation, Scale = Vector3.One });
+        frame.Dummies.Add(new() { Position = new(0.1f, 0.4f, 0), ReferenceID = 11, ParentBoneIndex = 2, AttachBoneIndex = 3 });
+        var piece = new FLVER2 { Skeletons = new() }; piece.Header.Version = 0x2000c;
+        piece.Nodes.Add(new() { Name = "piece", ParentIndex = -1, Scale = Vector3.One });
+        // The piece rests its calf 0.2 to one side of where the skeleton does.
+        piece.Nodes.Add(new() { Name = "L Calf", ParentIndex = -1, Translation = new(0.3f, 0.5f, 0), Scale = Vector3.One });
+        piece.Nodes.Add(new() { Name = "L Thigh", ParentIndex = -1, Translation = new(0.1f, 1, 0), Scale = Vector3.One });
+        piece.BufferLayouts.Add(source.BufferLayouts[0]);
+        piece.Meshes.Add(new()
+        {
+            UseBoneWeights = true, NodeIndex = 0, MaterialIndex = 0, BoneIndices = [1, 2], VertexBuffers = [new(0)], FaceSets = [new() { Indices = [0, 1, 2] }],
+            Vertices = [SourceVertex(new(0.3f, 0.5f, 0), new(0, 0), (0, 1)), SourceVertex(new(0.3f, 0.4f, 0), new(1, 0), (0, 1)), SourceVertex(new(0.1f, 0.9f, 0), new(0, 1), (1, 1))],
+        });
+        var piecesBytes = HostCharacterModel.WritePieces(hostBytes, frame, [new(piece, null, [new(0, 0, textures)], null, null, 1), new(piece, null, [new(0, 0, textures)], null, null, 1)], bones);
+        var assembled = FLVER2.Read(piecesBytes);
+        // The skeleton's nodes come first, as they are; one node more carries the meshes.
+        if (assembled.Nodes.Count != frame.Nodes.Count + 1 || !assembled.Nodes.Take(frame.Nodes.Count).Select(n => (n.Name, n.ParentIndex)).SequenceEqual(frame.Nodes.Select(n => (n.Name, n.ParentIndex)))
+            || assembled.Nodes[^1].Flags != FLVER.Node.NodeFlags.Mesh || assembled.Nodes[^1].ParentIndex != -1 || assembled.Meshes.Count != 2 || assembled.Meshes.Any(m => m.NodeIndex != frame.Nodes.Count)
+            || assembled.Dummies.Count != 1 || assembled.Skeletons.BaseSkeleton.Count != assembled.Nodes.Count)
+            throw new Exception("A body of pieces does not stand on its skeleton's nodes with one node for its meshes");
+        // A vertex follows its bone to where the skeleton rests it, and is weighted to the skeleton's node of that name.
+        Near(assembled.Meshes[0].Vertices[0].Position, new(0.1f, 0.5f, 0), "piece vertex on the calf"); Near(assembled.Meshes[0].Vertices[2].Position, new(0.1f, 0.9f, 0), "piece vertex on the thigh");
+        if (assembled.Meshes[0].Vertices[0].BoneIndices[0] != 2 || assembled.Meshes[0].Vertices[2].BoneIndices[0] != 1) throw new Exception("A piece's vertex is not weighted to the skeleton's own node");
+        // Each bone states the extent of what follows it, in its own space; the host draws nothing for a body whose bones state none.
+        // The calf carries vertices at its own place and a tenth below; the thigh one a tenth below; the others nothing.
+        var calf = assembled.Nodes[2]; var thigh = assembled.Nodes[1];
+        Near(calf.BoundingBoxMin, new(0, -0.1f, 0), "calf extent"); Near(calf.BoundingBoxMax, Vector3.Zero, "calf extent");
+        Near(thigh.BoundingBoxMin, new(0, -0.1f, 0), "thigh extent"); Near(thigh.BoundingBoxMax, new(0, -0.1f, 0), "thigh extent");
+        if (new[] { 0, 3, 4, 5 }.Any(i => assembled.Nodes[i].BoundingBoxMin != new Vector3(float.MaxValue) || assembled.Nodes[i].BoundingBoxMax != new Vector3(float.MinValue))) throw new Exception("A bone that carries nothing states an extent");
+        foreach (var bad in new Action[]
+        {
+            () => HostCharacterModel.WritePieces(hostBytes, frame, [new(piece, null, [new(0, 0, textures)], 3, null, 1)], bones),
+            () => HostCharacterModel.WritePieces(hostBytes, frame, [new(piece, null, [new(0, 0, textures)], null)], bones),
+            () => HostCharacterModel.WritePieces(hostBytes, frame, [], bones),
+        })
+        {
+            try { bad(); throw new Exception("An unusable body of pieces was accepted"); }
+            catch (InvalidDataException) { }
+        }
+        Console.WriteLine("PASS: a body of several pieces stands whole on the skeleton they share, each vertex following its bone to the skeleton's rest");
     }
 }

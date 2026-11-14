@@ -194,36 +194,41 @@ internal static class FirelinkBuildInstallCheck
         }
         if (!manifest.RootElement.GetProperty("attacks").GetProperty("behaviours").EnumerateArray().Select(b => b.GetInt32()).SequenceEqual(wholeAttacks.Values.SelectMany(a => a.Behaviours.Select(b => b.Id)).Distinct().Order()))
             throw new Exception("The manifest does not list the behaviour rows added");
-        // People: each source human the manifest lists stands in the built map on a built collision, under its own row, which
-        // shows a display mark of its own that meshes of the body carry and has the standing of an installed friendly character.
+        // People: each source human the manifest lists stands in the built map on a built collision, as a character of the
+        // build's own under its own row, with the standing of an installed friendly character and the pose it starts in.
         var people = manifest.RootElement.GetProperty("people").EnumerateArray().ToArray();
-        var peopleMarks = new HashSet<int>(); var carried = new HashSet<string>(StringComparer.Ordinal);
+        var humanFrame = FLVER2.Read(BND3.Read(Path.Combine(source, "chr/c0000.chrbnd.dcx")).Files.Single(f => f.Name.EndsWith("c0000.flver", StringComparison.OrdinalIgnoreCase)).Bytes);
+        var peopleBodies = new HashSet<string>(StringComparer.Ordinal);
         foreach (var person in people)
         {
             var placed = layout.Parts.Enemies.Single(p => p.Name == person.GetProperty("name").GetString());
             var from = sourceEnemies[person.GetProperty("source").GetString()!];
             var raw = (byte[])builtCharacters.Rows.Single(r => r.ID == placed.NPCParamID)["raw"].Value;
-            int shown = BitConverter.ToUInt16(raw, 330), mark = System.Numerics.BitOperations.TrailingZeroCount(shown);
-            if (!bodyFiles.TryGetValue(placed.ModelName, out var body))
-            {
-                bodyFiles[placed.ModelName] = body = FLVER2.Read(BND4.Read(Path.Combine(mod, $"chr/{placed.ModelName}.chrbnd.dcx")).Files.Single(f => f.Name.EndsWith(".flver", StringComparison.OrdinalIgnoreCase)).Bytes);
-                var hostBody = FLVER2.Read(BND4.Read(hostArchive.Read($"chr/{placed.ModelName}.chrbnd.dcx")).Files.Single(f => f.Name.EndsWith(".flver", StringComparison.OrdinalIgnoreCase)).Bytes);
-                // The host's skeleton is kept whole; no host mesh remains; every vertex is weighted to host bones and every texture named is built.
-                if (body.Nodes.Count != hostBody.Nodes.Count || !body.Nodes.Select(n => n.Name).SequenceEqual(hostBody.Nodes.Select(n => n.Name)) || body.Dummies.Count != hostBody.Dummies.Count
-                    || body.Materials.Any(m => !Regex.IsMatch(m.Name, @"^#\d\d#aog_\d+$")) || body.Meshes.Any(m => !m.UseBoneWeights || m.Vertices.Count == 0)
-                    || body.Meshes.SelectMany(m => m.Vertices).Any(v => Enumerable.Range(0, 4).Sum(i => (int)MathF.Round(v.BoneWeights[i] * 255)) != 255)
-                    || body.Materials.Any(m => m.Textures.Count(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)) != 3)
-                    || body.Materials.SelectMany(m => m.Textures).Where(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)).Select(t => t.Path).Distinct()
-                        .Any(t => !File.Exists(Path.Combine(mod, "asset/aet/aet950", Path.GetFileNameWithoutExtension(t)[..^2].ToLowerInvariant() + ".tpf.dcx"))))
-                    throw new Exception("A person's body is not source meshes on the host's skeleton with built textures");
-                carried.Add(placed.ModelName);
-            }
+            string identity = placed.ModelName;
+            var report = manifest.RootElement.GetProperty("wholePeople").GetProperty(from.Name);
             if (from.ModelName != "c0000" || placed.Name != "aog_" + from.Name || placed.EntityID != 0 || layout.Parts.Collisions.Count(c => c.Name == placed.CollisionPartName) != 1
-                || (placed.Position - enemyOffset - from.Position).Length() > 1e-3f || placed.Rotation != from.Rotation || System.Numerics.BitOperations.PopCount((uint)shown) != 1
-                || !peopleMarks.Add(mark) || !body.Materials.Any(m => m.Name.StartsWith($"#{mark:D2}#", StringComparison.Ordinal))
+                || (placed.Position - enemyOffset - from.Position).Length() > 1e-3f || placed.Rotation != from.Rotation
                 // Enemies' rows carry side 6; a person's row does not.
-                || raw[307] == 6 || person.GetProperty("parts").GetArrayLength() < 5)
-                throw new Exception($"Built person {placed.Name} differs from its source placement, its row or its body");
+                || raw[307] == 6 || person.GetProperty("parts").GetArrayLength() < 5
+                || identity != person.GetProperty("body").GetString() || report.GetProperty("identity").GetString() != identity || !Regex.IsMatch(identity, @"^c6[6-9]\d\d$") || !peopleBodies.Add(identity)
+                || person.GetProperty("pose").GetInt32() != Math.Max(0, from.InitAnimID) || report.GetProperty("pose").GetInt32() != Math.Max(0, from.InitAnimID)
+                || new[] { "chrbnd", "anibnd", "behbnd" }.Any(kind => hostArchive.Contains($"chr/{identity}.{kind}.dcx") || !File.Exists(Path.Combine(mod, $"chr/{identity}.{kind}.dcx")))
+                || !File.Exists(Path.Combine(mod, $"action/script/{identity}.hks")) || layout.Models.Enemies.Single(m => m.Name == identity).SibPath?.Contains(identity, StringComparison.Ordinal) != true)
+                throw new Exception($"Built person {placed.Name} differs from its source placement, its row or its own character");
+            var body = FLVER2.Read(BND4.Read(Path.Combine(mod, $"chr/{identity}.chrbnd.dcx")).Files.Single(f => f.Name.EndsWith(".flver", StringComparison.OrdinalIgnoreCase)).Bytes);
+            // The body stands on the source human's own nodes, with one more for its meshes; every vertex is weighted to those
+            // nodes, every texture named is built, and the bones state the extent of what they carry (or the host draws nothing).
+            var carrying = body.Meshes.SelectMany(m => m.Vertices).SelectMany(v => Enumerable.Range(0, 4).Where(i => v.BoneWeights[i] > 0).Select(i => v.BoneIndices[i])).ToHashSet();
+            if (body.Nodes.Count != humanFrame.Nodes.Count + 1 || !body.Nodes.Take(humanFrame.Nodes.Count).Select(n => n.Name).SequenceEqual(humanFrame.Nodes.Select(n => n.Name)) || body.Dummies.Count != humanFrame.Dummies.Count
+                || body.Materials.Any(m => !Regex.IsMatch(m.Name, @"^aog_\d+$")) || body.Meshes.Count < 5 || body.Meshes.Any(m => !m.UseBoneWeights || m.Vertices.Count == 0 || m.NodeIndex != humanFrame.Nodes.Count)
+                || body.Meshes.SelectMany(m => m.Vertices).Any(v => Enumerable.Range(0, 4).Sum(i => (int)MathF.Round(v.BoneWeights[i] * 255)) != 255)
+                || body.Materials.Any(m => m.Textures.Count(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)) != 3)
+                || body.Materials.SelectMany(m => m.Textures).Where(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)).Select(t => t.Path).Distinct()
+                    .Any(t => !File.Exists(Path.Combine(mod, "asset/aet/aet950", Path.GetFileNameWithoutExtension(t)[..^2].ToLowerInvariant() + ".tpf.dcx")))
+                || carrying.Count < 20 || carrying.Any(bone => bone >= humanFrame.Nodes.Count || !(body.Nodes[bone].BoundingBoxMin.X <= body.Nodes[bone].BoundingBoxMax.X)))
+                throw new Exception($"Built person {placed.Name}'s body is not its pieces on the source human's skeleton with built textures");
+            var poses = TAE.Read(BND4.Read(Path.Combine(mod, $"chr/{identity}.anibnd.dcx")).Files.Single(f => f.Name.EndsWith(".tae", StringComparison.OrdinalIgnoreCase)).Bytes);
+            if (poses.ID != 200000 + int.Parse(identity[1..]) || poses.Animations.First().ID != 0) throw new Exception($"Built person {placed.Name}'s events are not its own");
         }
         // Each person runs its own talk script, with its own action, and says a line of the source's conversation text.
         var peopleSpeech = manifest.RootElement.GetProperty("talk").GetProperty("people").EnumerateArray().ToArray();
@@ -242,9 +247,10 @@ internal static class FirelinkBuildInstallCheck
         if (peopleSpeech.Length != people.Length || peopleSpeech.Select(t => t.GetProperty("message").GetInt32()).Distinct().Count() != people.Length) throw new Exception("Built people do not each have their own talk");
         if (people.Length != 2 || manifest.RootElement.GetProperty("unbuiltCharacters").GetProperty("c0000").GetInt32() != sourceEnemies.Values.Count(p => p.ModelName == "c0000") - people.Length)
             throw new Exception("Built people are not the two humans present from the start");
-        // Each enemy model has a character to itself; the people share a host's model and are told apart by display marks.
-        if (manifest.RootElement.GetProperty("wholeCharacters").EnumerateObject().Count() != enemyModels.Length || carried.Sum(c => bodyFiles[c].Materials.Select(m => m.Name[..4]).Distinct().Count()) != people.Length)
-            throw new Exception("Built bodies are not one for each enemy model and display marks one for each person");
+        // Each enemy model and each person has a character to itself; the build replaces no host character.
+        if (manifest.RootElement.GetProperty("wholeCharacters").EnumerateObject().Count() != enemyModels.Length || manifest.RootElement.GetProperty("wholePeople").EnumerateObject().Count() != people.Length
+            || Directory.GetFiles(Path.Combine(mod, "chr"), "*.chrbnd.dcx").Select(f => Path.GetFileName(f)[..5]).Any(c => hostArchive.Contains($"chr/{c}.chrbnd.dcx")))
+            throw new Exception("Built characters are not one for each enemy model and person, or a host character is replaced");
         // Navigation: one mesh for each source mesh, numbered after the built collision it lies on and listed in the map's index.
         var walk = manifest.RootElement.GetProperty("navigation");
         var meshes = BND4.Read(Path.Combine(mod, "map/m10/m10_01_00_00/m10_01_00_00.nvmhktbnd.dcx")).Files;
