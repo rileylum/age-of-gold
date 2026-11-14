@@ -49,6 +49,8 @@ internal static class SourceNavigationCheck
         if (!edgesOfTwo.Contains((one.C, one.B)) || read.Vertices.Count(v => v == new Vector3(1, 0, 0)) != 2) throw new Exception("Meshes are not joined along their shared edge");
         // The copy would run the same way along the first triangle's edges, so it keeps its own vertices.
         if (new[] { copy.A, copy.B, copy.C }.Intersect(new[] { one.A, one.B, one.C, two.A, two.B, two.C }).Any()) throw new Exception("An overlapping triangle shares vertices");
+        // Every triangle remembers the placed mesh it came from.
+        if (!read.Parts.SequenceEqual(["n0000B2_0000", "n0001B2_0000", "n0001B2_0000"])) throw new Exception("Triangles do not name their source meshes: " + string.Join(", ", read.Parts));
         if (read.Dropped.Count != 3 || read.Dropped["closed: WALL"] != 1 || read.Dropped["on edge"] != 1 || read.Dropped["joined to nothing: overlapping edge"] != 1)
             throw new Exception("Dropped triangles are not accounted for: " + string.Join(", ", read.Dropped));
         layout.Parts.Navmeshes[0].Position = new(1, 0, 0);

@@ -20,7 +20,9 @@ internal static class TerrainInstallCheck
         var archive = new HostArchive(host);
         var scene = SourceCollisionReader.ReadScene(source);
         var placements = scene.Placements.Where(p => p.Role == "solid" && !p.Disabled).ToArray();
-        if (placements.Length != 39 || scene.Placements.Length - placements.Length != 13)
+        // One solid placement is a later state of a place another collision covers: the map's events switch it off as the
+        // map loads, so it is read as disabled and left out.
+        if (placements.Length != 38 || scene.Placements.Length - placements.Length != 14 || scene.Placements.Count(p => p.Role == "solid" && p.Disabled) != 1)
             throw new Exception("Installed Firelink terrain scope differs from the checked playtest");
         var layout = MSBE.Read(archive.Read("map/mapstudio/m10_01_00_00.msb.dcx"));
         var player = layout.Parts.Players.Single(p => p.Name == "c0000_0000");
@@ -33,7 +35,7 @@ internal static class TerrainInstallCheck
         var repeatedMap = MSBE.Read(beforeMap);
         FirelinkMapWriter.AddTerrain(repeatedMap, scene);
         if (!mapBytes.SequenceEqual(repeatedMap.Write(layout.Compression)) || terrain.Offset != offset
-            || terrain.Excluded.Length != 13)
+            || terrain.Excluded.Length != 14)
             throw new Exception("Installed map placement or repeat differs");
         var sourceMap = MSB1.Read(source.Read("map/MapStudio/m10_02_00_00.msb"));
         var mapCheck = MSBE.Read(mapBytes);

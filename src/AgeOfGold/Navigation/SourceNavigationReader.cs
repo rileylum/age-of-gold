@@ -6,8 +6,9 @@ namespace AgeOfGold.Navigation;
 /// <summary>Reads the source map's navigation triangles into one mesh, as the host wants them: welded, walkable and wound upward.</summary>
 internal static class SourceNavigationReader
 {
+    /// <param name="Parts">The placed source mesh each triangle came from, by name.</param>
     /// <param name="Dropped">Source triangles left out, by reason.</param>
-    internal sealed record Mesh(Vector3[] Vertices, (int A, int B, int C)[] Triangles, SortedDictionary<string, int> Dropped);
+    internal sealed record Mesh(Vector3[] Vertices, (int A, int B, int C)[] Triangles, string[] Parts, SortedDictionary<string, int> Dropped);
 
     // Triangles carrying any of these source marks are not open floor.
     // lazy: marks are only used to leave triangles out; doors, gates, ladders and events need their own translations.
@@ -22,7 +23,7 @@ internal static class SourceNavigationReader
         var files = BND3.Read(source.Read("map/m10_02_00_00/m10_02_00_00.nvmbnd.dcx")).Files
             .ToDictionary(f => f.Name.Replace('\\', '/').Split('/')[^1], f => f.Bytes, StringComparer.OrdinalIgnoreCase);
         var vertices = new List<Vector3>(); var welded = new Dictionary<(int, int, int), int>();
-        var triangles = new List<(int, int, int)>(); var directed = new HashSet<(int, int)>();
+        var triangles = new List<(int, int, int)>(); var parts = new List<string>(); var directed = new HashSet<(int, int)>();
         var dropped = new SortedDictionary<string, int>(StringComparer.Ordinal);
         void Drop(string reason) => dropped[reason] = dropped.GetValueOrDefault(reason) + 1;
         foreach (var part in layout.Parts.Navmeshes.OrderBy(p => p.Name, StringComparer.Ordinal))
@@ -59,10 +60,10 @@ internal static class SourceNavigationReader
                     a = vertices.Count; b = a + 1; c = a + 2; vertices.AddRange(points);
                 }
                 directed.Add((a, b)); directed.Add((b, c)); directed.Add((c, a));
-                triangles.Add((a, b, c));
+                triangles.Add((a, b, c)); parts.Add(part.Name);
             }
         }
         if (triangles.Count == 0) throw new InvalidDataException("Source map has no walkable navigation triangles");
-        return new(vertices.ToArray(), triangles.ToArray(), dropped);
+        return new(vertices.ToArray(), triangles.ToArray(), parts.ToArray(), dropped);
     }
 }

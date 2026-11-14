@@ -36,6 +36,8 @@ internal static class FirelinkBuild
     // other languages are not translated.
     private const int SourceKeeperTalk = 102606, SourceKeeperPrompt = 10010200, SourceKeeperResponse = 10010191;
     private const int KeeperTalk = 100190000, KeeperAction = 9100000, KeeperPrompt = 9100000, KeeperMessage = 9100001, HostTalkAction = 6000;
+    // How far the walkable border moves out toward the walls: the source's own margin from them is about this.
+    private const float WalkableReach = 0.5f;
     private const int SourceBonfireFire = 90001, BonfireFire = 990100300, BonfireFireTextures = 990300;
 
     internal static void Run(string sourcePath, string hostPath, string outputPath, ShaderCompiler compiler, string toolchain)
@@ -464,20 +466,33 @@ internal static class FirelinkBuild
                 return bytes;
             }))).ToArray()));
 
-        // Navigation: the source's walkable triangles become the map's one host navigation mesh, written into the first
-        // installed mesh file that has faces, and the map's index lists that mesh alone.
+        // Navigation: each source mesh becomes a host mesh, written into the first installed mesh file that has faces and
+        // numbered after the built collision it lies on, as the host pairs its own; the map's index lists them, the edges
+        // along which they join, and the gates between them.
         string meshBundlePath = $"map/m10/{Map}/{Map}.nvmhktbnd.dcx", meshIndexPath = $"map/m10/{Map}/{Map}.nva.dcx";
         var meshBundle = BND4.Read(archive.Read(meshBundlePath));
-        var meshFile = meshBundle.Files.OrderBy(f => f.ID).FirstOrDefault(f => HostNavigationMesh.IsTemplate(f.Bytes))
+        var meshTemplate = meshBundle.Files.OrderBy(f => f.ID).FirstOrDefault(f => HostNavigationMesh.IsTemplate(f.Bytes))
             ?? throw new InvalidDataException("Host map has no navigation mesh to build on");
-        var meshName = Regex.Match(meshFile.Name, @"_(\d{6})\.hkx$");
+        var meshName = Regex.Match(meshTemplate.Name, @"^(.*_)\d{6}\.hkx$");
         if (!meshName.Success) throw new InvalidDataException("Unclassified host navigation mesh name");
-        int meshModel = int.Parse(meshName.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
-        meshFile.Bytes = HostNavigationMesh.Write(meshFile.Bytes, walkable.Vertices.Select(v => v + terrain.Offset).ToArray(), walkable.Triangles);
-        meshBundle.Files = [meshFile];
+        // The source keeps its walkable mesh about half a metre inside the walls; the host wants the floor itself and allows
+        // for a character's width when it searches, so the border is moved back out over the build's own collision.
+        var solid = terrain.Low.SelectMany(p => p.Geometry.Triangles.Select(t => (p.Geometry.Vertices[t.A], p.Geometry.Vertices[t.B], p.Geometry.Vertices[t.C]))).ToArray();
+        var widened = NavigationBorder.Widen(walkable.Vertices.Select(v => v + terrain.Offset).ToArray(), walkable.Triangles, solid, WalkableReach);
+        var walkPieces = NavigationPieces.Split(widened.Vertices, walkable.Triangles, walkable.Parts);
+        // A source mesh lies on the source collision of the same number.
+        int[] meshModels = walkPieces.Pieces.Select(piece =>
+        {
+            int built = piece.Part.StartsWith('n') ? Array.IndexOf(terrain.Sources, "h" + piece.Part[1..]) : -1;
+            if (built < 0) throw new InvalidDataException("Source navigation mesh lies on no built collision: " + piece.Part);
+            return int.Parse(terrain.Low[built].Model, System.Globalization.CultureInfo.InvariantCulture);
+        }).ToArray();
+        int firstMeshId = meshBundle.Files.Min(f => f.ID);
+        meshBundle.Files = walkPieces.Pieces.Select((piece, i) => new BinderFile(meshTemplate.Flags, firstMeshId + i, $"{meshName.Groups[1].Value}{meshModels[i]:D6}.hkx",
+            HostNavigationMesh.Write(meshTemplate.Bytes, piece.Vertices, piece.Triangles))).ToList();
         files.Add("mod/" + meshBundlePath, meshBundle.Write());
         var meshIndex = DCX.Decompress(archive.Read(meshIndexPath), out var meshIndexCompression);
-        files.Add("mod/" + meshIndexPath, DCX.Compress(HostNavigationIndex.OneMesh(meshIndex, meshModel, walkable.Triangles.Length), meshIndexCompression));
+        files.Add("mod/" + meshIndexPath, DCX.Compress(HostNavigationIndex.Write(meshIndex, meshModels, walkPieces), meshIndexCompression));
 
         // Host table edits are written back with the regulation's own encryption.
         var regulation = Regulation.Read(host.Read("eldenring.exe"), host.Read("regulation.bin"));
@@ -517,7 +532,9 @@ internal static class FirelinkBuild
             unbuiltObjects,
             unbuiltCharacters,
             characters = characterSupports.ToDictionary(c => c.Key, c => new { collision = c.Value, rows = selections[c.Value] }),
-            navigation = new { model = meshModel, vertices = walkable.Vertices.Length, faces = walkable.Triangles.Length, dropped = walkable.Dropped },
+            navigation = new { vertices = walkable.Vertices.Length, faces = walkable.Triangles.Length, dropped = walkable.Dropped,
+                border = new { reach = WalkableReach, moved = widened.Moved, furthest = widened.Furthest }, joins = walkPieces.Joins.Length,
+                pieces = walkPieces.Pieces.Select((piece, i) => new { part = piece.Part, model = meshModels[i], vertices = piece.Vertices.Length, faces = piece.Triangles.Length, gates = piece.Gates.Length }) },
             talk = new { fireKeeper = new { entity = keeperEntity, script = KeeperTalk, action = KeeperAction, prompt = KeeperPrompt, message = KeeperMessage } },
             effects = new
             {

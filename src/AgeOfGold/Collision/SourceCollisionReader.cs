@@ -33,13 +33,15 @@ internal static class SourceCollisionReader
             }
         }
         var layout = MSB1.Read(source.Read("map/MapStudio/m10_02_00_00.msb"));
+        // A collision the map's events switch off as it loads is one state of a place that another collision also covers.
+        var switchedOff = Events.SourceEventReader.CollisionsOffAtStart(source);
         var placements = layout.Parts.Collisions.OrderBy(p => p.Name, StringComparer.Ordinal).Select(p =>
         {
             var model = layout.Models.Collisions.Single(m => m.Name == p.ModelName);
             var names = new[] { "h", "l" }.Select(d => d + model.Name[1..] + "A10.hkx.dcx").ToArray();
             if (names.Any(n => !models.ContainsKey(n))) throw new InvalidDataException($"Missing source collision model for {p.Name}");
             return new Placement(p.Name, names[0], names[1], FirelinkSource.Role(p.HitFilterID),
-                p.DisableStart, Vector(p.Position), Vector(p.Rotation), Vector(p.Scale), p.DispGroups);
+                p.DisableStart || switchedOff.Contains(p.EntityID), Vector(p.Position), Vector(p.Rotation), Vector(p.Scale), p.DispGroups);
         }).ToArray();
         var spawnEvent = layout.Events.SpawnPoints.Single();
         var spawn = layout.Regions.GetEntries().Single(r => r.Name == spawnEvent.SpawnPointName);

@@ -49,7 +49,7 @@ internal static class FirelinkBuildInstallCheck
         var layout = MSBE.Read(Path.Combine(mod, "map/mapstudio/m10_01_00_00.msb.dcx"));
         var pieces = layout.Parts.MapPieces.Where(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable).ToArray();
         if (pieces.Length == 0 || pieces.Any(p => !p.ModelName.StartsWith("m81", StringComparison.Ordinal))
-            || layout.Parts.Collisions.Count(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable) != 39
+            || layout.Parts.Collisions.Count(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable) != 38
             || layout.Parts.Enemies.Count(p => p.GameEditionDisable == MSBE.Part.GameEditionDisableType.NeverDisable) != 2)
             throw new Exception("Built map retains host placements or lacks source terrain and scenery");
         // A resting point: marker, controller and respawn region placed together and registered with the build's flag.
@@ -111,18 +111,89 @@ internal static class FirelinkBuildInstallCheck
             || !sourceWords.Any(t => t.Entries.Any(e => e.Text == builtPrompt)) || !sourceWords.Any(t => t.Entries.Any(e => e.Text == builtResponse))
             || actionRows.Rows.Count(r => r.ID == talkAction) != 1)
             throw new Exception("Built Fire Keeper talk lacks its controller, script, source words or action");
-        // Navigation: one mesh of the source's walkable triangles, listed alone in the map's index.
+        // Navigation: one mesh for each source mesh, numbered after the built collision it lies on and listed in the map's index.
         var walk = manifest.RootElement.GetProperty("navigation");
         var meshes = BND4.Read(Path.Combine(mod, "map/m10/m10_01_00_00/m10_01_00_00.nvmhktbnd.dcx")).Files;
-        var builtMesh = new AgeOfGold.Collision.SourceTagfile(meshes.Single().Bytes, "20180100").Root.Field("namedVariants").Elements()[0].Field("variant");
         var builtIndex = DCX.Decompress(File.ReadAllBytes(Path.Combine(mod, "map/m10/m10_01_00_00/m10_01_00_00.nva.dcx")));
-        int walkFaces = walk.GetProperty("faces").GetInt32();
-        if (walkFaces < 1000 || builtMesh.Field("faces").Elements().Length != walkFaces || builtMesh.Field("vertices").Elements().Length != walk.GetProperty("vertices").GetInt32()
-            || !meshes.Single().Name.EndsWith($"_{walk.GetProperty("model").GetInt32():D6}.hkx", StringComparison.Ordinal)
-            // The index opens with a 16-byte header and a 32-byte marker section; the mesh list's header and its one entry follow.
-            || BitConverter.ToInt32(builtIndex, 48) != 0 || BitConverter.ToInt32(builtIndex, 48 + 12) != 1 || BitConverter.ToInt32(builtIndex, 64 + 52) != walk.GetProperty("model").GetInt32()
-            || BitConverter.ToInt32(builtIndex, 64 + 64) != walkFaces)
-            throw new Exception("Built navigation lacks its one mesh or its index entry");
+        var sourceWalk = AgeOfGold.Navigation.SourceNavigationReader.Read(new AgeOfGold.Install(source, "DarkSoulsRemastered.exe"));
+        var sourcePieces = AgeOfGold.Navigation.NavigationPieces.Split(sourceWalk.Vertices, sourceWalk.Triangles, sourceWalk.Parts).Pieces;
+        var walkPieces = walk.GetProperty("pieces").EnumerateArray().ToArray();
+        // The index: a 16-byte header, then sections of {identity, version, size, count} and their entries.
+        var indexSections = new Dictionary<int, (int Count, byte[] Body)>();
+        for (int at = 16; at < builtIndex.Length;)
+        {
+            int size = BitConverter.ToInt32(builtIndex, at + 8);
+            indexSections.Add(BitConverter.ToInt32(builtIndex, at), (BitConverter.ToInt32(builtIndex, at + 12), builtIndex.AsSpan(at + 16, size).ToArray()));
+            at += 16 + size;
+        }
+        if (walkPieces.Length < 20 || walkPieces.Length != sourcePieces.Length || meshes.Count != walkPieces.Length || indexSections[0].Count != walkPieces.Length)
+            throw new Exception("Built navigation does not hold one mesh and one index entry for each source mesh");
+        var builtVertices = new System.Numerics.Vector3[walkPieces.Length][]; var builtEdges = new byte[walkPieces.Length][][];
+        var indexNames = new Dictionary<uint, int>(); int firstFace = 0;
+        for (int piece = 0; piece < walkPieces.Length; piece++)
+        {
+            int model = walkPieces[piece].GetProperty("model").GetInt32(), faces = walkPieces[piece].GetProperty("faces").GetInt32();
+            var builtMesh = new AgeOfGold.Collision.SourceTagfile(meshes[piece].Bytes, "20180100").Root.Field("namedVariants").Elements()[0].Field("variant");
+            builtVertices[piece] = builtMesh.Field("vertices").Elements().Select(v => v.Floats()).Select(f => new System.Numerics.Vector3(f[0], f[1], f[2])).ToArray();
+            builtEdges[piece] = builtMesh.Field("edges").Elements().Select(e => e.Raw()).ToArray();
+            var entry = indexSections[0].Body.AsSpan(piece * 144, 144);
+            // A mesh carries its collision's number, and that collision is placed in the built map.
+            if (walkPieces[piece].GetProperty("part").GetString() != sourcePieces[piece].Part || faces != sourcePieces[piece].Triangles.Length || builtMesh.Field("faces").Elements().Length != faces
+                || builtVertices[piece].Length != sourcePieces[piece].Vertices.Length || !meshes[piece].Name.EndsWith($"_{model:D6}.hkx", StringComparison.Ordinal)
+                || layout.Parts.Collisions.Count(c => c.Name == $"h{model:D6}_0000") != 1
+                || BitConverter.ToInt32(entry[52..]) != model || BitConverter.ToInt32(entry[56..]) != firstFace || BitConverter.ToInt32(entry[64..]) != faces || BitConverter.ToInt32(entry[76..]) != 0)
+                throw new Exception($"Built navigation mesh {piece} differs from its manifest, its collision or its index entry");
+            indexNames.Add(BitConverter.ToUInt32(entry[48..]), piece); firstFace += faces;
+        }
+        if (firstFace != walk.GetProperty("faces").GetInt32() || firstFace < 1000) throw new Exception("Built navigation faces do not add up");
+        // Joins, read as the host reads them: each names two meshes and a run of edge pairs; the two edges of a pair are
+        // border edges of their meshes and run between the same two points in opposite directions.
+        int joinedEdges = 0;
+        for (int join = 0; join < indexSections[4].Count; join++)
+        {
+            var record = indexSections[4].Body.AsSpan(join * 32, 32);
+            int from = indexNames[BitConverter.ToUInt32(record)], to = indexNames[BitConverter.ToUInt32(record[4..])], pairs = BitConverter.ToInt32(record[8..]), firstPair = BitConverter.ToInt32(record[16..]);
+            if (from == to || pairs < 1) throw new Exception("A built navigation join is empty or joins a mesh to itself");
+            for (int pair = firstPair; pair < firstPair + pairs; pair++)
+            {
+                var edges = indexSections[5].Body.AsSpan(pair * 16, 16);
+                int edge = BitConverter.ToInt32(edges[4..]), otherEdge = BitConverter.ToInt32(edges[12..]);
+                byte[] here = builtEdges[from][edge], there = builtEdges[to][otherEdge];
+                if (BitConverter.ToInt32(edges) != edge / 3 || BitConverter.ToInt32(edges[8..]) != otherEdge / 3 || BitConverter.ToInt32(here, 8) != -1 || BitConverter.ToInt32(there, 8) != -1
+                    || builtVertices[from][BitConverter.ToInt32(here, 0)] != builtVertices[to][BitConverter.ToInt32(there, 4)] || builtVertices[from][BitConverter.ToInt32(here, 4)] != builtVertices[to][BitConverter.ToInt32(there, 0)])
+                    throw new Exception("A built navigation join pairs edges that do not coincide on their meshes' borders");
+                joinedEdges++;
+            }
+        }
+        // Gates: each names a neighbour and its own place among that neighbour's gates, where the same position is found.
+        int gates = indexSections[8].Count;
+        var gateRanges = Enumerable.Range(0, walkPieces.Length).Select(p => (First: (int)BitConverter.ToInt16(indexSections[0].Body, p * 144 + 72), Count: (int)BitConverter.ToInt16(indexSections[0].Body, p * 144 + 74))).ToArray();
+        for (int piece = 0; piece < walkPieces.Length; piece++)
+            for (int gate = gateRanges[piece].First; gate < gateRanges[piece].First + gateRanges[piece].Count; gate++)
+            {
+                var node = indexSections[8].Body.AsSpan(gate * 48, 48);
+                int other = BitConverter.ToInt16(node[12..]), counterpart = gateRanges[other].First + BitConverter.ToInt16(node[14..]);
+                var twin = indexSections[8].Body.AsSpan(counterpart * 48, 48);
+                if (other == piece || BitConverter.ToInt16(node[14..]) >= gateRanges[other].Count || !node[..12].SequenceEqual(twin[..12]) || BitConverter.ToInt16(twin[12..]) != piece
+                    || gateRanges[piece].First + BitConverter.ToInt16(twin[14..]) != gate || BitConverter.ToUInt16(node[(16 + 2 * (gate - gateRanges[piece].First))..]) != 0)
+                    throw new Exception("A built navigation gate does not match its counterpart");
+            }
+        if (indexSections[4].Count != walk.GetProperty("joins").GetInt32() || indexSections[4].Count < walkPieces.Length || joinedEdges != indexSections[5].Count || gates != gateRanges.Sum(r => r.Count) || gates < walkPieces.Length)
+            throw new Exception("Built navigation joins or gates differ from the manifest");
+        // The border is widened toward the walls: the source positions the manifest counts as moved differ in the built
+        // meshes, by no more than a corner's share of the reach; every other vertex keeps its place.
+        var border = walk.GetProperty("border");
+        float reach = border.GetProperty("reach").GetSingle(), furthest = border.GetProperty("furthest").GetSingle();
+        var displacements = Enumerable.Range(0, walkPieces.Length).SelectMany(p => builtVertices[p].Select((v, i) => (Source: sourcePieces[p].Vertices[i], Shift: v - sourcePieces[p].Vertices[i]))).ToArray();
+        // An inner vertex keeps its place, so the displacement most vertices share is the map's offset.
+        var shift = displacements.GroupBy(d => ((int)MathF.Round(d.Shift.X * 100), (int)MathF.Round(d.Shift.Y * 100), (int)MathF.Round(d.Shift.Z * 100))).MaxBy(g => g.Count())!.First().Shift;
+        var movedFrom = displacements.Where(d => new System.Numerics.Vector2(d.Shift.X - shift.X, d.Shift.Z - shift.Z).Length() > 1e-3f).ToArray();
+        // A vertex shared by two pieces is counted once; the manifest also counts the few moves shorter than this reading resolves.
+        int moved = movedFrom.Select(d => d.Source).Distinct().Count();
+        if (displacements.Length - movedFrom.Length < displacements.Length / 8) throw new Exception("Built navigation vertices do not follow the source's");
+        if (reach != 0.5f || Math.Abs(moved - border.GetProperty("moved").GetInt32()) > moved / 100 || moved < 300 || !(furthest > reach / 2) || furthest > 2 * reach + 1e-3f
+            || movedFrom.Any(d => new System.Numerics.Vector2(d.Shift.X - shift.X, d.Shift.Z - shift.Z).Length() > 2 * reach + 1e-2f))
+            throw new Exception($"Built navigation border is not widened as its manifest says: {moved} moved, furthest {furthest}");
         var materials = BND4.Read(Path.Combine(mod, "material/allmaterial.matbinbnd.dcx")).Files
             .ToLookup(f => string.Join('/', f.Name.Replace('\\', '/').Split('/')[^3..]).ToLowerInvariant(), f => f.Bytes);
         var shaders = File.ReadAllBytes(Path.Combine(mod, "shader/shaderbdle.shaderbdlebnd.dcx"));
@@ -226,7 +297,7 @@ internal static class FirelinkBuildInstallCheck
                 if (Hash(bytes) != input.Value.GetString()) throw new Exception("Install input changed during the build");
             }
         Directory.Delete(repeat, true);
-        Console.WriteLine($"PASS: Firelink build repeats across {files.Length} files; {surfaces} opaque lit surfaces, {pieces.Length} scenery placements and 39 terrain placements read back; installs unchanged");
+        Console.WriteLine($"PASS: Firelink build repeats across {files.Length} files; {surfaces} opaque lit surfaces, {pieces.Length} scenery placements and 38 terrain placements read back; installs unchanged");
     }
 
     private static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));

@@ -28,6 +28,14 @@ try
         EffectShaderCheck.Run();
         return;
     }
+    if (args.SequenceEqual(new[] { "navigation-border" }))
+    {
+        NavigationBorderCheck.Run();
+        NavigationPiecesCheck.Run();
+        NavigationIndexCheck.Run();
+        SourceEventCheck.Run();
+        return;
+    }
     if (args.SequenceEqual(new[] { "navigation-installs" }))
     {
         NavigationInstallCheck.Run();
@@ -394,7 +402,10 @@ try
     MessageBundleCheck.Run();
     NavigationTreeCheck.Run();
     NavigationIndexCheck.Run();
+    SourceEventCheck.Run();
     SourceNavigationCheck.Run(root);
+    NavigationBorderCheck.Run();
+    NavigationPiecesCheck.Run();
     SourcePoseCheck.Run();
     TextureCheck.Run(root);
     TextureWriterCheck.Run();
