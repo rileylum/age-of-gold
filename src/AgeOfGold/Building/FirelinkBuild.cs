@@ -7,6 +7,7 @@ using AgeOfGold.Archives;
 using AgeOfGold.Collision;
 using AgeOfGold.Effects;
 using AgeOfGold.Maps;
+using AgeOfGold.Navigation;
 using AgeOfGold.Params;
 using AgeOfGold.Scene;
 using AgeOfGold.Shaders;
@@ -83,6 +84,7 @@ internal static class FirelinkBuild
 
         var reader = new SceneReader(source);
         var collision = SourceCollisionReader.ReadScene(source);
+        var walkable = SourceNavigationReader.Read(source);
         var lighting = SourceLightingReader.Read(source).Scenery.ToDictionary(r => r.Id);
         using var placementDocument = JsonDocument.Parse(reader.ReadPlacements());
         // lazy: of the source's objects only the bonfire is built, as fixed scenery; the rest are counted in the manifest
@@ -462,6 +464,21 @@ internal static class FirelinkBuild
                 return bytes;
             }))).ToArray()));
 
+        // Navigation: the source's walkable triangles become the map's one host navigation mesh, written into the first
+        // installed mesh file that has faces, and the map's index lists that mesh alone.
+        string meshBundlePath = $"map/m10/{Map}/{Map}.nvmhktbnd.dcx", meshIndexPath = $"map/m10/{Map}/{Map}.nva.dcx";
+        var meshBundle = BND4.Read(archive.Read(meshBundlePath));
+        var meshFile = meshBundle.Files.OrderBy(f => f.ID).FirstOrDefault(f => HostNavigationMesh.IsTemplate(f.Bytes))
+            ?? throw new InvalidDataException("Host map has no navigation mesh to build on");
+        var meshName = Regex.Match(meshFile.Name, @"_(\d{6})\.hkx$");
+        if (!meshName.Success) throw new InvalidDataException("Unclassified host navigation mesh name");
+        int meshModel = int.Parse(meshName.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        meshFile.Bytes = HostNavigationMesh.Write(meshFile.Bytes, walkable.Vertices.Select(v => v + terrain.Offset).ToArray(), walkable.Triangles);
+        meshBundle.Files = [meshFile];
+        files.Add("mod/" + meshBundlePath, meshBundle.Write());
+        var meshIndex = DCX.Decompress(archive.Read(meshIndexPath), out var meshIndexCompression);
+        files.Add("mod/" + meshIndexPath, DCX.Compress(HostNavigationIndex.OneMesh(meshIndex, meshModel, walkable.Triangles.Length), meshIndexCompression));
+
         // Host table edits are written back with the regulation's own encryption.
         var regulation = Regulation.Read(host.Read("eldenring.exe"), host.Read("regulation.bin"));
         var effectTable = regulation.Tables.Files.Single(f => Path.GetFileName(f.Name.Replace('\\', '/')) == "SpEffectVfxParam.param");
@@ -500,6 +517,7 @@ internal static class FirelinkBuild
             unbuiltObjects,
             unbuiltCharacters,
             characters = characterSupports.ToDictionary(c => c.Key, c => new { collision = c.Value, rows = selections[c.Value] }),
+            navigation = new { model = meshModel, vertices = walkable.Vertices.Length, faces = walkable.Triangles.Length, dropped = walkable.Dropped },
             talk = new { fireKeeper = new { entity = keeperEntity, script = KeeperTalk, action = KeeperAction, prompt = KeeperPrompt, message = KeeperMessage } },
             effects = new
             {

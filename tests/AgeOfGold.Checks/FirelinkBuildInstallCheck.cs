@@ -111,6 +111,18 @@ internal static class FirelinkBuildInstallCheck
             || !sourceWords.Any(t => t.Entries.Any(e => e.Text == builtPrompt)) || !sourceWords.Any(t => t.Entries.Any(e => e.Text == builtResponse))
             || actionRows.Rows.Count(r => r.ID == talkAction) != 1)
             throw new Exception("Built Fire Keeper talk lacks its controller, script, source words or action");
+        // Navigation: one mesh of the source's walkable triangles, listed alone in the map's index.
+        var walk = manifest.RootElement.GetProperty("navigation");
+        var meshes = BND4.Read(Path.Combine(mod, "map/m10/m10_01_00_00/m10_01_00_00.nvmhktbnd.dcx")).Files;
+        var builtMesh = new AgeOfGold.Collision.SourceTagfile(meshes.Single().Bytes, "20180100").Root.Field("namedVariants").Elements()[0].Field("variant");
+        var builtIndex = DCX.Decompress(File.ReadAllBytes(Path.Combine(mod, "map/m10/m10_01_00_00/m10_01_00_00.nva.dcx")));
+        int walkFaces = walk.GetProperty("faces").GetInt32();
+        if (walkFaces < 1000 || builtMesh.Field("faces").Elements().Length != walkFaces || builtMesh.Field("vertices").Elements().Length != walk.GetProperty("vertices").GetInt32()
+            || !meshes.Single().Name.EndsWith($"_{walk.GetProperty("model").GetInt32():D6}.hkx", StringComparison.Ordinal)
+            // The index opens with a 16-byte header and a 32-byte marker section; the mesh list's header and its one entry follow.
+            || BitConverter.ToInt32(builtIndex, 48) != 0 || BitConverter.ToInt32(builtIndex, 48 + 12) != 1 || BitConverter.ToInt32(builtIndex, 64 + 52) != walk.GetProperty("model").GetInt32()
+            || BitConverter.ToInt32(builtIndex, 64 + 64) != walkFaces)
+            throw new Exception("Built navigation lacks its one mesh or its index entry");
         var materials = BND4.Read(Path.Combine(mod, "material/allmaterial.matbinbnd.dcx")).Files
             .ToLookup(f => string.Join('/', f.Name.Replace('\\', '/').Split('/')[^3..]).ToLowerInvariant(), f => f.Bytes);
         var shaders = File.ReadAllBytes(Path.Combine(mod, "shader/shaderbdle.shaderbdlebnd.dcx"));
