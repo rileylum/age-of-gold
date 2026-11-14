@@ -83,6 +83,19 @@ internal static class WholeCharacterCheck
             throw new Exception("Chosen animations were not carried alone under their given numbers: " + string.Join(",", posed.Animations.Select(a => $"{a.ID}/{a.Events.Count}")));
         try { HostCharacterEvents.Write(sourceBytes, hostBytes, "c6405", [], new Dictionary<long, long> { [4000] = 0 }); throw new Exception("A chosen animation the source lacks was accepted"); }
         catch (InvalidDataException) { }
+        // The two games number their common moves differently: each host move takes the source animation that does the same thing.
+        // The source's walk is 200 and its quarter turn 602; the host's are 2000 and 5000. A source animation whose own number a
+        // host move holds (its flinch, 2000) gives way to the move's.
+        if (HostCharacterEvents.Moves[2000] != 200 || HostCharacterEvents.Moves[2003] != 203 || HostCharacterEvents.Moves[2100] != 500 || HostCharacterEvents.Moves[5000] != 602 || HostCharacterEvents.Moves[5013] != 605
+            || HostCharacterEvents.Moves.Keys.Any(k => k is >= 3000 and < 5000)) throw new Exception("The moves the games number differently are not matched as measured");
+        var walk = new TAE.Animation(200, new TAE.Animation.AnimMiniHeader.Standard(), "a00_0200.hkxwin"); walk.Events.Add(Event(224, 0, 1, BitConverter.GetBytes(45f)));
+        var flinch = new TAE.Animation(2000, new TAE.Animation.AnimMiniHeader.Standard(), "a00_2000.hkxwin"); flinch.Events.Add(Event(0, 0, 0.2f, 9, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255));
+        source.Animations.AddRange([walk, flinch]);
+        var moved = TAE.Read(HostCharacterEvents.Write(source.Write(), hostBytes, "c6405", [2000, 2001], null, new Dictionary<long, long> { [2000] = 200, [2001] = 201 }).File);
+        var hostWalk = moved.Animations.Single(a => a.ID == 2000);
+        if (hostWalk.Events.Single().Type != 224 || moved.Animations.Single(a => a.ID == 200).Events.Count != 1 || moved.Animations.Single(a => a.ID == 2001).Events.Count != 0)
+            throw new Exception("A host move does not take the events of the source animation that does the same thing");
+        source.Animations.RemoveRange(source.Animations.Count - 2, 2);
         foreach (var bad in new Action[]
         {
             () => HostCharacterEvents.Write(hostBytes, hostBytes, "c6405", []),

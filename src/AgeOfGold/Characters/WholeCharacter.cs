@@ -34,9 +34,13 @@ internal static class WholeCharacter
         var own = new SortedDictionary<long, byte[]>();
         foreach (var file in animations.Files)
             if (SourceAnimation.Match(Member(file)) is { Success: true } match) own.Add(HostCharacterEvents.HostNumber(long.Parse(match.Groups[1].Value) * 10000 + long.Parse(match.Groups[2].Value)), file.Bytes);
+        // The moves the games number differently: the host's number takes the source animation that does the same thing.
+        var bySourceNumber = own.ToDictionary(o => o.Key, o => o.Value);
+        foreach (var (hostNumber, sourceNumber) in HostCharacterEvents.Moves)
+            if (bySourceNumber.TryGetValue(HostCharacterEvents.HostNumber(sourceNumber), out var same)) own[hostNumber] = same;
         return Assemble(archive, name, identity, hosts, One(animations, "skeleton.hkx", name, "skeleton"), One(BND3.Read(source.Read($"chr/{name}.chrbnd.dcx")), name + ".hkx", name, "physics file"),
             animations.Files.SingleOrDefault(f => Member(f).EndsWith(".tae", StringComparison.OrdinalIgnoreCase))?.Bytes ?? throw new InvalidDataException("Source character has no event file: " + name),
-            own, null, (hostModel, bones) => HostCharacterModel.WriteWhole(hostModel, model, parts, bones));
+            own, null, HostCharacterEvents.Moves, (hostModel, bones) => HostCharacterModel.WriteWhole(hostModel, model, parts, bones));
     }
 
     /// <summary>
@@ -57,7 +61,7 @@ internal static class WholeCharacter
         // lazy: only the pose a person starts in, as every move. People do not walk, fight or flinch until the human's
         // sets of animations, chosen by what it holds, are matched to the host's moves.
         return Assemble(archive, human, identity, hosts, One(main, "skeleton.hkx", human, "skeleton"), One(BND3.Read(source.Read($"chr/{human}.chrbnd.dcx")), human + ".hkx", human, "physics file"),
-            One(main, "a00.tae", human, "first event file"), new SortedDictionary<long, byte[]> { [0] = posed }, new Dictionary<long, long> { [pose] = 0 },
+            One(main, "a00.tae", human, "first event file"), new SortedDictionary<long, byte[]> { [0] = posed }, new Dictionary<long, long> { [pose] = 0 }, null,
             (hostModel, bones) => HostCharacterModel.WritePieces(hostModel, skeleton, pieces, bones));
     }
 
@@ -68,9 +72,10 @@ internal static class WholeCharacter
 
     /// <param name="own">The source's animations, by host number; number nought is its idle.</param>
     /// <param name="only">When given, the source animations whose events are carried and the host number each takes.</param>
+    /// <param name="moves">Host moves that take the events of a source animation of another number.</param>
     /// <param name="model">Writes the body into the behaviour host's model, given the names of the skeleton's bones.</param>
     private static Built Assemble(HostArchive archive, string name, string identity, Hosts hosts, byte[] sourceSkeleton, byte[] sourcePhysics, byte[] sourceEvents,
-        SortedDictionary<long, byte[]> own, IReadOnlyDictionary<long, long>? only, Func<byte[], IReadOnlyCollection<string>, byte[]> model)
+        SortedDictionary<long, byte[]> own, IReadOnlyDictionary<long, long>? only, IReadOnlyDictionary<long, long>? moves, Func<byte[], IReadOnlyCollection<string>, byte[]> model)
     {
         foreach (string kind in new[] { "chrbnd", "anibnd", "behbnd" })
             if (archive.Contains($"chr/{identity}.{kind}.dcx")) throw new InvalidDataException("The host already has a character " + identity);
@@ -112,7 +117,7 @@ internal static class WholeCharacter
         for (int part = 0; archive.Contains($"chr/{exemplar}_div{part:00}.anibnd.dcx"); part++)
             foreach (var file in BND4.Read(archive.Read($"chr/{exemplar}_div{part:00}.anibnd.dcx")).Files)
                 if (HostAnimation.Match(Member(file)) is { Success: true } match) asked.Add(long.Parse(match.Groups[1].Value) * 1000000 + long.Parse(match.Groups[2].Value));
-        var events = HostCharacterEvents.Write(sourceEvents, eventFile.Bytes, identity, asked, only);
+        var events = HostCharacterEvents.Write(sourceEvents, eventFile.Bytes, identity, asked, only, moves);
         eventFile.Bytes = events.File;
         if (!own.TryGetValue(0, out var idle)) throw new InvalidDataException("Source character has no idle animation: " + name);
         // lazy: a move the host asks for that the source has no animation of the same number for plays the source's idle.

@@ -19,11 +19,32 @@ internal static class HostCharacterEvents
     /// <summary>The name of the host animation file with a number.</summary>
     internal static string HostName(long number) => $"a{number / 1000000:D3}_{number % 1000000:D6}";
 
+    /// <summary>
+    /// The common moves the two games number differently: the host's number, and the source animation that does the same
+    /// thing. Measured from where each animation takes the body: the source walks and runs under 200 to 203 and 500 and
+    /// turns on the spot under 602 to 605; the host walks under 2000 to 2003, runs under 2100 and turns under 5000 on.
+    /// Attacks (3000 on) share their numbers.
+    /// </summary>
+    /// <remarks>
+    /// lazy: only the moves measured. Being struck, dying, guarding, falling and being thrown are numbered differently too
+    /// and still play whatever the source keeps under the host's number, or its idle; match each as it is identified.
+    /// </remarks>
+    internal static readonly IReadOnlyDictionary<long, long> Moves = new SortedDictionary<long, long>
+    {
+        // Walking in battle, forward, back, left and right; walking with the guard up likewise, the source having one walk.
+        [2000] = 200, [2001] = 201, [2002] = 202, [2003] = 203, [2030] = 200, [2031] = 201, [2032] = 202, [2033] = 203,
+        // Running, and walking forward at ease.
+        [2100] = 500, [2300] = 200,
+        // Turning on the spot a quarter and a half turn each way: in battle, at ease, and with the guard up.
+        [5000] = 602, [5001] = 603, [5002] = 604, [5003] = 605, [5010] = 602, [5011] = 603, [5012] = 604, [5013] = 605, [5020] = 602, [5021] = 603, [5022] = 604, [5023] = 605,
+    };
+
     /// <param name="exemplar">A host character's event file; the new file takes its header.</param>
     /// <param name="identity">The host character the events are for, as "c" and four digits.</param>
     /// <param name="also">Host animation numbers to list without events when the source has none of that number.</param>
     /// <param name="only">When given, the source animations to carry and the host number each takes; the rest of the source's are left out.</param>
-    internal static Written Write(byte[] sourceFile, byte[] exemplar, string identity, IEnumerable<long> also, IReadOnlyDictionary<long, long>? only = null)
+    /// <param name="moves">Host animations that take a source animation of another number, by host number.</param>
+    internal static Written Write(byte[] sourceFile, byte[] exemplar, string identity, IEnumerable<long> also, IReadOnlyDictionary<long, long>? only = null, IReadOnlyDictionary<long, long>? moves = null)
     {
         var source = TAE.Read(sourceFile); var host = TAE.Read(exemplar);
         if (source.Format != TAE.TAEFormat.DS1 || source.BigEndian || host.Format != TAE.TAEFormat.SDT || host.BigEndian) throw new InvalidDataException("Unsupported event file format");
@@ -35,6 +56,10 @@ internal static class HostCharacterEvents
 
         if (only?.Keys.Except(source.Animations.Select(a => a.ID)).Any() == true) throw new InvalidDataException("The source event file lacks a chosen animation");
         var bySource = only is null ? source.Animations.ToDictionary(a => HostNumber(a.ID)) : source.Animations.Where(a => only.ContainsKey(a.ID)).ToDictionary(a => only[a.ID]);
+        // A host move numbered otherwise takes the source animation that does the same thing, where the source has it.
+        var byOwnNumber = source.Animations.ToDictionary(a => a.ID);
+        foreach (var (hostNumber, sourceNumber) in moves ?? new Dictionary<long, long>())
+            if (byOwnNumber.TryGetValue(sourceNumber, out var same)) bySource[hostNumber] = same;
         var dropped = new SortedDictionary<int, int>(); int kept = 0;
         var animations = new List<TAE.Animation>();
         foreach (long listed in also.Concat(bySource.Keys).Distinct().Order())
