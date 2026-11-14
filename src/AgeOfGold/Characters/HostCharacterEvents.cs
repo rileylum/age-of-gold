@@ -26,8 +26,11 @@ internal static class HostCharacterEvents
     /// Attacks (3000 on) share their numbers.
     /// </summary>
     /// <remarks>
-    /// lazy: only the moves measured. Being struck, dying, guarding, falling and being thrown are numbered differently too
-    /// and still play whatever the source keeps under the host's number, or its idle; match each as it is identified.
+    /// Being struck is matched by measurement where it can be: both games keep three weights of flinch, told apart by
+    /// rising length; the skeleton's heavy flinches throw the body left, right, back and forward in that order of number;
+    /// being blown back goes about as far in both. The rest is by likeness and is marked so.
+    /// lazy: guarding, falling, being thrown, the host's added flinches over another move, and its other deaths are numbered
+    /// differently too and still play whatever the source keeps under the host's number, or its idle.
     /// </remarks>
     internal static readonly IReadOnlyDictionary<long, long> Moves = new SortedDictionary<long, long>
     {
@@ -37,6 +40,17 @@ internal static class HostCharacterEvents
         [2100] = 500, [2300] = 200,
         // Turning on the spot a quarter and a half turn each way: in battle, at ease, and with the guard up.
         [5000] = 602, [5001] = 603, [5002] = 604, [5003] = 605, [5010] = 602, [5011] = 603, [5012] = 604, [5013] = 605, [5020] = 602, [5021] = 603, [5022] = 604, [5023] = 605,
+        // A light flinch, whichever way the blow came. By likeness: which of the source's three is from which side is not measured.
+        [8030] = 2000, [8031] = 2000, [8032] = 2000, [8033] = 2000, [8034] = 2000, [8035] = 2000, [8036] = 2000, [8037] = 2000,
+        // A middling flinch from the front, the left, the right, above and below, then from behind, the left and the right.
+        // By likeness: taken to be in the heavy flinches' order of sides.
+        [8040] = 2006, [8041] = 2004, [8042] = 2005, [8043] = 2006, [8044] = 2006, [8045] = 2007, [8046] = 2004, [8047] = 2005,
+        // A heavy flinch, likewise: a blow from the front throws the body back, one from the left throws it right.
+        [8050] = 2012, [8051] = 2010, [8052] = 2011, [8053] = 2012, [8054] = 2012, [8055] = 2013, [8056] = 2010, [8057] = 2011,
+        // Blown back a few metres, and blown back far.
+        [8100] = 2020, [8101] = 2014,
+        // Dying where it stands. By likeness: the source's one animation of about this length that ends a little way off.
+        [10000] = 2100,
     };
 
     /// <param name="exemplar">A host character's event file; the new file takes its header.</param>

@@ -88,6 +88,12 @@ internal static class WholeCharacterCheck
         // host move holds (its flinch, 2000) gives way to the move's.
         if (HostCharacterEvents.Moves[2000] != 200 || HostCharacterEvents.Moves[2003] != 203 || HostCharacterEvents.Moves[2100] != 500 || HostCharacterEvents.Moves[5000] != 602 || HostCharacterEvents.Moves[5013] != 605
             || HostCharacterEvents.Moves.Keys.Any(k => k is >= 3000 and < 5000)) throw new Exception("The moves the games number differently are not matched as measured");
+        // Being struck: the host's small, middling and heavy flinches take the source's by rising length; a heavy one by which
+        // way it throws the body (measured on the skeleton); being blown back by how far. Dying takes the source's death.
+        var moves = HostCharacterEvents.Moves;
+        if (Enumerable.Range(8030, 8).Any(n => moves[n] != 2000) || moves[8040] != 2006 || moves[8045] != 2007 || moves[8041] != 2004 || moves[8042] != 2005
+            || moves[8050] != 2012 || moves[8055] != 2013 || moves[8051] != 2010 || moves[8056] != 2010 || moves[8052] != 2011 || moves[8057] != 2011
+            || moves[8100] != 2020 || moves[8101] != 2014 || moves[10000] != 2100) throw new Exception("Being struck and dying are not matched as measured");
         var walk = new TAE.Animation(200, new TAE.Animation.AnimMiniHeader.Standard(), "a00_0200.hkxwin"); walk.Events.Add(Event(224, 0, 1, BitConverter.GetBytes(45f)));
         var flinch = new TAE.Animation(2000, new TAE.Animation.AnimMiniHeader.Standard(), "a00_2000.hkxwin"); flinch.Events.Add(Event(0, 0, 0.2f, 9, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255));
         source.Animations.AddRange([walk, flinch]);
