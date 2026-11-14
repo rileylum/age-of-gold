@@ -129,6 +129,7 @@ internal static class FirelinkBuildInstallCheck
         // Every enemy is moved from its source place by the one displacement the whole map shares.
         var enemyOffset = layout.Parts.Enemies.Single(p => p.Name == enemies[0].GetProperty("name").GetString()).Position - sourceEnemies[enemies[0].GetProperty("source").GetString()!].Position;
         var bodyFiles = new Dictionary<string, FLVER2>(StringComparer.Ordinal); var marksOf = new Dictionary<string, HashSet<int>>(StringComparer.Ordinal);
+        var wholeAttacks = new Dictionary<int, AgeOfGold.Characters.SourceCharacterReader.SourceAttacks>();
         var hostArchive = new AgeOfGold.Archives.HostArchive(new Install(host, "eldenring.exe"));
         foreach (var enemy in enemies)
         {
@@ -138,12 +139,41 @@ internal static class FirelinkBuildInstallCheck
             var raw = rows.Length == 1 ? (byte[])rows[0]["raw"].Value : throw new Exception("A built enemy's row is missing or repeated");
             var size = sourceBodies[from.NPCParamID];
             int shown = BitConverter.ToUInt16(raw, 330);
+            bool whole = enemy.GetProperty("whole").GetBoolean();
             if (placed.ModelName != enemy.GetProperty("body").GetString() || placed.Name != "aog_" + from.Name || placed.EntityID != 0 || placed.WalkRouteName is not null
                 || placed.GameEditionDisable != MSBE.Part.GameEditionDisableType.NeverDisable || layout.Parts.Collisions.Count(c => c.Name == placed.CollisionPartName) != 1
                 || !layout.Models.Enemies.Any(m => m.Name == placed.ModelName) || (placed.Position - enemyOffset - from.Position).Length() > 1e-3f || placed.Rotation != from.Rotation
                 || !rows[0].Name.StartsWith("aog_", StringComparison.Ordinal) || BitConverter.ToSingle(raw, 20) != size.Height || BitConverter.ToSingle(raw, 24) != size.Radius
-                || BitConverter.ToSingle(raw, 340) != size.Height || BitConverter.ToSingle(raw, 344) != size.Radius || System.Numerics.BitOperations.PopCount((uint)shown) != 1)
+                || BitConverter.ToSingle(raw, 340) != size.Height || BitConverter.ToSingle(raw, 344) != size.Radius || !whole && System.Numerics.BitOperations.PopCount((uint)shown) != 1)
                 throw new Exception($"Built enemy {placed.Name} differs from its source placement, its collision or its row");
+            if (whole)
+            {
+                // A character built whole: files of its own under an identity the host lacks, and a row that names the source's behaviour variation.
+                string identity = placed.ModelName, sourceModel = from.ModelName;
+                var report = manifest.RootElement.GetProperty("wholeCharacters").GetProperty(sourceModel);
+                if (report.GetProperty("identity").GetString() != identity || !Regex.IsMatch(identity, @"^c6[4-9]\d\d$") || new[] { "chrbnd", "anibnd", "behbnd" }.Any(kind => hostArchive.Contains($"chr/{identity}.{kind}.dcx") || !File.Exists(Path.Combine(mod, $"chr/{identity}.{kind}.dcx")))
+                    || !File.Exists(Path.Combine(mod, $"action/script/{identity}.hks"))
+                    // The map lists the model under its own identity, in its name and in its path: without the path the host does not stand the character.
+                    || layout.Models.Enemies.Single(m => m.Name == identity).SibPath?.Contains(identity, StringComparison.Ordinal) != true)
+                    throw new Exception($"Built enemy {placed.Name} is not a character of the build's own with all its files");
+                var attacks = AgeOfGold.Characters.SourceCharacterReader.Attacks(new Install(source, "DarkSoulsRemastered.exe"), from.NPCParamID);
+                if (BitConverter.ToInt32(raw, 4) != attacks.Variation) throw new Exception($"Built enemy {placed.Name}'s row does not name the source's behaviour variation");
+                wholeAttacks[from.NPCParamID] = attacks;
+                if (bodyFiles.ContainsKey(identity)) continue;
+                var ownBinder = BND4.Read(Path.Combine(mod, $"chr/{identity}.chrbnd.dcx"));
+                var own = bodyFiles[identity] = FLVER2.Read(ownBinder.Files.Single(f => f.Name.EndsWith(".flver", StringComparison.OrdinalIgnoreCase)).Bytes);
+                var sourceBody = FLVER2.Read(BND3.Read(Path.Combine(source, $"chr/{sourceModel}.chrbnd.dcx")).Files.Single(f => f.Name.EndsWith(sourceModel + ".flver", StringComparison.OrdinalIgnoreCase)).Bytes);
+                // The body stands on the source's own nodes; every texture it names is built; its physics and events are its own.
+                if (!own.Nodes.Select(n => n.Name).SequenceEqual(sourceBody.Nodes.Select(n => n.Name)) || own.Dummies.Count != sourceBody.Dummies.Count || own.Meshes.Count == 0 || own.Materials.Any(m => !Regex.IsMatch(m.Name, @"^aog_\d+$"))
+                    || own.Materials.Any(m => m.Textures.Count(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)) != 3)
+                    || own.Materials.SelectMany(m => m.Textures).Where(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)).Select(t => t.Path).Distinct()
+                        .Any(t => !File.Exists(Path.Combine(mod, "asset/aet/aet950", Path.GetFileNameWithoutExtension(t)[..^2].ToLowerInvariant() + ".tpf.dcx")))
+                    || ownBinder.Files.Count != 2 || report.GetProperty("bodies").GetInt32() < 10 || report.GetProperty("animations").GetInt32() < 100 || report.GetProperty("events").GetProperty("kept").GetInt32() < 100)
+                    throw new Exception($"Built enemy body {identity} is not the source's own body with built textures, physics and events");
+                var ownEvents = TAE.Read(BND4.Read(Path.Combine(mod, $"chr/{identity}.anibnd.dcx")).Files.Single(f => f.Name.EndsWith(".tae", StringComparison.OrdinalIgnoreCase)).Bytes);
+                if (ownEvents.ID != 200000 + int.Parse(identity[1..]) || !ownEvents.Animations.Any(a => a.Events.Any(e => e.Type == 1))) throw new Exception($"Built enemy {identity}'s events are not its own, or hold no attack");
+                continue;
+            }
             if (!bodyFiles.TryGetValue(placed.ModelName, out var body))
             {
                 bodyFiles[placed.ModelName] = body = FLVER2.Read(BND4.Read(Path.Combine(mod, $"chr/{placed.ModelName}.chrbnd.dcx")).Files.Single(f => f.Name.EndsWith(".flver", StringComparison.OrdinalIgnoreCase)).Bytes);
@@ -163,6 +193,27 @@ internal static class FirelinkBuildInstallCheck
             if (!body.Materials.Any(m => m.Name.StartsWith($"#{mark:D2}#", StringComparison.Ordinal))) throw new Exception($"Built enemy {placed.Name} shows a display mark no mesh carries");
             marksOf[placed.ModelName].Add(mark);
         }
+        // What answers the whole characters' attack events: every behaviour row of their variations, as the source has it, and
+        // an attack row for each that one names, with the source's hit sizes, attachment points and damage.
+        if (wholeAttacks.Count == 0 || !enemies.Any(e => e.GetProperty("whole").GetBoolean() && sourceEnemies[e.GetProperty("source").GetString()!].ModelName == "c2540")) throw new Exception("The hollow soldier is not built whole");
+        PARAM Raw(string table)
+        {
+            var rows = PARAM.Read(builtRegulation.Tables.Files.Single(f => Path.GetFileName(f.Name.Replace('\\', '/')) == table + ".param").Bytes);
+            var definition = new PARAMDEF { ParamType = rows.ParamType, DataVersion = rows.ParamdefDataVersion };
+            definition.Fields.Add(new PARAMDEF.Field(definition, PARAMDEF.DefType.dummy8, "raw") { ArrayLength = (int)rows.DetectedSize });
+            rows.ApplyParamdef(definition); return rows;
+        }
+        var builtBehaviours = Raw("BehaviorParam").Rows.ToDictionary(r => r.ID, r => (byte[])r["raw"].Value); var builtAttacks = Raw("AtkParam_Npc").Rows.ToDictionary(r => r.ID, r => (byte[])r["raw"].Value);
+        foreach (var attacks in wholeAttacks.Values)
+        {
+            if (attacks.Behaviours.Length == 0 || attacks.Hits.Length == 0 || attacks.Behaviours.Any(b => !builtBehaviours.TryGetValue(b.Id, out var row) || !row.SequenceEqual(b.Row)))
+                throw new Exception("A whole character's behaviour rows are not in the built table as the source has them");
+            foreach (var (id, row) in attacks.Hits)
+                if (!builtAttacks.TryGetValue(id, out var hit) || !hit.AsSpan(0, 24).SequenceEqual(row.AsSpan(0, 24)) || !hit.AsSpan(44, 16).SequenceEqual(row.AsSpan(44, 16)) || !hit.AsSpan(80, 12).SequenceEqual(row.AsSpan(80, 12)))
+                    throw new Exception($"Attack row {id} is missing from the built table or lacks the source's hit");
+        }
+        if (!manifest.RootElement.GetProperty("attacks").GetProperty("behaviours").EnumerateArray().Select(b => b.GetInt32()).SequenceEqual(wholeAttacks.Values.SelectMany(a => a.Behaviours.Select(b => b.Id)).Distinct().Order()))
+            throw new Exception("The manifest does not list the behaviour rows added");
         // People: each source human the manifest lists stands in the built map on a built collision, under its own row, which
         // shows a display mark of its own that meshes of the body carry and has the standing of an installed friendly character.
         var people = manifest.RootElement.GetProperty("people").EnumerateArray().ToArray();
@@ -197,8 +248,10 @@ internal static class FirelinkBuildInstallCheck
         if (peopleSpeech.Length != people.Length || peopleSpeech.Select(t => t.GetProperty("message").GetInt32()).Distinct().Count() != people.Length) throw new Exception("Built people do not each have their own talk");
         if (people.Length != 2 || manifest.RootElement.GetProperty("unbuiltCharacters").GetProperty("c0000").GetInt32() != sourceEnemies.Values.Count(p => p.ModelName == "c0000") - people.Length)
             throw new Exception("Built people are not the two humans present from the start");
-        if (marksOf.Values.Sum(m => m.Count) != enemyModels.Length || bodyFiles.Sum(b => b.Value.Materials.Select(m => m.Name[..4]).Distinct().Count()) != enemyModels.Length + people.Length)
-            throw new Exception("Built bodies and display marks are not one for each source model and person");
+        // A carried body shares its host's model and is told apart by a display mark; a whole one has a model to itself.
+        int carriedModels = enemyModels.Length - manifest.RootElement.GetProperty("wholeCharacters").EnumerateObject().Count();
+        if (marksOf.Values.Sum(m => m.Count) != carriedModels || bodyFiles.Where(b => marksOf.ContainsKey(b.Key)).Sum(b => b.Value.Materials.Select(m => m.Name[..4]).Distinct().Count()) != carriedModels + people.Length)
+            throw new Exception("Built bodies and display marks are not one for each carried source model and person");
         // Navigation: one mesh for each source mesh, numbered after the built collision it lies on and listed in the map's index.
         var walk = manifest.RootElement.GetProperty("navigation");
         var meshes = BND4.Read(Path.Combine(mod, "map/m10/m10_01_00_00/m10_01_00_00.nvmhktbnd.dcx")).Files;

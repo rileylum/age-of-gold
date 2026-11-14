@@ -16,7 +16,9 @@ namespace AgeOfGold.Characters;
 internal static class HostCharacterPhysics
 {
     /// <param name="Kept">Joint values the source states in a form this reader cannot decode, left as the host exemplar's.</param>
-    internal sealed record Written(byte[] File, int Bodies, int Joints, int RagdollBones, int AnimationBones, string[] Kept);
+    /// <param name="Boxes">Box-shaped source bodies stood for by capsules.</param>
+    /// <param name="Held">Source joints made to break, written as joints that hold.</param>
+    internal sealed record Written(byte[] File, int Bodies, int Joints, int RagdollBones, int AnimationBones, int Boxes, int Held, string[] Kept);
 
     /// <summary>
     /// A capsule as the host stores one: a thin box about its axis, a hundredth of the radius thick, which the host
@@ -40,6 +42,17 @@ internal static class HostCharacterPhysics
         }
         static Vector4 Plane(Vector3 normal, Vector3 on) => new(normal, -Vector3.Dot(normal, on));
         return (corners, [Plane(along, b + along * thin), Plane(-along, a - along * thin), Plane(side, a + side * thin), Plane(-side, a - side * thin), Plane(other, a + other * thin), Plane(-other, a - other * thin)]);
+    }
+
+    /// <summary>The capsule that stands for a box: along its longest side, as wide as its next longest, its rounded ends reaching the box's.</summary>
+    internal static (Vector3 A, Vector3 B, float Radius) BoxCapsule(Vector3 halfExtents, Vector3 centre)
+    {
+        float[] half = [halfExtents.X, halfExtents.Y, halfExtents.Z];
+        if (half.Any(h => !(h > 0) || !float.IsFinite(h))) throw new InvalidDataException("A box needs three sizes");
+        int longest = Array.IndexOf(half, half.Max());
+        float radius = half.Where((_, i) => i != longest).Max();
+        var reach = new Vector3(longest == 0 ? 1 : 0, longest == 1 ? 1 : 0, longest == 2 ? 1 : 0) * MathF.Max(0, half[longest] - radius);
+        return (centre - reach, centre + reach, radius);
     }
 
     /// <param name="exemplar">A host physics file that uses every kind of object the source's needs.</param>
@@ -70,18 +83,28 @@ internal static class HostCharacterPhysics
         var names = bodies.Select(b => b.Field("name").Text()).ToList();
         if (names.Count == 0 || names.Distinct(StringComparer.Ordinal).Count() != names.Count) throw new InvalidDataException("Source ragdoll bodies need distinct names");
         data.m_bodyCinfos = []; data.m_materials = []; data.m_motionProperties = [];
+        int boxes = 0, held = 0;
         for (int i = 0; i < bodies.Length; i++)
         {
             // lazy: each body is a clone of one host capsule body; its mass spread and air drag stay the exemplar's, which only
             // shape how it falls. Give each its own when a fall looks wrong. Source bodies of another shape need those shapes built.
             var body = (hknpPhysicsSystemData.bodyCinfoWithAttachment)Clone(bodyExemplar);
             var shape = bodies[i].Field("collidable").Field("shape");
-            if (shape.TypeName != "hkpCapsuleShape") throw new InvalidDataException("Unsupported source body shape: " + shape.TypeName);
-            float[] a = shape.Field("vertexA").Floats(), b = shape.Field("vertexB").Floats(); float radius = shape.Field("radius").Floats()[0];
+            Vector3 a, b; float radius;
+            static Vector3 Three(Value value) { var f = value.Floats(); return new(f[0], f[1], f[2]); }
+            if (shape.TypeName == "hkpCapsuleShape") { a = Three(shape.Field("vertexA")); b = Three(shape.Field("vertexB")); radius = shape.Field("radius").Floats()[0]; }
+            else if (shape.TypeName == "hkpConvexTranslateShape" && shape.Field("childShape").Field("childShape") is var boxed && boxed.TypeName == "hkpBoxShape")
+            {
+                // lazy: a box set off from its bone (a held shield or weapon) is stood for by a capsule. Build the host's
+                // box shape when a flat body's hits or fall look wrong; it needs a host exemplar that has one.
+                (a, b, radius) = BoxCapsule(Three(boxed.Field("halfExtents")), Three(shape.Field("translation")));
+                boxes++;
+            }
+            else throw new InvalidDataException("Unsupported source body shape: " + shape.TypeName);
             var capsule = (hknpCapsuleShape)body.m_shape!;
-            var (corners, planes) = CapsuleBox(new(a[0], a[1], a[2]), new(b[0], b[1], b[2]), radius);
+            var (corners, planes) = CapsuleBox(a, b, radius);
             if (capsule.m_vertices.Count != corners.Length || capsule.m_planes.Count != planes.Length) throw new InvalidDataException("Host capsule exemplar is not a box of eight corners");
-            capsule.m_a = new(a[0], a[1], a[2], radius); capsule.m_b = new(b[0], b[1], b[2], 0);
+            capsule.m_a = new(a, radius); capsule.m_b = new(b, 0);
             // The box is rounded by all but its own thickness; the host lets bodies sink a third of the radius into each other.
             capsule.m_convexRadius = radius * 0.99f; capsule.m_maxAllowedPenetration = radius * 0.33f;
             capsule.m_vertices = corners.ToList(); capsule.m_planes = planes.ToList();
@@ -104,6 +127,9 @@ internal static class HostCharacterPhysics
         data.m_constraintCinfos = instance.Field("constraints").Elements().Select(from =>
         {
             var kind = from.Field("data");
+            // lazy: a joint made to break (a skeleton coming apart) is written as the joint it wraps, and holds. Write the
+            // host's breakable joint when a body should come apart; it needs a host exemplar that has one.
+            if (kind.TypeName == "hkpBreakableConstraintData") { kind = kind.Field("constraintData"); held++; }
             if (!jointExemplars.TryGetValue(kind.TypeName, out var jointExemplar)) throw new InvalidDataException("The host exemplar has no joint like the source's " + kind.TypeName);
             var joint = (hknpConstraintCinfo)Clone(jointExemplar);
             Overlay(joint.m_constraintData!, kind, kind.TypeName, kept);
@@ -141,7 +167,7 @@ internal static class HostCharacterPhysics
             to.m_keepUnmappedLocal = from.Field("keepUnmappedLocal").Integer() != 0;
             to.m_partitionMap = []; to.m_simpleMappingPartitionRanges = []; to.m_chainMappingPartitionRanges = [];
         }
-        return new(types.Write(root), data.m_bodyCinfos.Count, data.m_constraintCinfos.Count, ragdollSkeleton.m_bones.Count, animationSkeleton.m_bones.Count, kept.ToArray());
+        return new(types.Write(root), data.m_bodyCinfos.Count, data.m_constraintCinfos.Count, ragdollSkeleton.m_bones.Count, animationSkeleton.m_bones.Count, boxes, held, kept.ToArray());
     }
 
     // What the source states, laid over a host object of the same class. A value the reader cannot decode (the two

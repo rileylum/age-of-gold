@@ -34,6 +34,16 @@ internal static class WholeCharacterCheck
         Near(Vector3.Distance(new(slanted.Corners[0].X, slanted.Corners[0].Y, slanted.Corners[0].Z), new(slanted.Corners[1].X, slanted.Corners[1].Y, slanted.Corners[1].Z)), 3.01f, "box length");
         try { HostCharacterPhysics.CapsuleBox(Vector3.Zero, Vector3.UnitX, 0); throw new Exception("A capsule without a radius was accepted"); }
         catch (InvalidDataException) { }
+        // A box (a held shield or weapon) is stood for by the capsule along its longest side that is as wide as its next longest.
+        var stood = HostCharacterPhysics.BoxCapsule(new(0.085f, 0.014f, 0.218f), new(0.1f, 0, 0.5f));
+        Near(stood.Radius, 0.085f, "box capsule radius"); Near(stood.A.X, 0.1f, "box capsule centre"); Near(stood.A.Y, 0, "box capsule centre");
+        // The capsule's rounded ends reach the box's ends: its axis stops a radius short of them.
+        Near(MathF.Min(stood.A.Z, stood.B.Z), 0.5f - (0.218f - 0.085f), "box capsule end"); Near(MathF.Max(stood.A.Z, stood.B.Z), 0.5f + (0.218f - 0.085f), "box capsule end");
+        // A box no longer than it is wide becomes a ball.
+        var ball = HostCharacterPhysics.BoxCapsule(new(0.2f, 0.2f, 0.1f), Vector3.Zero);
+        if (ball.A != ball.B || ball.Radius != 0.2f) throw new Exception("A squat box is not stood for by a ball");
+        try { HostCharacterPhysics.BoxCapsule(new(0.1f, 0, 0.1f), Vector3.Zero); throw new Exception("A box without thickness was accepted"); }
+        catch (InvalidDataException) { }
         Console.WriteLine("PASS: a capsule becomes the thin numbered box the host stores, square to its axis");
 
         // Events: an authored source file with an attack, a named moment, a blend, a turn limit and a sound, over an authored host file.
@@ -133,6 +143,10 @@ internal static class WholeCharacterCheck
         if (events.ID != 206405 || !events.Animations.Select(a => a.ID).SequenceEqual(built.Events.Numbers) || clips.Length != built.Animations + built.Stood || built.Animations < 100 || built.Stood == 0
             || !clips.Select(Member).SequenceEqual(clips.Select(Member).Order(StringComparer.Ordinal)) || clips.Any(f => f.ID != 1_000_000_000 + (int)(long.Parse(Member(f)[1..4]) * 1000000 + long.Parse(Member(f)[5..11]))))
             throw new Exception("The animation binder does not hold the listed animations in order");
+        // Whatever else the exemplar's binder holds is kept, but for its packing lists: the host needs the binder's version marker.
+        var kept = BND4.Read(archive.Read($"chr/{exemplar}.anibnd.dcx")).Files.Select(Member).Where(m => !m.EndsWith(".blf", StringComparison.OrdinalIgnoreCase) && !m.EndsWith(".tae", StringComparison.Ordinal)).ToArray();
+        if (!kept.Contains("ver_0001.txt") || kept.Except(animations.Files.Select(Member), StringComparer.OrdinalIgnoreCase).Any() || animations.Files.Any(f => Member(f).EndsWith(".blf", StringComparison.OrdinalIgnoreCase)))
+            throw new Exception("The animation binder does not keep the exemplar's other members, or keeps its packing lists");
         var swing = events.Animations.Single(a => a.ID == 3000);
         if (swing.Events.Count(e => e.Type == 1) != 1 || built.Events.Kept < 100) throw new Exception("The first attack's events were not carried");
         HostTagfile.Read(clips.Single(f => Member(f) == "a000_003000.hkx").Bytes, out var clipRoot);

@@ -170,13 +170,16 @@ internal static class FirelinkMapWriter
     /// <summary>Adds an enemy where the source stands one, copied from an installed placement of the host character that carries it.</summary>
     /// <param name="collision">The built collision part it stands on; the host does not show an enemy without one.</param>
     /// <param name="talk">The talk script the character runs when spoken to, or zero for none.</param>
-    internal static void AddEnemy(MSBE layout, MSBE.Part.Enemy template, string name, int row, int behaviour, string collision, Vector3 position, Vector3 rotation, int talk = 0)
+    /// <param name="model">The character model placed, when it is not the template's.</param>
+    internal static void AddEnemy(MSBE layout, MSBE.Part.Enemy template, string name, int row, int behaviour, string collision, Vector3 position, Vector3 rotation, int talk = 0, string? model = null)
     {
         if (layout.Parts.GetEntries().Any(p => p.Name == name)) throw new InvalidDataException("Enemy identity is already occupied: " + name);
         if (string.IsNullOrEmpty(collision)) throw new InvalidDataException("An enemy needs the collision it stands on: " + name);
         var enemy = (MSBE.Part.Enemy)template.DeepCopy();
         enemy.Name = name; enemy.NPCParamID = row; enemy.ThinkParamID = behaviour; enemy.CollisionPartName = collision;
         enemy.Position = position; enemy.Rotation = rotation;
+        // A character the build writes itself is placed under its own model, with everything else its template's.
+        if (model is not null) enemy.ModelName = model;
         // Placements of one model are told apart by instance.
         enemy.InstanceID = layout.Parts.Enemies.Where(p => p.ModelName == enemy.ModelName).Select(p => p.InstanceID).DefaultIfEmpty(-1).Max() + 1;
         // The installed placement's ties to its own map's scripts, talk and routes do not come along.

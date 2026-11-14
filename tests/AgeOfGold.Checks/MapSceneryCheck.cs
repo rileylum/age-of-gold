@@ -79,6 +79,12 @@ internal static class MapSceneryCheck
             || enemies[0].InstanceID != 0 || enemies[1].InstanceID != 1 || enemies[0].ModelName != "c4300" || MSBE.Read(fought.Write()).Models.Enemies.Count(m => m.Name == "c4300") != 1 || enemies[0].GameEditionDisable != MSBE.Part.GameEditionDisableType.NeverDisable
             || enemies[0].Unk1.DisplayGroups.Any(g => g != uint.MaxValue) || soldier.NPCParamID != 111 || soldier.WalkRouteName != "authored-route")
             throw new Exception("Placed enemy differs or changed its template");
+        // A placement may be of another model than its template's: a character the build itself writes. Its instances count from nought.
+        FirelinkMapWriter.AddEnemy(fought, soldier, "aog_authored_own", 43008002, 43000000, "h800005_0000", new(1, 5, 6), default, 0, "c6405");
+        FirelinkMapWriter.AddEnemy(fought, soldier, "aog_authored_own_2", 43008002, 43000000, "h800005_0000", new(2, 5, 6), default, 0, "c6405");
+        var owned = MSBE.Read(fought.Write());
+        if (!owned.Parts.Enemies.Where(p => p.Name.StartsWith("aog_authored_own")).OrderBy(p => p.Name).Select(p => (p.ModelName, p.InstanceID)).SequenceEqual([("c6405", 0), ("c6405", 1)]) || owned.Models.Enemies.Count(m => m.Name == "c6405") != 1 || soldier.ModelName != "c4300")
+            throw new Exception("A placement of a build-owned model differs or changed its template");
         foreach (var (name, collision) in new[] { ("aog_authored_enemy", "h800005_0000"), ("aog_other_enemy", "") })
         {
             try { FirelinkMapWriter.AddEnemy(fought, soldier, name, 1, 2, collision, default, default); throw new Exception("An enemy with an occupied name or no collision was accepted"); }

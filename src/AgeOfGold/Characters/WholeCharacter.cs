@@ -71,11 +71,11 @@ internal static class WholeCharacter
         var split = BND4.Read(archive.Read($"chr/{exemplar}_div00.anibnd.dcx"));
         var animationTypes = HostTagfile.ReadShared(split.Files.Single(f => Member(f).EndsWith(".compendium", StringComparison.OrdinalIgnoreCase)).Bytes);
         var like = split.Files.First(f => HostAnimation.IsMatch(Member(f)));
-        // The moves the host's shared graph may ask for are the exemplar's first set of animations.
+        // The moves the host may ask of the character are the exemplar's own animations, in every set it has.
         var asked = new SortedSet<long>();
         for (int part = 0; archive.Contains($"chr/{exemplar}_div{part:00}.anibnd.dcx"); part++)
             foreach (var file in BND4.Read(archive.Read($"chr/{exemplar}_div{part:00}.anibnd.dcx")).Files)
-                if (HostAnimation.Match(Member(file)) is { Success: true } match && match.Groups[1].Value == "000") asked.Add(long.Parse(match.Groups[2].Value));
+                if (HostAnimation.Match(Member(file)) is { Success: true } match) asked.Add(long.Parse(match.Groups[1].Value) * 1000000 + long.Parse(match.Groups[2].Value));
         var events = HostCharacterEvents.Write(sourceAnimations.Files.SingleOrDefault(f => Member(f).EndsWith(".tae", StringComparison.OrdinalIgnoreCase))?.Bytes ?? throw new InvalidDataException("Source character has no event file: " + name),
             eventFile.Bytes, identity, asked);
         eventFile.Bytes = events.File;
@@ -86,7 +86,10 @@ internal static class WholeCharacter
         // lazy: a move the host asks for that the source has no animation of the same number for plays the source's idle.
         // Match each such move (being struck, dying, turning on the spot) to the source's own once the shared graph's moves are read.
         byte[]? stand = null; int stood = 0;
-        animations.Files = [skeletonFile, eventFile];
+        // The binder keeps its other members: without the empty one that marks its version the host does not stand the
+        // character at all. Only the lists the host's packer left behind, which name the split binders, are dropped.
+        animations.Files.RemoveAll(f => Member(f).EndsWith(".blf", StringComparison.OrdinalIgnoreCase));
+        if (animations.Files.Any(f => HostAnimation.IsMatch(Member(f)))) throw new InvalidDataException("Host character keeps animations in its main binder: " + exemplar);
         foreach (long number in asked.Union(own.Keys).Order())
         {
             byte[] bytes;
