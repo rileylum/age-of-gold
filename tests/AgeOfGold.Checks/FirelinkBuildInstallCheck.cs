@@ -324,7 +324,9 @@ internal static class FirelinkBuildInstallCheck
                 surfaces++;
             }
         }
-        if (surfaces != 348 || cutouts != 78 || blends != 34) throw new Exception("Built opaque and cutout surface inventory differs");
+        // The map's 330 surfaces less the 5 unbuilt, the bonfire's 5 and the Fire Keeper's, plus the statue and the urns: six
+        // object models (two of the urns once more for a second lighting row), each of one opaque and one cutout surface.
+        if (surfaces != 360 || cutouts != 84 || blends != 34) throw new Exception($"Built opaque and cutout surface inventory differs: {surfaces} surfaces, {cutouts} cutouts, {blends} blended");
         var lit = manifest.RootElement.GetProperty("groundFamilies").EnumerateObject().Select(f => f.Name).Order(StringComparer.Ordinal).ToArray();
         if (!lit.SequenceEqual(families.Order(StringComparer.Ordinal))) throw new Exception("Built models do not use exactly the recorded lit ground families");
         foreach (string family in families)

@@ -78,6 +78,14 @@ internal static class SceneCheck
                 && placed.RootElement.GetProperty("surfaces").GetRawText() == piece.RootElement.GetProperty("surfaces").GetRawText(), "object model surfaces");
         Require(objects.ReadObjectTextures("o9999").Select(t => t.Name).SequenceEqual(new[] { "authored-colour" }), "object textures");
         if (objects.ReadObjectAttachment("o9999") != new Vector3(1.5f, 2.25f, 3.125f)) throw new Exception("Object attachment point is not carried through its node");
+        // A breakable object keeps a second model of its pieces beside its whole one, and may hold no textures of its own:
+        // the whole model is the one read, and its textures are then looked up with the map's.
+        var pieces = FLVER2.Read(model.Write()); pieces.Meshes.Clear();
+        Write("obj/o9998.objbnd.dcx", new BND3 { Files = [new BinderFile(Binder.FileFlags.Flag1, 0, @"N:\authored\o9998.flver", model.Write()),
+            new BinderFile(Binder.FileFlags.Flag1, 1, @"N:\authored\o9998_1.flver", pieces.Write())] }.Write());
+        using (var whole = JsonDocument.Parse(objects.ReadObject("o9998")))
+        using (var piece = JsonDocument.Parse(objects.ReadModel("m0000")))
+            Require(whole.RootElement.GetProperty("surfaces").GetRawText() == piece.RootElement.GetProperty("surfaces").GetRawText() && objects.ReadObjectTextures("o9998").Length == 0, "breakable object's whole model");
         // Objects are placed like map pieces and select the same drawing rows.
         using (var placedObjects = JsonDocument.Parse(objects.ReadObjectPlacements()))
         {

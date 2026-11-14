@@ -135,9 +135,11 @@ internal static class FirelinkBuild
         var walkable = SourceNavigationReader.Read(source);
         var lighting = SourceLightingReader.Read(source).Scenery.ToDictionary(r => r.Id);
         using var placementDocument = JsonDocument.Parse(reader.ReadPlacements());
-        // lazy: of the source's objects only the bonfire is built, as fixed scenery; the rest are counted in the manifest
-        // until breakable, animated and interactive objects are translated.
-        string[] sceneryObjects = ["o0200"];
+        // lazy: the source's objects that no event or item touches and that are not animated stand as fixed scenery: the
+        // bonfire, the broken statue and the large urns. The urns cannot be broken, and none of these blocks the player. The
+        // rest (chests, bodies holding items, the lift, the pool's covers, a lever) are counted in the manifest until
+        // breakable, animated and interactive objects are translated. The list is authored from a reading of the map.
+        string[] sceneryObjects = ["o0200", "o1470", "o1495", "o1496", "o1497"];
         using var objectDocument = JsonDocument.Parse(reader.ReadObjectPlacements());
         var objectPlacements = objectDocument.RootElement.EnumerateArray().ToLookup(p => sceneryObjects.Contains(p.GetProperty("model").GetString()));
         var unbuiltObjects = new SortedDictionary<string, int>(objectPlacements[false].GroupBy(p => p.GetProperty("model").GetString()!)
@@ -168,16 +170,34 @@ internal static class FirelinkBuild
             if (c.Value.Shown.Except(meshes.Select(m => m.Mark)).FirstOrDefault() is { } absent) throw new InvalidDataException($"Source character {c.Key} has no mesh marked {absent}");
             return (Model: model, Meshes: meshes);
         }, StringComparer.Ordinal);
-        var placements = placementDocument.RootElement.EnumerateArray().Concat(objectPlacements[true]).Concat(characterPlacements[true]).ToArray();
+        // Lighting and air are compiled into a model's programs, so an object placed under several rows is built once for
+        // each: its commonest rows keep its name, and each other set of rows takes the name with a numbered suffix.
+        const char Variant = '+';
+        var sceneryObjectPlacements = objectPlacements[true].GroupBy(p => p.GetProperty("model").GetString()!, StringComparer.Ordinal).SelectMany(group =>
+        {
+            static (int, int, int) Rows(JsonElement p) => (p.GetProperty("lighting").GetInt32(), p.GetProperty("fog").GetInt32(), p.GetProperty("scattering").GetInt32());
+            var order = group.GroupBy(Rows).OrderByDescending(g => g.Count()).ThenBy(g => g.Key).Select(g => g.Key).ToList();
+            return group.Select(p =>
+            {
+                int variant = order.IndexOf(Rows(p));
+                if (variant == 0) return p;
+                var node = System.Text.Json.Nodes.JsonNode.Parse(p.GetRawText())!;
+                node["model"] = $"{group.Key}{Variant}{variant}";
+                using var renamed = JsonDocument.Parse(node.ToJsonString());
+                return renamed.RootElement.Clone();
+            });
+        }).ToArray();
+        var sceneryObjectModels = sceneryObjectPlacements.Select(p => p.GetProperty("model").GetString()!).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var placements = placementDocument.RootElement.EnumerateArray().Concat(sceneryObjectPlacements).Concat(characterPlacements[true]).ToArray();
         byte[] ReadModel(string name) => sceneryCharacters.TryGetValue(name, out var held) ? reader.ReadCharacter(name, held)
-            : sceneryObjects.Contains(name) ? reader.ReadObject(name) : reader.ReadModel(name);
+            : sceneryObjectModels.Contains(name) ? reader.ReadObject(name.Split(Variant)[0]) : reader.ReadModel(name);
 
         // lazy: only the opaque lit families are built; every other surface is counted in the manifest until its family lands.
         // First pass: classify each model's surfaces and collect texture names; geometry is read again when its model is built.
         var renderer = SourceRendererSettings.Read(source);
         var environmentSettings = SourceEnvironmentSettings.Read(source, toolchain);
         var models = new List<(string Name, Dictionary<int, (float R, float G, float B, bool Unlit, float FadeOffset, float FadeScale, float ScrollU, float ScrollV)> Surfaces, string[] Textures)>();
-        foreach (string name in reader.Models.Concat(sceneryObjects).Concat(sceneryCharacters.Keys))
+        foreach (string name in reader.Models.Concat(sceneryObjectModels).Concat(sceneryCharacters.Keys))
         {
             using var model = JsonDocument.Parse(ReadModel(name));
             var ground = new Dictionary<int, (float, float, float, bool, float, float, float, float)>(); var textures = new List<string>();

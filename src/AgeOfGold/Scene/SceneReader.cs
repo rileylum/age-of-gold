@@ -65,9 +65,10 @@ internal sealed class SceneReader
     }
 
     /// <summary>An object's model in the same shape as a map piece's; its textures come from <see cref="ReadObjectTextures"/>.</summary>
-    internal byte[] ReadObject(string name) => JsonSerializer.SerializeToUtf8Bytes(Model(name, ObjectFile(name, ".flver").Single()));
+    internal byte[] ReadObject(string name) => JsonSerializer.SerializeToUtf8Bytes(Model(name, ObjectFile(name, ".flver")));
 
-    internal (string Name, byte[] Bytes)[] ReadObjectTextures(string name) => ObjectFile(name, ".tpf").SelectMany(TextureReader.ReadPackage).ToArray();
+    /// <summary>The textures an object holds itself; an object that holds none wears textures of the map's packages.</summary>
+    internal (string Name, byte[] Bytes)[] ReadObjectTextures(string name) => ObjectFiles(name, ".tpf").SelectMany(TextureReader.ReadPackage).ToArray();
 
     /// <summary>A character's model at the first frame of one of its animations, in the same shape as a map piece's.</summary>
     internal byte[] ReadCharacter(string name, string animation)
@@ -101,7 +102,7 @@ internal sealed class SceneReader
     /// <summary>Where effects attach to an object, in the object's own space.</summary>
     internal Vector3 ReadObjectAttachment(string name)
     {
-        var (model, _) = ModelReader.Read(ObjectFile(name, ".flver").Single());
+        var (model, _) = ModelReader.Read(ObjectFile(name, ".flver"));
         // lazy: one attachment point on an unturned node; several points need the reference each effect asks for.
         if (model.Dummies.Count != 1 || model.Dummies[0].ParentBoneIndex < 0 || model.Dummies[0].ParentBoneIndex >= model.Nodes.Count)
             throw new InvalidDataException($"Source object {name} does not have exactly one attachment point");
@@ -111,10 +112,15 @@ internal sealed class SceneReader
     }
 
     // An object keeps its model and textures together in one binder.
-    private byte[][] ObjectFile(string name, string extension)
+    private byte[][] ObjectFiles(string name, string extension) => BND3.Read(source.Read($"obj/{Install.Relative(name)}.objbnd.dcx")).Files
+        .Where(f => f.Name.EndsWith(extension, StringComparison.OrdinalIgnoreCase)).Select(f => f.Bytes).ToArray();
+
+    // The member named after the object itself: a breakable object also holds a model of its pieces under a longer name.
+    private byte[] ObjectFile(string name, string extension)
     {
-        var files = BND3.Read(source.Read($"obj/{Install.Relative(name)}.objbnd.dcx")).Files.Where(f => f.Name.EndsWith(extension, StringComparison.OrdinalIgnoreCase)).ToArray();
-        return files.Length != 0 ? files.Select(f => f.Bytes).ToArray() : throw new InvalidDataException($"Source object {name} has no {extension} member");
+        var files = BND3.Read(source.Read($"obj/{Install.Relative(name)}.objbnd.dcx")).Files
+            .Where(f => f.Name.Replace('\\', '/').Split('/')[^1].Equals(name + extension, StringComparison.OrdinalIgnoreCase)).ToArray();
+        return files.Length == 1 ? files[0].Bytes : throw new InvalidDataException($"Source object {name} does not have one {extension} member of its own name");
     }
 
     private object Model(string name)
