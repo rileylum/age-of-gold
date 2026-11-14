@@ -43,7 +43,7 @@ internal static class GameplayTables
             ?? throw new InvalidDataException($"Interaction template row {templateRow} is absent");
         var added = Clone(rows, template, rowId, name);
         BinaryPrimitives.WriteInt32LittleEndian(Payload(added).AsSpan(52), promptId);
-        rows.Rows.Add(added);
+        Insert(rows, added);
         return rows.Write();
     }
 
@@ -72,7 +72,7 @@ internal static class GameplayTables
         }
         // Sixteen bits, one for each of the marks a model's mesh names can open with ("#00#" to "#15#").
         if (mark is { } shown) BinaryPrimitives.WriteUInt16LittleEndian(Payload(added).AsSpan(330), (ushort)(1 << shown));
-        rows.Rows.Add(added);
+        Insert(rows, added);
         return rows.Write();
     }
 
@@ -102,6 +102,13 @@ internal static class GameplayTables
         if (!table.Write().AsSpan().SequenceEqual(bytes))
             throw new InvalidDataException($"Unsupported {type} encoding: unchanged rows do not round trip exactly");
         return table;
+    }
+
+    // The host's tables list their rows in ascending identity; a new row goes where its identity belongs.
+    private static void Insert(PARAM table, PARAM.Row row)
+    {
+        int at = table.Rows.FindIndex(r => r.ID > row.ID);
+        table.Rows.Insert(at < 0 ? table.Rows.Count : at, row);
     }
 
     private static PARAM.Row Clone(PARAM table, PARAM.Row template, int id, string name)

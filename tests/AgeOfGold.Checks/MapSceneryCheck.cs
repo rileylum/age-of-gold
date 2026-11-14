@@ -72,10 +72,10 @@ internal static class MapSceneryCheck
             WalkRouteName = "authored-route", CollisionPartName = "authored-collision" };
         soldier.EntityGroupIDs[0] = 9;
         FirelinkMapWriter.AddEnemy(fought, soldier, "aog_authored_enemy", 43008000, 43000000, "h800005_0000", new(4, 5, 6), new(0, 30, 0));
-        FirelinkMapWriter.AddEnemy(fought, soldier, "aog_authored_enemy_2", 43008001, 43000000, "h800005_0000", new(7, 5, 6), new(0, 40, 0));
+        FirelinkMapWriter.AddEnemy(fought, soldier, "aog_authored_enemy_2", 43008001, 43000000, "h800005_0000", new(7, 5, 6), new(0, 40, 0), 100190001);
         var enemies = MSBE.Read(fought.Write()).Parts.Enemies.Where(p => p.Name.StartsWith("aog_authored_enemy")).OrderBy(p => p.Name).ToArray();
         if (enemies.Length != 2 || enemies[0].NPCParamID != 43008000 || enemies[0].ThinkParamID != 43000000 || enemies[0].CollisionPartName != "h800005_0000" || enemies[0].EntityID != 0
-            || enemies[0].TalkID != 0 || enemies[0].WalkRouteName is not null || enemies[0].EntityGroupIDs.Any(g => g != 0) || enemies[0].Position != new Vector3(4, 5, 6) || enemies[0].Rotation != new Vector3(0, 30, 0)
+            || enemies[0].TalkID != 0 || enemies[1].TalkID != 100190001 || enemies[0].WalkRouteName is not null || enemies[0].EntityGroupIDs.Any(g => g != 0) || enemies[0].Position != new Vector3(4, 5, 6) || enemies[0].Rotation != new Vector3(0, 30, 0)
             || enemies[0].InstanceID != 0 || enemies[1].InstanceID != 1 || enemies[0].ModelName != "c4300" || MSBE.Read(fought.Write()).Models.Enemies.Count(m => m.Name == "c4300") != 1 || enemies[0].GameEditionDisable != MSBE.Part.GameEditionDisableType.NeverDisable
             || enemies[0].Unk1.DisplayGroups.Any(g => g != uint.MaxValue) || soldier.NPCParamID != 111 || soldier.WalkRouteName != "authored-route")
             throw new Exception("Placed enemy differs or changed its template");

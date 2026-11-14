@@ -180,6 +180,21 @@ internal static class FirelinkBuildInstallCheck
                 || raw[307] == 6 || person.GetProperty("parts").GetArrayLength() < 5)
                 throw new Exception($"Built person {placed.Name} differs from its source placement, its row or its body");
         }
+        // Each person runs its own talk script, with its own action, and says a line of the source's conversation text.
+        var peopleSpeech = manifest.RootElement.GetProperty("talk").GetProperty("people").EnumerateArray().ToArray();
+        var conversation = BND3.Read(Path.Combine(source, "msg/ENGLISH/menu.msgbnd.dcx")).Files.Where(f => f.Name.EndsWith("Conversation_.fmg", StringComparison.Ordinal)).SelectMany(f => FMG.Read(f.Bytes).Entries).Select(e => e.Text).ToHashSet();
+        foreach (var said in peopleSpeech)
+        {
+            int saidScript = said.GetProperty("script").GetInt32(), action = said.GetProperty("action").GetInt32();
+            var controller = layout.Parts.Enemies.Single(p => p.Name == said.GetProperty("name").GetString());
+            var states = ESD.Read(BND4.Read(Path.Combine(mod, "script/talk/m10_01_00_00.talkesdbnd.dcx")).Files.Single(f => f.Name.EndsWith($"\\m10_01_00_00\\t{saidScript:D9}.esd", StringComparison.Ordinal)).Bytes).StateGroups[1];
+            string line = hostWords["EventTextForTalk.fmg"][said.GetProperty("message").GetInt32()];
+            if (controller.TalkID != saidScript || !people.Any(p => p.GetProperty("name").GetString() == controller.Name)
+                || !states[2].Conditions.Single().Evaluator.AsSpan().IndexOf(BitConverter.GetBytes(action)).Equals(2) || actionRows.Rows.Count(r => r.ID == action) != 1
+                || string.IsNullOrWhiteSpace(line) || !conversation.Contains(line) || action == talkAction)
+                throw new Exception($"Built talk for {controller.Name} lacks its script, action or source line");
+        }
+        if (peopleSpeech.Length != people.Length || peopleSpeech.Select(t => t.GetProperty("message").GetInt32()).Distinct().Count() != people.Length) throw new Exception("Built people do not each have their own talk");
         if (people.Length != 2 || manifest.RootElement.GetProperty("unbuiltCharacters").GetProperty("c0000").GetInt32() != sourceEnemies.Values.Count(p => p.ModelName == "c0000") - people.Length)
             throw new Exception("Built people are not the two humans present from the start");
         if (marksOf.Values.Sum(m => m.Count) != enemyModels.Length || bodyFiles.Sum(b => b.Value.Materials.Select(m => m.Name[..4]).Distinct().Count()) != enemyModels.Length + people.Length)

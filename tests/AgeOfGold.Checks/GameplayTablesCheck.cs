@@ -82,6 +82,9 @@ internal static class GameplayTablesCheck
         Require(sized.Rows.Count == 3 && sized.Rows.Single(r => r.ID == 73).Name == "authored character" && Payload(sized.Rows.Single(r => r.ID == 73)).SequenceEqual(body)
             && Payload(sized.Rows.Single(r => r.ID == 42)).SequenceEqual(Payload(characters.Rows[1])), "character row is not its template with the new body size");
         Require(GameplayTables.AddCharacter(characterBytes, 42, 73, "authored character", (1.5f, 0.35f)).SequenceEqual(GameplayTables.AddCharacter(characterBytes, 42, 73, "authored character", (1.5f, 0.35f))), "character row edit is not deterministic");
+        // A new row goes where its identity belongs among the table's ascending rows.
+        Require(Read(GameplayTables.AddCharacter(characterBytes, 42, 7, "authored character", null), 736).Rows.Select(r => r.ID).SequenceEqual([7, 41, 42])
+            && sized.Rows.Select(r => r.ID).SequenceEqual([41, 42, 73]), "a new row is not placed in identity order");
         // With a display mark the row draws that mark's meshes alone, of its first sixteen.
         var marked = Read(GameplayTables.AddCharacter(characterBytes, 42, 73, "authored character", (1.5f, 0.35f), 10), 736);
         BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(330), 1 << 10);

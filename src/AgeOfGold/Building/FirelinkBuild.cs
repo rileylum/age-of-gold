@@ -64,8 +64,8 @@ internal static class FirelinkBuild
     // The humans who are at Firelink from the start, by source placement, on the host's wandering noble, with the standing
     // of a host character who leaves the player alone. Which humans are present at the start is authored from knowledge of the source game:
     // its event script decides by flags this tool does not yet follow.
-    // lazy: no face front (the source generates it as the game runs) and no hair; no talk; the host's standing idle
-    // rather than the source's own pose; the host template's body size.
+    // lazy: no face front (the source generates it as the game runs) and no hair; one line of talk; the host's standing
+    // idle rather than the source's own pose; the host template's body size.
     private static readonly SortedDictionary<string, LivingPerson> LivingPeople = new(StringComparer.Ordinal)
     {
         ["c0000_0011"] = new("c4300", 15, "m18_00_00_00", "c4300_9009", "_Belt_Leather.", "_WP_A_0211_Sword.", "m11_10_00_00", "c0000_9010"),
@@ -324,6 +324,9 @@ internal static class FirelinkBuild
             }
         }
         var people = new List<object>();
+        // A person runs a one-message talk script of its own that shows the source's opening line. (An unseen controller
+        // standing in the same place, as the Fire Keeper has, is not offered to the player while the person stands there.)
+        var peopleTalk = new List<(string Name, int Script, int Action, int Message, string Line)>();
         foreach (var (name, person) in LivingPeople)
         {
             var donor = MSBE.Read(archive.Read($"map/mapstudio/{person.TemplateMap}.msb.dcx"));
@@ -339,7 +342,9 @@ internal static class FirelinkBuild
             int stoodOn = Array.IndexOf(terrain.Sources, placed.CollisionName);
             if (stoodOn < 0) throw new InvalidDataException($"Source placement {placed.Name} stands on a collision that is not built: {placed.CollisionName}");
             string floor = $"h{terrain.Low[stoodOn].Model}_0000";
-            FirelinkMapWriter.AddEnemy(spoken, template, "aog_" + placed.Name, characterRows[^1].Row, template.ThinkParamID, floor, placed.Position + terrain.Offset, placed.Rotation);
+            int said = peopleTalk.Count + 1;
+            peopleTalk.Add(("aog_" + placed.Name, KeeperTalk + said, KeeperAction + said, KeeperMessage + said, SourceTalkReader.OpeningLine(source, "m10_02_00_00", placed.TalkID)));
+            FirelinkMapWriter.AddEnemy(spoken, template, "aog_" + placed.Name, characterRows[^1].Row, template.ThinkParamID, floor, placed.Position + terrain.Offset, placed.Rotation, peopleTalk[^1].Script);
             people.Add(new { name = "aog_" + placed.Name, source = placed.Name, body = person.Host, row = characterRows[^1].Row, behaviour = template.ThinkParamID, collision = floor,
                 parts = peoplePieces[name].Select(piece => piece.Stem) });
         }
@@ -356,13 +361,16 @@ internal static class FirelinkBuild
         if (!talkFolder.Contains(Map, StringComparison.Ordinal) || talkBundle.Files.Any(f => f.Name.EndsWith(talkName, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("Host talk bundle cannot take the build's talk script");
         talkBundle.Files.Add(new(talkFlags, talkBundle.Files.Select(f => f.ID).DefaultIfEmpty(-1).Max() + 1, talkFolder + talkName, TalkScript.OneMessage(KeeperAction, KeeperMessage)));
+        foreach (var talk in peopleTalk)
+            talkBundle.Files.Add(new(talkFlags, talkBundle.Files.Max(f => f.ID) + 1, $"{talkFolder}t{talk.Script:D9}.esd", TalkScript.OneMessage(talk.Action, talk.Message)));
         files.Add("mod/" + talkPath, talkBundle.Write());
         // Her prompt and response are the source's own words, added to the host's newest menu text bundle.
         const string hostText = "msg/engus/menu_dlc02.msgbnd.dcx";
         var sourceText = source.Read("msg/ENGLISH/menu.msgbnd.dcx");
         files.Add("mod/" + hostText, MessageBundle.Add(archive.Read(hostText), [
             ("ActionButtonText.fmg", KeeperPrompt, MessageBundle.ReadSource(sourceText, "Event_text_.fmg", SourceKeeperPrompt)),
-            ("EventTextForTalk.fmg", KeeperMessage, MessageBundle.ReadSource(sourceText, "Event_text_.fmg", SourceKeeperResponse))]));
+            ("EventTextForTalk.fmg", KeeperMessage, MessageBundle.ReadSource(sourceText, "Event_text_.fmg", SourceKeeperResponse)),
+            .. peopleTalk.Select(talk => ("EventTextForTalk.fmg", talk.Message, talk.Line))]));
         // The source picks its screen settings from the collision the player stands on; the build starts with the arrival's.
         // lazy: one selection for the whole map; other collisions select other rows and need the host's per-area switching.
         var selections = SourceAtmosphereReader.Selections(source);
@@ -696,6 +704,8 @@ internal static class FirelinkBuild
             new(restingFlag, "aog_bonfire", restingEntity, (uint)restingFlag, 10, 1, 0, resting.Position, destinationTemplate.Text));
         var actions = regulation.Tables.Files.Single(f => Path.GetFileName(f.Name.Replace('\\', '/')) == "ActionButtonParam.param");
         actions.Bytes = GameplayTables.AddInteraction(actions.Bytes, HostTalkAction, KeeperAction, "aog_firekeeper_talk", KeeperPrompt);
+        // Each person's talk takes the same prompt wording as the Fire Keeper's.
+        foreach (var talk in peopleTalk) actions.Bytes = GameplayTables.AddInteraction(actions.Bytes, HostTalkAction, talk.Action, talk.Name, KeeperPrompt);
         var characterTable = regulation.Tables.Files.Single(f => Path.GetFileName(f.Name.Replace('\\', '/')) == "NpcParam.param");
         foreach (var row in characterRows) characterTable.Bytes = GameplayTables.AddCharacter(characterTable.Bytes, row.Template, row.Row, row.Name, row.Body, row.Mark, row.Standing);
         files.Add("mod/regulation.bin", regulation.Write());
@@ -729,7 +739,8 @@ internal static class FirelinkBuild
             navigation = new { vertices = walkable.Vertices.Length, faces = walkable.Triangles.Length, dropped = walkable.Dropped,
                 border = new { reach = WalkableReach, moved = widened.Moved, furthest = widened.Furthest }, joins = walkPieces.Joins.Length,
                 pieces = walkPieces.Pieces.Select((piece, i) => new { part = piece.Part, model = meshModels[i], vertices = piece.Vertices.Length, faces = piece.Triangles.Length, gates = piece.Gates.Length }) },
-            talk = new { fireKeeper = new { entity = keeperEntity, script = KeeperTalk, action = KeeperAction, prompt = KeeperPrompt, message = KeeperMessage } },
+            talk = new { fireKeeper = new { entity = keeperEntity, script = KeeperTalk, action = KeeperAction, prompt = KeeperPrompt, message = KeeperMessage },
+                people = peopleTalk.Select(t => new { name = t.Name, script = t.Script, action = t.Action, prompt = KeeperPrompt, message = t.Message }) },
             effects = new
             {
                 bonfire = new { effect = BonfireFire, source = SourceBonfireFire, position = new[] { fireAt.X, fireAt.Y, fireAt.Z }, clusters = fire.Clusters.Length,

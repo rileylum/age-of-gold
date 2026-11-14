@@ -169,7 +169,8 @@ internal static class FirelinkMapWriter
 
     /// <summary>Adds an enemy where the source stands one, copied from an installed placement of the host character that carries it.</summary>
     /// <param name="collision">The built collision part it stands on; the host does not show an enemy without one.</param>
-    internal static void AddEnemy(MSBE layout, MSBE.Part.Enemy template, string name, int row, int behaviour, string collision, Vector3 position, Vector3 rotation)
+    /// <param name="talk">The talk script the character runs when spoken to, or zero for none.</param>
+    internal static void AddEnemy(MSBE layout, MSBE.Part.Enemy template, string name, int row, int behaviour, string collision, Vector3 position, Vector3 rotation, int talk = 0)
     {
         if (layout.Parts.GetEntries().Any(p => p.Name == name)) throw new InvalidDataException("Enemy identity is already occupied: " + name);
         if (string.IsNullOrEmpty(collision)) throw new InvalidDataException("An enemy needs the collision it stands on: " + name);
@@ -179,7 +180,7 @@ internal static class FirelinkMapWriter
         // Placements of one model are told apart by instance.
         enemy.InstanceID = layout.Parts.Enemies.Where(p => p.ModelName == enemy.ModelName).Select(p => p.InstanceID).DefaultIfEmpty(-1).Max() + 1;
         // The installed placement's ties to its own map's scripts, talk and routes do not come along.
-        enemy.EntityID = 0; enemy.TalkID = 0; enemy.WalkRouteName = null; Array.Fill(enemy.EntityGroupIDs, 0u);
+        enemy.EntityID = 0; enemy.TalkID = talk; enemy.WalkRouteName = null; Array.Fill(enemy.EntityGroupIDs, 0u);
         enemy.GameEditionDisable = MSBE.Part.GameEditionDisableType.NeverDisable;
         Array.Fill(enemy.Unk1.DisplayGroups, uint.MaxValue); Array.Fill(enemy.Unk1.DrawGroups, uint.MaxValue);
         if (!layout.Models.Enemies.Any(m => m.Name == enemy.ModelName)) layout.Models.Enemies.Add(new MSBE.Model.Enemy { Name = enemy.ModelName });
