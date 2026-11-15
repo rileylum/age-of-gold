@@ -256,10 +256,32 @@ screen-space darkening; point lights.
 Seen in the game against the source's pictures (16 November): the seated warrior's mail is the source's even dark
 teal where it was black with bright edges, and the hollow's metal no longer blazes; mean levels of the three views
 are within eight of the source's in every channel. Still off: the hem of mail hanging under his thighs and the
-front of one shin are lit where the source's are dark. Both lie under his own body as the shadows' light sees them,
-so the likely cause is that the host's shadow does not reach from one part of a character onto another a hand's
-breadth away, where the source's shadow map (which covers only the nearest ten metres) does. Not measured: an
-attempt to show the host's shadow alone on a character did not finish.
+front of one shin are lit where the source's are dark. Both lie under his own body as the shadows' light sees them.
+
+## No cast shadow reaches a character (16 November)
+
+A frame of the candidate was captured the same way, at the warrior's view and at the hollow's, and replayed
+privately. It shows why the hem is lit, and that an earlier claim of this note is wrong.
+
+- The host's stage for the sun reads one texture for its shadow and uses three of its values: the lesser of the
+  first two multiplies the light, and the fourth is mixed in by a constant of the scene's. The build's rewrite of
+  that stage gives a marked surface the lesser of the first two alone.
+- In both frames the first value holds the host's screen-space occlusion (dark in creases, no cast shapes), the
+  second is one everywhere, and the fourth is nought everywhere.
+- So what a character's stored light is multiplied by, in the candidate, is screen-space occlusion and nothing
+  else. No shadow cast by scenery, by an object, by another character or by the character's own body reaches it.
+  What reads as shade on a character is the program's own shadow for a surface turned from the light.
+- The character's meshes are drawn into the host's shadow pass (their index counts appear among its 396 draws into
+  a 4096 by 2048 depth target), and two full-screen stages read that target before the occlusion stage writes the
+  texture. Half of the depth target looks empty and the rest holds a few tiles of fixed scenery.
+- Earlier, while the build's scenery still cast shadows, a hollow behind a wall was wholly dark, so the second value
+  did carry cast shadow then. With the scenery's flags as the source has them (its map pieces cast none) nothing
+  that still casts shows up in it.
+
+Not known: why what the shadow pass draws does not come out in the texture's second value; whether the sun's own
+shadow maps are being drawn at all (the pass may hold only maps for other lights); what the fourth value and its
+constant are for. Until that is found the source's shadows of objects and of a character's own body on a character
+are missing, which is the remaining visible difference.
 
 ## Decoding the source's textures
 
