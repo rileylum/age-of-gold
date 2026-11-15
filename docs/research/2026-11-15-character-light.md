@@ -278,10 +278,25 @@ privately. It shows why the hem is lit, and that an earlier claim of this note i
   did carry cast shadow then. With the scenery's flags as the source has them (its map pieces cast none) nothing
   that still casts shows up in it.
 
-Not known: why what the shadow pass draws does not come out in the texture's second value; whether the sun's own
-shadow maps are being drawn at all (the pass may hold only maps for other lights); what the fourth value and its
-constant are for. Until that is found the source's shadows of objects and of a character's own body on a character
-are missing, which is the remaining visible difference.
+Read further the same morning:
+
+- The sun stage mixes the fourth value in by the scene's shadow colour (one, less the colour times one less the
+  value), so the fourth value is what the stage treats as the sun's cast shadow. As stored it is nought in every
+  pixel, before and after each of the three stages that write the texture: the first, which reads the shadow map,
+  fills the first three values with what looks like packed depth; the second changes nothing; the third overwrites
+  the first three with occlusion, one and one.
+- The hollow's five meshes are among the draws into the shadow map's largest tile, so it is drawn as a caster. That
+  tile, stretched, shows large flat overlapping sheets and no figure that can be made out. The built map's casting
+  placements are only the bonfire, the statue, the urns, the Fire Keeper and the two people; 22 of the 24 enemy
+  placements keep their host template's flag and do not cast, where the source's enemies do.
+- Tried privately and reverted: with the sun stage also multiplying a marked surface by the fourth value, every
+  character shows only its wholly shadowed light, the hollow in the open included. The seated warrior's hem and
+  shin then match the source's; the hollow, lit in the source, is far too dark.
+
+So either the host never writes its sun's shadow in this map, or the whole build stands under something that casts.
+If it is the second, the measured "a sun of strength one adds 0.40 of a facing colour" is one less the host's shadow
+colour rather than a property of its lighting. Until this is settled the source's shadows of objects and of a
+character's own body on a character are missing, which is the remaining visible difference.
 
 ## Decoding the source's textures
 
