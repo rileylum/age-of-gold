@@ -10,15 +10,20 @@ internal static class NeutralTextures
     /// <summary>An opaque black packed map.</summary>
     internal const string Neutral = "aog:neutral";
 
-    internal static bool Is(string name) => name is FlatNormal or Neutral;
+    /// <summary>A specular map for a surface with none: fully rough, not metal, reflecting nothing, and open.</summary>
+    internal const string Dull = "aog:dull";
+
+    internal static bool Is(string name) => name is FlatNormal or Neutral or Dull;
 
     internal static byte[] Bytes(string name)
     {
-        // One 4×4 block: both normal channels at mid-range, or black colour endpoints with full coverage.
+        // One 4×4 block: both normal channels at mid-range, or two equal colour endpoints with full coverage.
         var (format, payload) = name switch
         {
             FlatNormal => (DDS.DXGI_FORMAT.BC5_UNORM, new byte[] { 128, 128, 0, 0, 0, 0, 0, 0, 128, 128, 0, 0, 0, 0, 0, 0 }),
             Neutral => (DDS.DXGI_FORMAT.BC1_UNORM, new byte[8]),
+            // Both colour endpoints are full red; every texel takes the first.
+            Dull => (DDS.DXGI_FORMAT.BC1_UNORM, new byte[] { 0x00, 0xF8, 0x00, 0xF8, 0, 0, 0, 0 }),
             _ => throw new InvalidDataException("Unknown neutral texture: " + name),
         };
         var dds = new DDS { dwWidth = 4, dwHeight = 4, dwMipMapCount = 1, dwPitchOrLinearSize = payload.Length,

@@ -45,6 +45,8 @@ internal static class TextureCheck
         var environment = cube.Write(Enumerable.Range(0, 96).Select(i => (byte)i).ToArray());
         var loose = TextureWriterCheck.Fixture(environment); loose[24] = 113; loose[25] = 1;
         File.WriteAllBytes(Path.Combine(source, "map/m10/authored-environment.tpf.dcx"), loose);
+        // Asked for what the area holds of some names, a name it lacks is left out rather than refused.
+        if (!TextureReader.Read(install, ["authored-colour", "absent"], false).Select(t => t.Name).SequenceEqual(["authored-colour"])) throw new Exception("A lookup of what the area holds differs");
         var mixed = TextureReader.Read(install, ["authored-colour", "x"]).ToDictionary(t => t.Name, t => t.Bytes);
         if (!mixed["x"].SequenceEqual(environment) || !mixed["authored-colour"].SequenceEqual(expected) || install.Fingerprints.Count != 4)
             throw new Exception("Loose environment package was not read exactly and fingerprinted");

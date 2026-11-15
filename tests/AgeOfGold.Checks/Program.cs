@@ -88,6 +88,16 @@ try
         DisplayShaderCheck.Run();
         return;
     }
+    if (args.SequenceEqual(new[] { "character-shader" }))
+    {
+        CharacterShaderCheck.Run();
+        return;
+    }
+    if (args.SequenceEqual(new[] { "light-shader" }))
+    {
+        LightShaderCheck.Run();
+        return;
+    }
     if (args.SequenceEqual(new[] { "composite-shader" }))
     {
         CompositeShaderCheck.Run();
@@ -423,7 +433,6 @@ try
     BlockTextureCheck.Run();
     BlockTextureCheck.Radiance();
     BlockTextureCheck.Colour();
-    BlockTextureCheck.Surface();
     CharacterLightCheck.Run();
     BlockTextureCheck.Solid();
     HostIrradianceCheck.Run();

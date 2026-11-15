@@ -83,7 +83,8 @@ internal static class FirelinkMapWriter
         return new(offset, spawn, high, low, excluded, supports[0].Name, placements.Select(p => p.Name).ToArray());
     }
 
-    internal sealed record SceneryPlacement(string Name, string Model, Vector3 Position, Vector3 Rotation, Vector3 Scale);
+    /// <param name="CastsShadow">Whether the source's placement casts shadows; its own scenery casts none, so that a character standing by a wall is lit as in the open.</param>
+    internal sealed record SceneryPlacement(string Name, string Model, Vector3 Position, Vector3 Rotation, Vector3 Scale, bool CastsShadow);
 
     /// <summary>Host model digits by source model, and source placement by host placement name.</summary>
     internal sealed record Scenery(SortedDictionary<string, string> Models, SortedDictionary<string, string> Placements);
@@ -227,6 +228,8 @@ internal static class FirelinkMapWriter
                 // lazy: always visible, as in the accepted playtest; source draw groups need a host group mapping before they can be carried.
                 Array.Fill(part.Unk1.DisplayGroups, uint.MaxValue); Array.Fill(part.Unk1.DrawGroups, uint.MaxValue);
                 Array.Fill(part.Unk1.CollisionMask, uint.MaxValue);
+                part.IsShadowSrc = placement.CastsShadow;
+                if (!placement.CastsShadow) { part.IsStaticShadowSrc = 0; part.IsCascade3ShadowSrc = 0; }
                 layout.Parts.MapPieces.Add(part);
                 result.Placements.Add(part.Name, placement.Name);
             }

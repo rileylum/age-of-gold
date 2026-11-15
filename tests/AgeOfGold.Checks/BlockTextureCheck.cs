@@ -130,29 +130,40 @@ internal static class BlockTextureCheck
         }
         Console.WriteLine("PASS: one-channel and four-channel block textures encode with every smaller level and read back close to the image");
 
-        // A character's relief map: gloss is the reverse of the source specular map's red, in the relief map's blue.
-        // Specular: red 255 (rough) and green 0 in the first colour; red 0 and green 255 (metal) in the second; texel 1 takes the second.
-        byte[] specular = Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, [0x00, 0xF8, 0xE0, 0x07, 0b0100, 0, 0, 0]);
-        byte[] relief = Dds(DDS.DXGI_FORMAT.BC5_UNORM, 4, 4, [.. channel, .. channel]);
-        var glossy = HostCharacterTextures.ReliefAndGloss(relief, specular);
-        var glossBack = ReadOneLine(glossy.AsSpan(new DDS(glossy).DataOffset, 16));
-        // Texel 0: relief 200, rough, so no gloss. Texel 1: relief 100, smooth, so full gloss.
-        if (Math.Abs(glossBack[0] - 200) > 4 || Math.Abs(glossBack[1] - 200) > 4 || glossBack[2] > 4 || Math.Abs(glossBack[4] - 100) > 4 || glossBack[6] < 251 || glossBack[3] < 251)
-            throw new Exception("Relief and gloss differ: " + string.Join(",", glossBack.Take(8)));
-        // Without a specular map a surface has no gloss; a specular map of another size is read where it covers the same place.
-        var dull = ReadOneLine(HostCharacterTextures.ReliefAndGloss(relief, null).AsSpan(148, 16));
-        if (dull[2] != 0 || dull[6] != 0) throw new Exception("A surface without a specular map was given gloss");
-        byte[] wideRelief = Dds(DDS.DXGI_FORMAT.BC5_UNORM, 8, 4, [.. channel, .. channel, .. channel, .. channel]);
-        var wide = HostCharacterTextures.ReliefAndGloss(wideRelief, specular);
-        var wideBack = ReadOneLine(wide.AsSpan(new DDS(wide).DataOffset, 16));
-        // The relief's texels 2 and 3 lie over the specular map's texel 1, the smooth one.
-        if (wideBack[2] > 4 || wideBack[2 * 4 + 2] < 251 || wideBack[3 * 4 + 2] < 251 || new DDS(wide).dwWidth != 8) throw new Exception("A specular map of another size was not read where it covers the same place");
-        // A relief map smaller than the specular map is spread to the specular map's size.
-        byte[] wideSpecular = Dds(DDS.DXGI_FORMAT.BC1_UNORM, 8, 4, [0x00, 0xF8, 0xE0, 0x07, 0, 0, 0, 0, 0x00, 0xF8, 0xE0, 0x07, 0x55, 0x55, 0x55, 0x55]);
-        var spread = HostCharacterTextures.ReliefAndGloss(relief, wideSpecular);
-        var spreadRight = ReadOneLine(spread.AsSpan(new DDS(spread).DataOffset + 16, 16));
-        if (new DDS(spread).dwWidth != 8 || spreadRight[2] < 251 || Math.Abs(spreadRight[0] - 185) > 12) throw new Exception("A smaller relief map was not spread to the specular map's size");
-        Console.WriteLine("PASS: a character's gloss is the reverse of the source specular map's red, in the relief map's blue");
+        // The source's reflectance table: two half-precision numbers a texel, under a plain header that names the format by number.
+        static byte[] Halves(int width, int height, int code, Func<int, int, (float, float)> value)
+        {
+            var file = new byte[128 + width * height * 4];
+            "DDS "u8.CopyTo(file); BitConverter.TryWriteBytes(file.AsSpan(4), 124); BitConverter.TryWriteBytes(file.AsSpan(12), height); BitConverter.TryWriteBytes(file.AsSpan(16), width);
+            BitConverter.TryWriteBytes(file.AsSpan(76), 32); BitConverter.TryWriteBytes(file.AsSpan(80), 4); BitConverter.TryWriteBytes(file.AsSpan(84), code);
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                {
+                    var (first, second) = value(x, y);
+                    BitConverter.TryWriteBytes(file.AsSpan(128 + (y * width + x) * 4), (Half)first); BitConverter.TryWriteBytes(file.AsSpan(130 + (y * width + x) * 4), (Half)second);
+                }
+            return file;
+        }
+        // A table as smooth as the source's: a block's eight steps then lie within three levels of every texel.
+        (float, float) Slope(int x, int y) => (x / 31f, 1 - (x + y) / 62f);
+        var table = HostCharacterTextures.Table(Halves(32, 32, 112, Slope));
+        var tableBack = BlockTexture.Decode(table);
+        if (new DDS(table).GetDXGIFormat() != DDS.DXGI_FORMAT.BC5_UNORM || tableBack.Width != 32 || tableBack.Height != 32) throw new Exception("The reflectance table is not two channels at the source's size");
+        for (int y = 0; y < 32; y++)
+            for (int x = 0; x < 32; x++)
+            {
+                var (first, second) = Slope(x, y);
+                if (Math.Abs(tableBack.Rgba[(y * 32 + x) * 4] - first * 255) > 3 || Math.Abs(tableBack.Rgba[(y * 32 + x) * 4 + 1] - second * 255) > 3)
+                    throw new Exception($"Reflectance table texel {x},{y} reads {tableBack.Rgba[(y * 32 + x) * 4]},{tableBack.Rgba[(y * 32 + x) * 4 + 1]}");
+            }
+        foreach (var bad in new Action[] { () => HostCharacterTextures.Table(Halves(32, 32, 113, Slope)), () => HostCharacterTextures.Table(Halves(32, 32, 112, Slope)[..^4]),
+            () => HostCharacterTextures.Table(Halves(32, 32, 112, (x, y) => (2f, 0f))), () => HostCharacterTextures.Table(Halves(32, 32, 112, (x, y) => (float.NaN, 0f))) })
+        {
+            try { bad(); throw new Exception("An unusable reflectance table was accepted"); } catch (InvalidDataException) { }
+        }
+        var dullMap = BlockTexture.Decode(NeutralTextures.Bytes(NeutralTextures.Dull));
+        if (dullMap.Width != 4 || Enumerable.Range(0, 16).Any(i => !dullMap.Rgba.AsSpan(i * 4, 4).SequenceEqual(new byte[] { 255, 0, 0, 255 }))) throw new Exception("The dull specular map is not fully rough, plain, unreflecting and open");
+        Console.WriteLine("PASS: the source's reflectance table becomes a two-channel texture that reads back close to it");
     }
 
     // One block of the unsigned HDR format from named fields: each a first bit, a width and a value.
@@ -277,61 +288,5 @@ internal static class BlockTextureCheck
         var back = BlockTexture.Decode(BlockTexture.EncodeFour(new BlockTexture.Image(4, 4, rgba)));
         for (int i = 0; i < 64; i++) if (Math.Abs(back.Rgba[i] - rgba[i]) > 6) throw new Exception($"A written block reads back {back.Rgba[i]} for {rgba[i]} at byte {i}");
         Console.WriteLine("PASS: the high-quality colour format decodes with one, two or three regions, low bits, coverage apart and channels changing places");
-    }
-
-    /// <summary>
-    /// A surface's host colour and metal maps made texel by texel from the source's maps, so that the host's diffuse light
-    /// and reflectance are the source's. The host lights colour × (1 - metal) and reflects 4 % blended towards the colour by metal.
-    /// </summary>
-    internal static void Surface()
-    {
-        // A whole block of one colour, in the source's colour format: five, six and five bits.
-        static byte[] Flat(int r, int g, int b) { int c = r >> 3 << 11 | g >> 2 << 5 | b >> 3; return [(byte)c, (byte)(c >> 8), (byte)c, (byte)(c >> 8), 0, 0, 0, 0]; }
-        (byte[] Colour, byte Metal) Made(byte[] colour, byte[]? specular, float metal = 1)
-        {
-            var made = HostCharacterTextures.Surface(Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, colour), specular is null ? null : Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, specular), [0.6f, 0.6f, 0.6f], [metal, metal, metal]);
-            if (new DDS(made.Colour).GetDXGIFormat() != DDS.DXGI_FORMAT.BC7_UNORM || new DDS(made.Metal).GetDXGIFormat() != DDS.DXGI_FORMAT.BC4_UNORM) throw new Exception("A made surface is not a four-channel colour map and a one-channel metal map");
-            var metalBlock = made.Metal.AsSpan(new DDS(made.Metal).DataOffset, 8).ToArray();
-            return (BlockTexture.Decode(made.Colour).Rgba, BlockTexture.Decode(Dds(DDS.DXGI_FORMAT.BC5_UNORM, 4, 4, [.. metalBlock, .. metalBlock])).Rgba[0]);
-        }
-        void Expect(string what, (byte[] Colour, byte Metal) made, int grey, int metal, int coverage = 255)
-        {
-            if (Math.Abs(made.Colour[0] - grey) > 2 || Math.Abs(made.Colour[1] - grey) > 2 || Math.Abs(made.Colour[2] - grey) > 2 || Math.Abs(made.Colour[3] - coverage) > 2 || Math.Abs(made.Metal - metal) > 2)
-                throw new Exception($"{what}: colour {made.Colour[0]},{made.Colour[1]},{made.Colour[2]},{made.Colour[3]} metal {made.Metal}; expected {grey} and {metal}");
-        }
-        byte[] white = Flat(255, 255, 255);
-        // Not metal, reflecting nothing: the source lights (1 × 0.6)^2.2 = 0.325. The host cannot reflect less than its 4 %, so
-        // the surface is plain, its colour 0.325, which the host's display curve stores as 154.
-        Expect("A plain surface", Made(white, Flat(255, 0, 0)), 154, 0);
-        // Dark, not metal, reflecting nothing: (66/255 × 0.6)^2.2 = 0.0166, stored as 35. It stays plain: its colour is
-        // not given up to bring the host's reflection down.
-        Expect("A dark plain surface", Made(Flat(64, 64, 64), Flat(255, 0, 0)), 35, 0);
-        // No specular map: the same.
-        Expect("A surface with no specular map", Made(white, null), 154, 0);
-        // Metal, with a metal colour of a half: the source reflects (1 × 0.5)^2.2 = 0.2176 and lights nothing: all metal,
-        // coloured 0.2176, stored as 128.
-        Expect("A metal surface", Made(white, Flat(0, 255, 0), 0.5f), 128, 255);
-        // Black, not metal, at the full specular level: the source reflects 0.2 and lights nothing. The host reflects that
-        // much only from a metal coloured 0.2, stored as 124.
-        Expect("A black surface that reflects", Made(Flat(0, 0, 0), Flat(255, 0, 255)), 124, 255);
-        // Lit 0.325 and reflecting 0.2: with x = 1 - metal, 0.04 x^2 - 0.525 x + 0.325 = 0 gives x = 0.6513, metal 0.3487 (89),
-        // and the colour 0.325 + 0.2 - 0.04 x = 0.499, stored as 187. Then colour × x = 0.325 and 0.04 x + colour × metal = 0.2.
-        Expect("A lit surface that reflects", Made(white, Flat(255, 0, 255)), 187, 89);
-        // The maps can carry several times the source's reflectance, for a host that then reflects that many times more
-        // weakly: at four times, the black surface reflects 0.8 (stored 231) and the metal one 0.870 (stored 240).
-        byte Colour(byte[] colour, byte[] specular, float metal) => BlockTexture.Decode(HostCharacterTextures.Surface(Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, colour), Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, specular), [0.6f, 0.6f, 0.6f], [metal, metal, metal], 4).Colour).Rgba[0];
-        if (Math.Abs(Colour(Flat(0, 0, 0), Flat(255, 0, 255), 1) - 231) > 2 || Math.Abs(Colour(white, Flat(0, 255, 0), 0.5f) - 240) > 2)
-            throw new Exception($"Reflectance carried four times over is stored as {Colour(Flat(0, 0, 0), Flat(255, 0, 255), 1)} and {Colour(white, Flat(0, 255, 0), 0.5f)}, not 231 and 240");
-        // A plain surface is not changed by it.
-        if (Math.Abs(Colour(white, Flat(255, 0, 0), 1) - 154) > 2) throw new Exception("Carrying more reflectance changed a surface that reflects nothing");
-        // Where the source's colour map leaves a hole, the made one does.
-        var holed = HostCharacterTextures.Surface(Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, [0x00, 0x00, 0xFF, 0xFF, 0b11_01_01_01, 0x55, 0x55, 0x55]), null, [0.6f, 0.6f, 0.6f], [1f, 1f, 1f]);
-        var holes = BlockTexture.Decode(holed.Colour).Rgba;
-        if (holes[3] < 250 || holes[3 * 4 + 3] > 5) throw new Exception($"A hole in the colour map is not kept: coverage {holes[3]} and {holes[3 * 4 + 3]}");
-        foreach (var bad in new Action[] { () => HostCharacterTextures.Surface(Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, white), null, [0.6f, 0.6f], [1f, 1f, 1f]), () => HostCharacterTextures.Surface(Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, white), null, [0.6f, 0.6f, 0.6f], [1f, -1f, 1f]) })
-        {
-            try { bad(); throw new Exception("An unusable surface colour was accepted"); } catch (InvalidDataException) { }
-        }
-        Console.WriteLine("PASS: a surface's colour and metal maps are made so the host lights and reflects what the source does, texel by texel");
     }
 }

@@ -17,7 +17,7 @@ internal static class SceneCheck
             LightID = 13, LanternID = 7, DisablePointLightEffect = 1 });
         new uint[] { 1, 4, 16, 64 }.CopyTo(layout.Parts.MapPieces[0].DrawGroups, 0);
         layout.Models.Objects.Add(new() { Name = "o9999" });
-        layout.Parts.Objects.Add(new() { Name = "authored-object", ModelName = "o9999", Position = new(8, 9, 10), Rotation = new(0, 45, 0), LightID = 14, FogID = 15, ScatterID = 16 });
+        layout.Parts.Objects.Add(new() { Name = "authored-object", ModelName = "o9999", Position = new(8, 9, 10), Rotation = new(0, 45, 0), LightID = 14, FogID = 15, ScatterID = 16, IsShadowSrc = 1 });
         Write("map/MapStudio/m10_02_00_00.msb", layout.Write());
         var definition = new MTD
         {
@@ -92,7 +92,8 @@ internal static class SceneCheck
             var only = placedObjects.RootElement.EnumerateArray().Single();
             Require(only.GetProperty("name").GetString() == "authored-object" && only.GetProperty("model").GetString() == "o9999"
                 && only.GetProperty("position")[2].GetSingle() == 10 && only.GetProperty("rotation")[1].GetSingle() == 45
-                && only.GetProperty("lighting").GetInt32() == 14 && only.GetProperty("fog").GetInt32() == 15 && only.GetProperty("scattering").GetInt32() == 16, "object placements");
+                && only.GetProperty("lighting").GetInt32() == 14 && only.GetProperty("fog").GetInt32() == 15 && only.GetProperty("scattering").GetInt32() == 16
+                && only.GetProperty("castsShadow").GetBoolean(), "object placements");
         }
         var first = SceneReader.Read(new Install(source, "DarkSoulsRemastered.exe"));
         var second = SceneReader.Read(new Install(source, "DarkSoulsRemastered.exe"));
@@ -110,7 +111,7 @@ internal static class SceneCheck
         var placement = rootElement.GetProperty("placements")[0];
         Require(placement.GetProperty("drawGroups").EnumerateArray().Select(v => v.GetUInt32()).SequenceEqual(new uint[] { 1, 4, 16, 64 }), "source visibility groups");
         Require(placement.GetProperty("lighting").GetInt32() == 13 && placement.GetProperty("playerLight").GetInt32() == 7
-            && placement.GetProperty("disablePointLights").GetInt32() == 1, "placement lighting selections");
+            && placement.GetProperty("disablePointLights").GetInt32() == 1 && !placement.GetProperty("castsShadow").GetBoolean(), "placement lighting selections");
         Require(surface.GetProperty("indices").EnumerateArray().Select(i => i.GetInt32()).SequenceEqual(new[] { 0, 1, 2 }), "triangle winding");
         Console.WriteLine("PASS: source scene retains rigid transforms, independent UVs, tangent signs, alpha, materials and placements");
 

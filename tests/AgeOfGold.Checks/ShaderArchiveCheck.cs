@@ -46,6 +46,13 @@ internal static class ShaderArchiveCheck
         Require(ShaderArchive.Read(several, "aog_first.shaderbdle", "aog_first.ppo").SequenceEqual(old)
             && ShaderArchive.Read(several, "aog_second.shaderbdle", "aog_second.ppo").SequenceEqual(replacement)
             && BND4.Read(several).Files.Select(f => f.ID).SequenceEqual(new[] { 73, 74, 75, 76 }), "several added families differ");
+        // Families cloned from different installed families go in together; each takes its own template's members.
+        var body = new BND4 { Version = "AUTHORED", Files = [new(Binder.FileFlags.Flag1, 5, @"C:\authored\body.ppo", replacement)] };
+        var two = BND4.Read(input); two.Files.Add(new(Binder.FileFlags.Flag1, 75, @"C:\authored\body.shaderbdle", body.Write()));
+        var mixed = ShaderArchive.AddFamilies(two.Write(), [("surface", "aog_ground", (_, bytes) => bytes), ("body", "aog_body", (_, bytes) => bytes)]);
+        Require(ShaderArchive.Read(mixed, "aog_ground.shaderbdle", "aog_ground.ppo").SequenceEqual(old) && ShaderArchive.Read(mixed, "aog_body.shaderbdle", "aog_body.ppo").SequenceEqual(replacement)
+            && BND4.Read(mixed).Files.Select(f => f.ID).SequenceEqual(new[] { 73, 74, 75, 76, 77 }), "families of different templates differ");
+        Reject(() => ShaderArchive.AddFamilies(two.Write(), [("surface", "aog_ground", (_, bytes) => bytes), ("aog_ground", "aog_body", (_, bytes) => bytes)]), "a new family as a template");
         Reject(() => ShaderArchive.AddFamilies(input, "surface", [("aog_first", (_, bytes) => bytes), ("AOG_FIRST", (_, bytes) => bytes)]), "duplicate new family");
         Reject(() => ShaderArchive.AddFamily(added, "surface", "aog_surface", (_, bytes) => bytes), "occupied family");
         Reject(() => ShaderArchive.AddFamily(input, "missing", "aog_surface", (_, bytes) => bytes), "missing template family");

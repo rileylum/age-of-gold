@@ -10,7 +10,8 @@ internal static class HostCharacterModel
     /// <param name="Exemplar">The host mesh whose vertex layout and material it takes.</param>
     /// <param name="Textures">Texture paths by the exemplar material's input name; an input not named keeps the host material's own.</param>
     /// <param name="Definition">A material definition of the build's own to draw the mesh with, by name, in place of the exemplar's; null keeps the exemplar's.</param>
-    internal sealed record Part(int Mesh, int Exemplar, IReadOnlyDictionary<string, string> Textures, string? Definition = null);
+    /// <param name="Added">Texture inputs the definition adds to the exemplar's, in order: each one's name and texture.</param>
+    internal sealed record Part(int Mesh, int Exemplar, IReadOnlyDictionary<string, string> Textures, string? Definition = null, IReadOnlyList<(string Name, string Path)>? Added = null);
 
     /// <summary>One source character's body.</summary>
     /// <param name="PairedBones">Source bones carried by a host bone of another name.</param>
@@ -160,7 +161,8 @@ internal static class HostCharacterModel
             {
                 // A name that opens "#NN#" is drawn only for rows that show mark NN; without one the mesh is always drawn.
                 Name = (body.Mark is { } mark ? $"#{mark:D2}#" : "") + $"aog_{materials.Count}", MTD = part.Definition is null ? hostMaterial.MTD : Beside(hostMaterial.MTD, part.Definition), GXIndex = hostMaterial.GXIndex < 0 ? -1 : listIndex, Index = materials.Count,
-                Textures = hostMaterial.Textures.Select(t => new FLVER2.Texture { ParamName = t.ParamName, Path = part.Textures.GetValueOrDefault(t.ParamName, t.Path), TilingScale = t.TilingScale }).ToList(),
+                Textures = hostMaterial.Textures.Select(t => new FLVER2.Texture { ParamName = t.ParamName, Path = part.Textures.GetValueOrDefault(t.ParamName, t.Path), TilingScale = t.TilingScale })
+                    .Concat((part.Added ?? []).Select(t => new FLVER2.Texture { ParamName = t.Name, Path = t.Path, TilingScale = System.Numerics.Vector2.One })).ToList(),
             });
 
             const FLVER2.FaceSet.FSFlags known = FLVER2.FaceSet.FSFlags.LodLevel1 | FLVER2.FaceSet.FSFlags.LodLevel2 | FLVER2.FaceSet.FSFlags.MotionBlur;

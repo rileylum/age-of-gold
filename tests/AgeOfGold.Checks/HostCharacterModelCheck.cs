@@ -73,6 +73,10 @@ internal static class HostCharacterModelCheck
         source.Meshes.Add(body);
 
         var textures = new Dictionary<string, string> { ["X_AlbedoMap"] = "AUTHORED_colour.tif", ["X_NormalMap"] = "AUTHORED_normal.tif" };
+        // A definition of the build's own may add texture inputs after the exemplar's.
+        var extended = FLVER2.Read(HostCharacterModel.Write(hostBytes, [new(source, null, [new(0, 0, textures, null, [("added_cube", "sky.tif"), ("added_table", "table.tif")])], null)])).Materials.Single().Textures;
+        if (!extended.TakeLast(2).Select(t => (t.ParamName, t.Path, t.TilingScale)).SequenceEqual([("added_cube", "sky.tif", Vector2.One), ("added_table", "table.tif", Vector2.One)]))
+            throw new Exception("Added texture inputs do not follow the exemplar's");
         var written = HostCharacterModel.Write(hostBytes, [new(source, null, [new(0, 0, textures)], null)]);
         if (!written.SequenceEqual(HostCharacterModel.Write(hostBytes, [new(source, null, [new(0, 0, textures)], null)])) || !hostBytes.SequenceEqual(host.Write())) throw new Exception("Character model write changed its inputs or does not repeat");
         var model = FLVER2.Read(written);

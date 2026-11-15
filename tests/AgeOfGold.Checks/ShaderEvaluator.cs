@@ -11,6 +11,8 @@ internal sealed class ShaderEvaluator
     internal Func<int, int, float[]> Constants = (_, _) => throw new Exception("Unexpected constant read");
     /// <summary>Texture range, coordinates (two for a surface, three for a cube) and whether a level was explicit.</summary>
     internal Func<int, float[], bool, float[]> Sample = (_, _, _) => throw new Exception("Unexpected texture sample");
+    /// <summary>When set, receives every sample at a stated level with that level, in place of <see cref="Sample"/>.</summary>
+    internal Func<int, float[], float, float[]>? SampleLevel;
     internal readonly Dictionary<(int Id, int Column), float> Outputs = [];
     /// <summary>Whether the program discarded the pixel; evaluation continues so its outputs can still be compared.</summary>
     internal bool Discarded { get; private set; }
@@ -85,6 +87,7 @@ internal sealed class ShaderEvaluator
                     // A load reads one texel; the check's textures are the same everywhere.
                     ("textureLoad", 66) => Sample((((int, int))Value(Strip(a[1]))).Item2, [], true),
                     ("sample", 60) => Sample((((int, int))Value(Strip(a[1]))).Item2, [F(a[3]), F(a[4])], false),
+                    ("sampleLevel", 62) when SampleLevel is not null => SampleLevel((((int, int))Value(Strip(a[1]))).Item2, a[5].EndsWith("undef", StringComparison.Ordinal) ? [F(a[3]), F(a[4])] : [F(a[3]), F(a[4]), F(a[5])], F(a[^1])),
                     ("sampleLevel", 62) => Sample((((int, int))Value(Strip(a[1]))).Item2, a[5].EndsWith("undef", StringComparison.Ordinal) ? [F(a[3]), F(a[4])] : [F(a[3]), F(a[4]), F(a[5])], true),
                     ("unary", 6) => MathF.Abs(F(a[1])),
                     ("unary", 7) => Math.Clamp(F(a[1]), 0f, 1f),
@@ -112,7 +115,13 @@ internal sealed class ShaderEvaluator
                 var select = Regex.Match(text, @"^select i1 ([^,]+), (?:float|i32) ([^,]+), (?:float|i32) (.+)$");
                 var phi = Regex.Match(text, @"^phi (?:float|i32) (.+)$");
                 var convert = Regex.Match(text, @"^(fptoui|fptosi|uitofp|sitofp) (?:float|i32) (\S+) to (?:float|i32)$");
-                if (arithmetic.Success)
+                var both = Regex.Match(text, @"^(and|or) i1 ([^,]+), (.+)$");
+                if (both.Success)
+                {
+                    bool x = (bool)Value(both.Groups[2].Value.Trim()), y = (bool)Value(both.Groups[3].Value.Trim());
+                    result = both.Groups[1].Value == "and" ? x && y : x || y;
+                }
+                else if (arithmetic.Success)
                 {
                     float x = F(arithmetic.Groups[2].Value), y = F(arithmetic.Groups[3].Value);
                     result = arithmetic.Groups[1].Value switch { "fadd" => x + y, "fsub" => x - y, "fmul" => x * y, _ => x / y };

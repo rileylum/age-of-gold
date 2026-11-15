@@ -119,9 +119,9 @@ internal static class MapSceneryCheck
         Reject(() => FirelinkMapWriter.MoveEnvironment(MSBE.Read(native), new(0, 200, 0), new(50, 240, 7), Vector3.Zero));
 
         FirelinkMapWriter.SceneryPlacement[] placements = [
-            new("wall-b", "wall", new(10, 0, 0), new(0, 90, 0), new(1, 1, 1)),
-            new("arch-a", "arch", new(0, 5, 0), Vector3.Zero, new(2, 2, 2)),
-            new("wall-a", "wall", new(-10, 0, 0), Vector3.Zero, new(1, 1, 1)),
+            new("wall-b", "wall", new(10, 0, 0), new(0, 90, 0), new(1, 1, 1), false),
+            new("arch-a", "arch", new(0, 5, 0), Vector3.Zero, new(2, 2, 2), true),
+            new("wall-a", "wall", new(-10, 0, 0), Vector3.Zero, new(1, 1, 1), false),
         ];
         var before = layout.Write();
         var scenery = FirelinkMapWriter.AddScenery(layout, placements, new(100, 200, 300));
@@ -138,6 +138,9 @@ internal static class MapSceneryCheck
             || wall.Unk1.DrawGroups.Any(v => v != uint.MaxValue) || wall.Unk1.DisplayGroups.Any(v => v != uint.MaxValue)
             || check.Models.MapPieces.Count != 3)
             throw new Exception("Scenery placement transform, identity or visibility differs");
+        // A placement casts shadows only if the source's does: the source's own scenery casts none, its objects do.
+        var arch = check.Parts.MapPieces.Single(p => p.Name == "m810000_0000");
+        if (wall.IsShadowSrc || wall.IsStaticShadowSrc != 0 || wall.IsCascade3ShadowSrc != 0 || !arch.IsShadowSrc) throw new Exception("Scenery placements do not cast shadows as the source's do");
         var repeated = MSBE.Read(before);
         FirelinkMapWriter.AddScenery(repeated, placements.Reverse().ToArray(), new(100, 200, 300));
         if (!output.SequenceEqual(repeated.Write())) throw new Exception("Scenery map depends on placement order");

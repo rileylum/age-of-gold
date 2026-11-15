@@ -165,7 +165,7 @@ internal static class FirelinkBuildInstallCheck
                 sourceDefinitions[identity] = sourceBody.Materials.Select(m => Path.GetFileNameWithoutExtension(m.MTD.Replace('\\', '/'))).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
                 // The body stands on the source's own nodes; every texture it names is built; its physics and events are its own.
                 if (!own.Nodes.Select(n => n.Name).SequenceEqual(sourceBody.Nodes.Select(n => n.Name)) || own.Dummies.Count != sourceBody.Dummies.Count || own.Meshes.Count == 0 || own.Materials.Any(m => !Regex.IsMatch(m.Name, @"^aog_\d+$"))
-                    || own.Materials.Any(m => m.Textures.Count(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)) != 3)
+                    || own.Materials.Any(m => m.Textures.Count(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)) != 6)
                     || own.Materials.SelectMany(m => m.Textures).Where(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)).Select(t => t.Path).Distinct()
                         .Any(t => !File.Exists(Path.Combine(mod, "asset/aet/aet950", Path.GetFileNameWithoutExtension(t)[..^2].ToLowerInvariant() + ".tpf.dcx")))
                     || ownBinder.Files.Count != 2 || report.GetProperty("bodies").GetInt32() < 10 || report.GetProperty("animations").GetInt32() < 100 || report.GetProperty("events").GetProperty("kept").GetInt32() < 100)
@@ -227,7 +227,7 @@ internal static class FirelinkBuildInstallCheck
             if (body.Nodes.Count != humanFrame.Nodes.Count + 1 || !body.Nodes.Take(humanFrame.Nodes.Count).Select(n => n.Name).SequenceEqual(humanFrame.Nodes.Select(n => n.Name)) || body.Dummies.Count != humanFrame.Dummies.Count
                 || body.Materials.Any(m => !Regex.IsMatch(m.Name, @"^aog_\d+$")) || body.Meshes.Count < 5 || body.Meshes.Any(m => !m.UseBoneWeights || m.Vertices.Count == 0 || m.NodeIndex != humanFrame.Nodes.Count)
                 || body.Meshes.SelectMany(m => m.Vertices).Any(v => Enumerable.Range(0, 4).Sum(i => (int)MathF.Round(v.BoneWeights[i] * 255)) != 255)
-                || body.Materials.Any(m => m.Textures.Count(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)) != 3)
+                || body.Materials.Any(m => m.Textures.Count(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)) != 6)
                 || body.Materials.SelectMany(m => m.Textures).Where(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)).Select(t => t.Path).Distinct()
                     .Any(t => !File.Exists(Path.Combine(mod, "asset/aet/aet950", Path.GetFileNameWithoutExtension(t)[..^2].ToLowerInvariant() + ".tpf.dcx")))
                 || carrying.Count < 20 || carrying.Any(bone => bone >= humanFrame.Nodes.Count || !(body.Nodes[bone].BoundingBoxMin.X <= body.Nodes[bone].BoundingBoxMax.X)))
@@ -423,70 +423,115 @@ internal static class FirelinkBuildInstallCheck
         if (graphics["VolumetricFog Enable"].Single().Values.Any(v => (bool)v) || graphics["GS Presents - Vignetting Power"].Single().Values.Any(v => (float)v != 0)
             || graphics["GS Presents - Chromatic Aberration Enable"].Single().Values.Any(v => (int)v != 0))
             throw new Exception("Built graphics parameters keep host effects the source lacks");
-        // A whole character is dressed for the host's plain character material: its metal map is one channel and its relief
-        // map, with gloss, four, both made from the source's maps; torn cloth is drawn by a cut-out twin of the definition.
+        // A whole character is laid out for the host's plain character material and drawn by the build's own family: it
+        // wears the source's own colour, specular and relief maps, unchanged, with the two cubes that light it and the
+        // source's reflectance table; its definition carries one source definition's two colours.
         DDS Built(string texture)
         {
             var package = File.ReadAllBytes(Path.Combine(mod, "asset/aet/aet950", Path.GetFileNameWithoutExtension(texture)[..^2].ToLowerInvariant() + ".tpf.dcx"));
             return new DDS(AgeOfGold.Scene.TextureReader.ReadPackage(package).Single().Bytes);
         }
         var builtTextures = manifest.RootElement.GetProperty("textures").EnumerateObject().ToDictionary(t => t.Value.GetString()!, t => t.Name, StringComparer.OrdinalIgnoreCase);
-        int cutoutMeshes = 0, madeSurfaces = 0;
+        var characterLight = manifest.RootElement.GetProperty("characterLight");
+        int cutoutMeshes = 0, dressedSurfaces = 0;
+        var rowSkies = AgeOfGold.Params.SourceLightingReader.Read(new Install(source, "DarkSoulsRemastered.exe")).Characters.Single(r => r.Id == characterLight.GetProperty("row").GetInt32())
+            .SpecularEnvironment.Textures.Select(t => $"EnvSpc_m10_{t:D3}").ToHashSet(StringComparer.Ordinal);
         // The source's definitions: the patch binder's over the base one's, and the first of a repeated name.
         var sourceMaterials = new Dictionary<string, MTD>(StringComparer.OrdinalIgnoreCase);
         foreach (string binder in new[] { "mtd/Mtd.mtdbnd.dcx", "mtd/MtdPatch.mtdbnd.dcx" })
             foreach (var group in BND3.Read(Path.Combine(source, binder)).Files.GroupBy(f => Path.GetFileNameWithoutExtension(f.Name.Replace('\\', '/')), StringComparer.OrdinalIgnoreCase))
                 sourceMaterials[group.Key] = MTD.Read(group.First().Bytes);
-        // A definition's colour times its power, to a thousandth, as the made textures' names state it.
-        string Factor(string definition, string colour) => string.Join('_', ((float[])sourceMaterials[definition].Params.Single(q => q.Name == colour).Value)
-            .Select(v => ((int)MathF.Round(v * (float)sourceMaterials[definition].Params.Single(q => q.Name == colour + "Power").Value * 1000)).ToString("D4")));
+        // A definition's colour times its power.
+        float[] Factor(string definition, string colour) => ((float[])sourceMaterials[definition].Params.Single(q => q.Name == colour).Value)
+            .Select(v => v * (float)sourceMaterials[definition].Params.Single(q => q.Name == colour + "Power").Value).ToArray();
+        bool Close(float[] built, float[] stated) => built.Take(3).Zip(stated, (x, y) => MathF.Abs(x - y) <= 0.0006f).All(same => same);
         foreach (var (identity, body) in bodyFiles)
             foreach (var material in body.Materials)
             {
-                bool cut = material.MTD.EndsWith(@"\aog_character_cutout.matxml", StringComparison.Ordinal);
-                if (!cut && !material.MTD.EndsWith(@"\C[AMSN].matxml", StringComparison.Ordinal)) throw new Exception($"Built body {identity} is drawn by an unexpected definition: {material.MTD}");
+                var named = Regex.Match(material.MTD, @"\\(aog_character_\d{2})\.matxml$");
+                if (!named.Success) throw new Exception($"Built body {identity} is drawn by an unexpected definition: {material.MTD}");
+                var definition = MATBIN.Read(materials["chr_base/matxml/" + named.Groups[1].Value + ".matbin"].Single());
+                bool cut = ((int[])definition.Params.Single(q => q.Name == "g_AlphaRef").Value).SequenceEqual([128, 0]);
+                if (!cut && !((int[])definition.Params.Single(q => q.Name == "g_AlphaRef").Value).SequenceEqual([0, 0])) throw new Exception("A character definition has an unexpected coverage threshold");
                 cutoutMeshes += cut ? 1 : 0;
+                if (!definition.ShaderPath.EndsWith(@"\aog_character.spx", StringComparison.Ordinal) || !definition.SourcePath.EndsWith(@"\aog_character.matxml", StringComparison.Ordinal)
+                    || !definition.Samplers.Select(q => q.Type).SequenceEqual(material.Textures.Select(t => t.ParamName)) || material.Textures.Count != 6)
+                    throw new Exception($"Built body {identity}'s definition is not the build's family's, or names other inputs than its mesh fills");
                 string Wears(string input) => builtTextures[material.Textures.Single(t => t.ParamName.EndsWith(input, StringComparison.Ordinal)).Path];
                 string Named(string input) => material.Textures.Single(t => t.ParamName.EndsWith(input, StringComparison.Ordinal)).Path;
-                // The three maps are made from one colour map, one specular map and one definition's colours.
-                var colour = Regex.Match(Wears("_AlbedoMap_0"), @"^aog:colour:([^:]+):([^:]*):(\d{4}_\d{4}_\d{4})_(\d{4}_\d{4}_\d{4})$");
-                var relief = Regex.Match(Wears("_NormalMap_4"), @"^aog:relief:([^:]+):([^:]*)$");
-                if (!colour.Success || !relief.Success || Wears("_MetallicMap_0") != "aog:metal:" + Wears("_AlbedoMap_0")["aog:colour:".Length..] || relief.Groups[2].Value != colour.Groups[2].Value
-                    || Built(Named("_AlbedoMap_0")).GetDXGIFormat() != DDS.DXGI_FORMAT.BC7_UNORM_SRGB || Built(Named("_NormalMap_4")).GetDXGIFormat() != DDS.DXGI_FORMAT.BC7_UNORM
-                    || Built(Named("_MetallicMap_0")).GetDXGIFormat() != DDS.DXGI_FORMAT.BC4_UNORM || Built(Named("_MetallicMap_0")).dwMipMapCount < 2
-                    || Built(Named("_MetallicMap_0")).dwWidth != Built(Named("_AlbedoMap_0")).dwWidth)
-                    throw new Exception($"Built body {identity}'s maps are not made from one colour map, specular map and definition: {Wears("_AlbedoMap_0")}, {Wears("_MetallicMap_0")}, {Wears("_NormalMap_4")}");
-                madeSurfaces++;
-                // An enemy's colours are those of one of its source definitions.
-                if (sourceDefinitions.TryGetValue(identity, out var from) && !from.Any(d => Factor(d, "g_DiffuseMapColor") == colour.Groups[3].Value && Factor(d, "g_SpecularMapColor") == colour.Groups[4].Value))
-                    throw new Exception($"Built body {identity} wears colours no source definition of its gives: {colour.Groups[3].Value} and {colour.Groups[4].Value}");
+                // The colour map is read as the source reads it, without the display curve; the specular map sits where the host keeps metal.
+                if (!Wears("_AlbedoMap_0").StartsWith("aog:surface:", StringComparison.Ordinal) || !(Wears("_MetallicMap_0").StartsWith("aog:surface:", StringComparison.Ordinal) || Wears("_MetallicMap_0") == "aog:dull")
+                    || !(Wears("_NormalMap_4").StartsWith("aog:surface:", StringComparison.Ordinal) || Wears("_NormalMap_4") == "aog:flat-normal")
+                    || Built(Named("_AlbedoMap_0")).GetDXGIFormat() is not (DDS.DXGI_FORMAT.BC1_UNORM or DDS.DXGI_FORMAT.BC7_UNORM) || Built(Named("_NormalMap_4")).GetDXGIFormat() != DDS.DXGI_FORMAT.BC5_UNORM)
+                    throw new Exception($"Built body {identity} does not wear the source's own maps: {Wears("_AlbedoMap_0")}, {Wears("_MetallicMap_0")}, {Wears("_NormalMap_4")}");
+                var added = material.Textures.Skip(3).Select(t => builtTextures[t.Path]).ToArray();
+                // The sky cube is one of the four the row names; which, the surface's source definition chooses.
+                if (added.Length != 3 || added[0] != characterLight.GetProperty("cube").GetString() || !rowSkies.Contains(added[1]) || added[2] != "aog:table"
+                    || Built(material.Textures[5].Path).GetDXGIFormat() != DDS.DXGI_FORMAT.BC5_UNORM || Built(material.Textures[5].Path).dwWidth != 256 || Built(material.Textures[4].Path).GetDXGIFormat() != DDS.DXGI_FORMAT.BC6H_UF16)
+                    throw new Exception($"Built body {identity} lacks the diffuse cube, the sky cube or the reflectance table: {string.Join(", ", added)}");
+                dressedSurfaces++;
+                // An enemy's two colours are those of one of its source definitions.
+                float[] plainColour = (float[])definition.Params.Single(q => q.Name == "g_DiffuseMapColor").Value, metalColour = (float[])definition.Params.Single(q => q.Name.EndsWith("_snp_0_color_0", StringComparison.Ordinal)).Value;
+                if (sourceDefinitions.TryGetValue(identity, out var from) && !from.Any(d => Close(plainColour, Factor(d, "g_DiffuseMapColor")) && Close(metalColour, Factor(d, "g_SpecularMapColor"))))
+                    throw new Exception($"Built body {identity} wears colours no source definition of its gives: {string.Join(",", plainColour)} and {string.Join(",", metalColour)}");
             }
-        // Torn cloth is drawn by a cut-out twin of the host's definition, with the source's half coverage.
-        var cutoutBytes = materials.Where(g => g.Key.EndsWith("/aog_character_cutout.matbin", StringComparison.Ordinal)).SelectMany(g => g).ToArray();
-        if (cutoutMeshes == 0 || madeSurfaces == 0 || sourceDefinitions.Count == 0 || cutoutBytes.Length != 1 || !((int[])MATBIN.Read(cutoutBytes[0]).Params.Single(q => q.Name == "g_AlphaRef").Value).SequenceEqual([128, 0]))
-            throw new Exception($"Built characters lack torn cloth's cut-out definition or made maps: {cutoutMeshes} cut-out meshes, {madeSurfaces} surfaces");
-        // Characters take the source's light. The host's directional lights are out; the environment boxes keep the host's
-        // own multipliers; and every baked volume, for each state of the sky and each quality, holds throughout the terms
-        // the manifest states, which are at least the arrival row's hemisphere light.
-        if (new[] { "Light DiffColor0", "Light SpecColor0", "Light DiffColor1", "Light SpecColor1", "Light LocalLight DiffColor1", "Light LocalLight SpecColor1", "Light LocalLight DiffColor2", "Light LocalLight SpecColor2" }
-            .Any(light => graphics["Directional " + light].Single().Values.Any(v => ((System.Numerics.Vector4)v).W != 0)))
-            throw new Exception("Built graphics parameters keep a host directional light on characters");
+        if (cutoutMeshes == 0 || dressedSurfaces == 0 || sourceDefinitions.Count == 0) throw new Exception($"Built characters lack torn cloth's cut-out definition or dressed surfaces: {cutoutMeshes} cut-out meshes, {dressedSurfaces} surfaces");
+        // The family: the host's plain character family with three inputs more, vertex stages that forward the vector to the
+        // camera, and deferred pixel stages that mark their light as a character's.
+        using (var characterFamily = new BND4Reader(ShaderArchive.ReadFamily(shaders, "aog_character.shaderbdle")))
+        {
+            byte[] Member(string suffix) => characterFamily.ReadFile(characterFamily.Files.Single(f => f.Name.EndsWith("aog_character" + suffix, StringComparison.Ordinal)));
+            if (ShaderMetadata.Read(Member(".metaparam")).Textures.Count != 6) throw new Exception("Built character family does not declare six texture inputs");
+            foreach (string stage in new[] { "_Gbuf.vpo", "_Gbuf_Skin.vpo", "_Gbuf@[cl].vpo", "_Gbuf_Skin@[cl].vpo" })
+                if (new ShaderSignatures(compiler.Disassemble(Member(stage))).Members(true).Count(m => m.Name == "TANGENT" && m.Index == 8) != 1) throw new Exception("Built character vertex stage does not forward the view: " + stage);
+            foreach (string stage in new[] { "_Gbuf.ppo", "_Gbuf_[A].ppo" })
+            {
+                string pixel = compiler.Disassemble(Member(stage));
+                if (!pixel.Contains("%aog_skytexel = call %dx.types.ResRet.f32 @dx.op.sampleLevel.f32(", StringComparison.Ordinal) || !pixel.Contains("i8 3, float -2.000000e+00)", StringComparison.Ordinal)
+                    || !Regex.IsMatch(pixel, @"storeOutput\.f32\(i32 5, i32 1, i32 0, i8 0, float 1\.000000e\+00\)") || !Regex.IsMatch(pixel, @"storeOutput\.f32\(i32 5, i32 1, i32 0, i8 1, float 0\.000000e\+00\)"))
+                    throw new Exception("Built character pixel stage does not light and mark its surface: " + stage);
+            }
+        }
+        // Characters take the source's light. One host sun stays on, white, without highlights, from where the source's
+        // shadows are cast, to shade what a character stores facing it; the environment boxes keep the host's own
+        // multipliers; and every baked volume, for each state of the sky and each quality, holds throughout the arrival
+        // row's hemisphere light.
+        var sourceInstall = new Install(source, "DarkSoulsRemastered.exe");
+        var program = characterLight.GetProperty("program");
+        float sunLight = program.GetProperty("sunLight").GetSingle();
+        var shadowRow = AgeOfGold.Params.SourceAtmosphereReader.Shadows(sourceInstall)[characterLight.GetProperty("shadow").GetInt32()];
+        // The light shines along (cos x sin y, -sin x, cos x cos y) for its two angles; a surface looks back along it.
+        double shadowX = shadowRow.Elevation * Math.PI / 180, shadowY = shadowRow.Azimuth * Math.PI / 180;
+        var towardsLight = new System.Numerics.Vector3((float)(-Math.Cos(shadowX) * Math.Sin(shadowY)), (float)Math.Sin(shadowX), (float)(-Math.Cos(shadowX) * Math.Cos(shadowY)));
+        var statedSun = program.GetProperty("sun").EnumerateArray().Select(v => v.GetSingle()).ToArray();
+        if (characterLight.GetProperty("shadow").GetInt32() != manifest.RootElement.GetProperty("arrival").GetProperty("selection").GetProperty("Shadow").GetInt32()
+            || System.Numerics.Vector3.Distance(new(statedSun[0], statedSun[1], statedSun[2]), towardsLight) > 1e-5f || !(sunLight > 0)
+            || program.GetProperty("shadeStart").GetSingle() != shadowRow.FadeStart || program.GetProperty("shadeLength").GetSingle() != shadowRow.FadeLength || program.GetProperty("shade").GetSingle() != shadowRow.Density)
+            throw new Exception("The shade the manifest states is not the arrival's shadow row's");
+        if (new[] { "Light SpecColor0", "Light DiffColor1", "Light SpecColor1", "Light LocalLight DiffColor1", "Light LocalLight SpecColor1", "Light LocalLight DiffColor2", "Light LocalLight SpecColor2" }
+            .Any(light => graphics["Directional " + light].Single().Values.Any(v => ((System.Numerics.Vector4)v).W != 0))
+            // Measured in the host: a sun of strength one adds 0.40 of a stored colour that faces it.
+            || graphics["Directional Light DiffColor0"].Single().Values.Any(v => (System.Numerics.Vector4)v != new System.Numerics.Vector4(1, 1, 1, sunLight / 0.40f))
+            || graphics["Directional Light Angle0"].Single().Values.Any(v =>
+            {
+                var angle = (System.Numerics.Vector2)v;
+                return System.Numerics.Vector3.Distance(new(MathF.Cos(angle.X) * MathF.Sin(angle.Y), -MathF.Sin(angle.X), MathF.Cos(angle.X) * MathF.Cos(angle.Y)), towardsLight) > 1e-5f;
+            }))
+            throw new Exception("Built graphics parameters do not keep exactly one sun, from where the source's shadows are cast");
         var hostBoxes = MSBE.Read(hostArchive.Read("map/mapstudio/m10_01_00_00.msb.dcx")).Regions.EnvironmentMapEffectBoxes.ToDictionary(b => b.Name, b => b.PointLightMult);
         if (hostBoxes.Count == 0 || layout.Regions.EnvironmentMapEffectBoxes.Count != hostBoxes.Count || layout.Regions.EnvironmentMapEffectBoxes.Any(b => b.PointLightMult != hostBoxes[b.Name]))
             throw new Exception("Built environment boxes do not keep the host's multipliers");
-        var characterLight = manifest.RootElement.GetProperty("characterLight");
         float[] Term(string name) => characterLight.GetProperty(name).EnumerateArray().Select(v => v.GetSingle()).ToArray();
         float[][] lightTerms = [Term("constant"), Term("x"), Term("y"), Term("z")];
         int lightRowId = characterLight.GetProperty("row").GetInt32();
-        var sourceInstall = new Install(source, "DarkSoulsRemastered.exe");
         var lightRow = AgeOfGold.Params.SourceLightingReader.Read(sourceInstall).Characters.Single(r => r.Id == lightRowId);
         float hemisphereStrength = SourceRendererSettings.Read(sourceInstall).HemisphereStrength;
         float Linear(float colour, float intensity) => MathF.Pow(colour * intensity, 2.2f) * hemisphereStrength;
         float[] above = [Linear(lightRow.Upper.Red, lightRow.Upper.Intensity), Linear(lightRow.Upper.Green, lightRow.Upper.Intensity), Linear(lightRow.Upper.Blue, lightRow.Upper.Intensity)];
         float[] below = [Linear(lightRow.Lower.Red, lightRow.Lower.Intensity), Linear(lightRow.Lower.Green, lightRow.Lower.Intensity), Linear(lightRow.Lower.Blue, lightRow.Lower.Intensity)];
         if (lightRowId != manifest.RootElement.GetProperty("arrival").GetProperty("selection").GetProperty("Light").GetInt32() || lightTerms.Any(t => t.Length != 3 || !t.All(float.IsFinite))
-            || Enumerable.Range(0, 3).Any(c => lightTerms[0][c] < (above[c] + below[c]) / 2 - 1e-4f || lightTerms[0][c] > (above[c] + below[c]) / 2 + 10 || lightTerms[2][c] <= 0))
-            throw new Exception("The character light the manifest states is not the arrival row's");
+            || Enumerable.Range(0, 3).Any(c => MathF.Abs(lightTerms[0][c] - (above[c] + below[c]) / 2) > 1e-5f || MathF.Abs(lightTerms[2][c] - (above[c] - below[c]) / 2) > 1e-5f || lightTerms[1][c] != 0 || lightTerms[3][c] != 0))
+            throw new Exception("The baked light the manifest states is not the arrival row's hemisphere colour");
         var volumePaths = characterLight.GetProperty("volumes").EnumerateArray().Select(v => v.GetString()!).ToArray();
         // Seven states of the sky in three qualities.
         if (volumePaths.Length != 21 || volumePaths.Distinct().Count() != 21) throw new Exception($"Built baked light covers {volumePaths.Length} state and quality binders, not 21");
@@ -498,9 +543,17 @@ internal static class FirelinkBuildInstallCheck
         float reflection = characterLight.GetProperty("reflection").GetSingle();
         if (!(reflection > 0) || layout.Regions.EnvironmentMapEffectBoxes.Any(q => q.SpecularLightMult != reflection))
             throw new Exception("Built environment boxes do not reflect the sky at the stated strength");
-        // The composition stage shows the scenery's marked light alone.
-        if (!compiler.Disassemble(ShaderArchive.Read(File.ReadAllBytes(Path.Combine(mod, "shader/GXRendererShader.shaderbnd.dcx")), "GXLightComposite.ppo")).Contains("%aog_marked = fcmp fast olt float", StringComparison.Ordinal))
-            throw new Exception("Built composition stage does not keep the scenery's own light apart");
+        // The composition stage shows the scenery's marked light alone, and a character's with the light the host shaded;
+        // the sun's stages hand a marked surface the shadow alone, and the colour stage multiplies its stored light back in.
+        var renderingStages = File.ReadAllBytes(Path.Combine(mod, "shader/GXRendererShader.shaderbnd.dcx"));
+        string composition = compiler.Disassemble(ShaderArchive.Read(renderingStages, "GXLightComposite.ppo"));
+        if (!composition.Contains("%aog_marked = fcmp fast olt float", StringComparison.Ordinal) || !composition.Contains("%aog_shaded = fcmp fast olt float", StringComparison.Ordinal))
+            throw new Exception("Built composition stage does not keep the build's own light apart");
+        foreach (string stage in new[] { "GXLightAcc_DDirLight1.ppo", "GXLightAcc_DDirLightShadowed1.ppo", "GXLightAcc_DDirLightShadowed1_Cloud.ppo" })
+            if (!compiler.Disassemble(ShaderArchive.Read(renderingStages, stage)).Contains("%aog_shadow = select i1 %aog_on, float %aog_scaled, float 0.000000e+00", StringComparison.Ordinal))
+                throw new Exception("Built sun stage does not hand a marked surface its shadow: " + stage);
+        if (!compiler.Disassemble(ShaderArchive.Read(renderingStages, "GXLightCmbAlbedo.ppo")).Contains("%aog_out00 = select i1 %aog_marked, float %aog_light0,", StringComparison.Ordinal))
+            throw new Exception("Built colour stage does not apply a marked surface's stored light");
         foreach (string path in volumePaths)
         {
             var built = BND4.Read(Path.Combine(mod, path)); var installed = BND4.Read(hostArchive.Read(path));

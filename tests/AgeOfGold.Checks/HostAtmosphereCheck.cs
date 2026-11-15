@@ -51,16 +51,23 @@ internal static class HostAtmosphereCheck
         foreach (string colour in colours) Add(set, colour, GPARAM.ParamType.Float4, new System.Numerics.Vector4(1, 0.9f, 0.8f, 0.35f), new System.Numerics.Vector4(0.5f, 0.6f, 0.7f, 2f));
         Add(set, "Directional Light Angle0", GPARAM.ParamType.Float2, new System.Numerics.Vector2(-0.6f, 0.7f));
         Add(set, "Directional Light Hemi Color Up", GPARAM.ParamType.Float4, new System.Numerics.Vector4(0.9f, 0.9f, 0.9f, 0.1f));
-        var dark = HostAtmosphere.RemoveDirectionalLights(lights.Write());
-        var darkRead = GPARAM.Read(dark).Groups.Single().Params.ToDictionary(p => p.Name1, p => p.Values);
-        if (colours.Any(c => !darkRead[c].SequenceEqual(new object[] { new System.Numerics.Vector4(1, 0.9f, 0.8f, 0), new System.Numerics.Vector4(0.5f, 0.6f, 0.7f, 0) }))
-            || !darkRead["Directional Light Angle0"].SequenceEqual(new object[] { new System.Numerics.Vector2(-0.6f, 0.7f) })
-            || !darkRead["Directional Light Hemi Color Up"].SequenceEqual(new object[] { new System.Numerics.Vector4(0.9f, 0.9f, 0.9f, 0.1f) }))
-            throw new Exception("The host's directional lights were not put out exactly");
-        if (!HostAtmosphere.RemoveDirectionalLights(dark).SequenceEqual(dark)) throw new Exception("Putting out the host's lights does not repeat");
+        // One sun stays, to shade what faces it: white-ish at a stated strength, without highlights, shining from a stated direction.
+        var towards = System.Numerics.Vector3.Normalize(new(-0.3f, 0.75f, 0.6f)); var sunColour = new System.Numerics.Vector4(0.8f, 0.9f, 1f, 1.5f);
+        var sunlit = HostAtmosphere.LightBySun(lights.Write(), towards, sunColour);
+        var sunRead = GPARAM.Read(sunlit).Groups.Single().Params.ToDictionary(p => p.Name1, p => p.Values);
+        if (!sunRead["Directional Light DiffColor0"].SequenceEqual(new object[] { sunColour, sunColour })
+            || colours.Skip(1).Any(c => !sunRead[c].SequenceEqual(new object[] { new System.Numerics.Vector4(1, 0.9f, 0.8f, 0), new System.Numerics.Vector4(0.5f, 0.6f, 0.7f, 0) }))
+            || !sunRead["Directional Light Hemi Color Up"].SequenceEqual(new object[] { new System.Numerics.Vector4(0.9f, 0.9f, 0.9f, 0.1f) }))
+            throw new Exception("The host's sun was not set alone, or another setting changed");
+        // The host turns its two angles into a direction this way (found in game by which facing went unlit).
+        var angle = (System.Numerics.Vector2)sunRead["Directional Light Angle0"].Single();
+        var pointed = new System.Numerics.Vector3(MathF.Cos(angle.X) * MathF.Sin(angle.Y), -MathF.Sin(angle.X), MathF.Cos(angle.X) * MathF.Cos(angle.Y));
+        if (System.Numerics.Vector3.Distance(pointed, towards) > 1e-5f) throw new Exception($"The host's sun points along {pointed}, not {towards}");
+        if (!HostAtmosphere.LightBySun(sunlit, towards, sunColour).SequenceEqual(sunlit)) throw new Exception("Setting the host's sun does not repeat");
         var unlit = GPARAM.Read(lights.Write());
         unlit.Groups.Single().Params.RemoveAll(p => p.Name1 == "Directional Light LocalLight SpecColor2");
-        try { HostAtmosphere.RemoveDirectionalLights(unlit.Write()); throw new Exception("A missing host light was accepted"); } catch (InvalidDataException) { }
-        Console.WriteLine("PASS: the host's directional lights are put out at every time of day; their colours, angles and other settings stay");
+        try { HostAtmosphere.LightBySun(unlit.Write(), towards, sunColour); throw new Exception("A missing host light was accepted"); } catch (InvalidDataException) { }
+        try { HostAtmosphere.LightBySun(lights.Write(), towards * 2, sunColour); throw new Exception("A direction that is not a unit vector was accepted"); } catch (InvalidDataException) { }
+        Console.WriteLine("PASS: the host keeps one sun of a stated colour and direction and no other directional light, at every time of day; other settings stay");
     }
 }

@@ -186,7 +186,13 @@ internal static class BlockTexture
     }
 
     /// <summary>One channel of an image as the host's one-channel block format, with every smaller level.</summary>
-    internal static byte[] EncodeSingle(Image image, int channel) => Encode(image, DDS.DXGI_FORMAT.BC4_UNORM, 8, (texels, block) =>
+    internal static byte[] EncodeSingle(Image image, int channel) => Encode(image, DDS.DXGI_FORMAT.BC4_UNORM, 8, (texels, block) => One(texels, block, channel));
+
+    /// <summary>The red and green channels of an image as the two-channel block format, with every smaller level.</summary>
+    internal static byte[] EncodeTwo(Image image) => Encode(image, DDS.DXGI_FORMAT.BC5_UNORM, 16, (texels, block) => { One(texels, block[..8], 0); One(texels, block[8..], 1); });
+
+    // One channel of a block: its highest and lowest values and, for each texel, the nearest of eight steps between them.
+    private static void One(ReadOnlySpan<byte> texels, Span<byte> block, int channel)
     {
         int low = 255, high = 0;
         for (int i = 0; i < 16; i++) { int v = texels[i * 4 + channel]; low = Math.Min(low, v); high = Math.Max(high, v); }
@@ -202,7 +208,7 @@ internal static class BlockTexture
             indices |= (ulong)best << 3 * i;
         }
         for (int i = 0; i < 6; i++) block[2 + i] = (byte)(indices >> 8 * i);
-    });
+    }
 
     private static readonly int[] Weights = [0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64];
 

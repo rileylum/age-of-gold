@@ -29,10 +29,16 @@ internal static class FirelinkBuild
     // Measured in the host: an all-metal white body under a cube of one grey shows 20.8 times the cube's value times its
     // environment box's specular multiplier. The source shows the cube's value times its specular gain.
     private const float ReflectionScale = 1 / 20.8f;
-    // The made maps carry this many times the source's reflectance and the boxes reflect that many times more weakly, which
-    // brings the host's 4 % down to the one per cent or so the source reflects from leather and skin here. A surface the
-    // source has reflect more than a quarter comes out short.
-    private const float CarriedReflectance = 4;
+    // A character's light is marked with a weight below minus one and a half: the part the host's lighting stages shaded
+    // arrives as accumulated diffuse light, and the composition stage shows that plus the emitted light.
+    private static readonly PixelShader.Targets CharacterTargets = HostTargets with { EmissionWeight = -2 };
+    // The host keeps one sun, from where the source's shadows are cast. A build's characters take only its shadow; what
+    // the host's own programs draw (the player in host gear) is lit by it and by the hemisphere colour in the baked light.
+    // Measured in the host: a sun of strength one adds 0.40 of a surface's colour where the surface faces it.
+    // lazy: white, adding half a facing surface's colour, which is about what the source's sky adds; the source's sky
+    // light is not directional, so no setting is exact.
+    private const float HostSunGain = 0.40f, SunLight = 0.5f;
+    private const string CharacterFamily = "aog_character", HostCharacterFamily = "C[AMSN]", CharacterDonorFamily = "C[DetailBlend]", CharacterTable = "aog:table";
     // The host's forward targets as its installed blended programs write them: colour with opacity, then opacity alone.
     private static readonly PixelShader.Blended HostForward = new(0, 1);
     // The host's visual-effect row for the leaves that drift around the player everywhere outdoors.
@@ -94,17 +100,15 @@ internal static class FirelinkBuild
     // A person's host identity follows the enemies' block: by its character row's place among the source's human rows.
     private const int FirstPersonIdentity = 6600;
 
-    // Characters are drawn by the host's plain character material: a colour map, a relief map and a metal map, and nothing
-    // of any host character's own blended in. The inputs a body fills: its colour, its relief with gloss, and its metal.
-    // The source keeps metal, roughness and a reflecting level in its specular map and multiplies its colour map by
-    // colours of the definition's; the host's colour map, metal map and the gloss in its relief map are made from them
-    // (HostCharacterTextures).
+    // Characters are laid out for the host's plain character material and drawn by a family of the build's own made from
+    // that material's. The inputs a body fills are the host's three, with the source's own maps: its colour map, its relief
+    // map, and its specular map (roughness, metal, a reflecting level and openness) where the host keeps metal.
     private const string CharacterMaterial = "\\C[AMSN].matxml";
     private const string ColourInput = "_AlbedoMap_0", ReliefInput = "_NormalMap_4", MetalInput = "_MetallicMap_0";
     // The source cuts torn cloth, hair and mail out of flat sheets with materials it names as edged. Those meshes take a
     // definition of the build's own: the plain one with a coverage threshold.
     // lazy: half coverage; the source's own threshold is not read.
-    private const string SourceCutout = "_Edge", CutoutDefinition = "aog_character_cutout";
+    private const string SourceCutout = "_Edge";
     private const int CutoutReference = 128;
     // A definition's two colours, to a thousandth, as part of a made texture's name.
     private static string TintCode((float[] Plain, float[] Metal) tint) => string.Join('_', tint.Plain.Concat(tint.Metal).Select(v =>
@@ -201,7 +205,7 @@ internal static class FirelinkBuild
                     : throw new InvalidDataException($"Source character material lacks {input}: {c.Key}/{material.Name}");
                 // A mesh marked "#NN#" is drawn only for rows that show that mark.
                 string mark = material.Name.Length >= 4 && material.Name[0] == '#' && material.Name[3] == '#' ? material.Name[..4] : "";
-                return (Mesh: i, Mark: mark, Colour: Texture("g_Diffuse"), Relief: Texture("g_Bumpmap"), Specular: Texture("g_Specular"), Cutout: material.MTD.Contains(SourceCutout, StringComparison.Ordinal), Tint: TintCode(reader.SurfaceColours(material.MTD)));
+                return (Mesh: i, Mark: mark, Colour: Texture("g_Diffuse"), Relief: Texture("g_Bumpmap"), Specular: Texture("g_Specular"), Cutout: material.MTD.Contains(SourceCutout, StringComparison.Ordinal), Tint: TintCode(reader.SurfaceColours(material.MTD)), Sky: reader.SkySlot(material.MTD), Older: reader.OlderSpecular(material.MTD));
             }).Where(m => m.Mark == "" || c.Value.Shown.Contains(m.Mark)).ToArray();
             if (c.Value.Shown.Except(meshes.Select(m => m.Mark)).FirstOrDefault() is { } absent) throw new InvalidDataException($"Source character {c.Key} has no mesh marked {absent}");
             return (Model: model, Meshes: meshes);
@@ -285,13 +289,19 @@ internal static class FirelinkBuild
         float[] CharacterColour(string field) => ((float[])characterValues[("$Globals", field)])[..3];
         if (characterRow.DiffuseEnvironment.Textures.Length != 1) throw new InvalidDataException("Character lighting row lacks one diffuse environment texture");
         string characterCubeName = $"EnvDif_m10_{characterRow.DiffuseEnvironment.Textures[0]:D3}";
-        // The source reflects one sky cube at the row's specular gain; the host reflects each box's cube at the box's own strength.
+        // What the host's own programs draw (the player in host gear) reflects each box's cube at the box's own strength; the
+        // source reflects one sky cube at the row's specular gain.
         // lazy: a grey gain only; a tinted one needs the sky's colours scaled, which means writing HDR blocks.
         var reflectionGain = CharacterColour("gFC_EnvSpcMapMulCol").Select(v => v * environmentSettings.Strength).ToArray();
         if (reflectionGain.Max() - reflectionGain.Min() > 1e-3f * reflectionGain.Max()) throw new InvalidDataException("Character lighting row tints its reflections");
         if (characterRow.SpecularEnvironment.Textures.Length == 0) throw new InvalidDataException("Character lighting row lacks a specular environment texture");
         string characterSkyName = $"EnvSpc_m10_{characterRow.SpecularEnvironment.Textures[0]:D3}";
-        FirelinkMapWriter.ReflectSky(layout, reflectionGain[0] * ReflectionScale / CarriedReflectance);
+        FirelinkMapWriter.ReflectSky(layout, reflectionGain[0] * ReflectionScale);
+        // Shadow darkens the source's sky light on a character, out to a distance from the camera; the hemisphere colour stays.
+        var shadow = SourceAtmosphereReader.Shadows(source).GetValueOrDefault(arrival.Shadow) ?? throw new InvalidDataException("Arrival selects a missing shadow row");
+        // lazy: a black shadow removes its density of the light; how the source applies a coloured one is not read.
+        if (shadow.Colour.Any(c => c != 0)) throw new InvalidDataException("The arrival's shadow row has a colour, which is not carried");
+        float[] towardsSun = shadow.TowardsLight;
         foreach (string detail in new[] { "h", "l" })
         {
             string stem = $"map/m10/{Map}/{detail}{Map[1..]}";
@@ -302,7 +312,7 @@ internal static class FirelinkBuild
         var built = models.Select(m => m.Name).ToHashSet(StringComparer.Ordinal);
         var scenery = FirelinkMapWriter.AddScenery(layout, placements.Where(p => built.Contains(p.GetProperty("model").GetString()!))
             .Select(p => new FirelinkMapWriter.SceneryPlacement(p.GetProperty("name").GetString()!, p.GetProperty("model").GetString()!,
-                V(p.GetProperty("position")), V(p.GetProperty("rotation")), V(p.GetProperty("scale")))).ToArray(), terrain.Offset);
+                V(p.GetProperty("position")), V(p.GetProperty("rotation")), V(p.GetProperty("scale")), p.GetProperty("castsShadow").GetBoolean())).ToArray(), terrain.Offset);
         // The source bonfire becomes a host resting point: marker, controller and respawn region copied from the host's own
         // first resting point, with identities and an activation flag reserved in this map's range.
         var sourceLayout = MSB1.Read(source.Read("map/MapStudio/m10_02_00_00.msb"));
@@ -331,7 +341,7 @@ internal static class FirelinkBuild
                     // A material without a specular map has neither metal nor gloss.
                     bool specular = material.Textures.Any(t => t.ParamName == "g_Specular" && t.Path.Length > 0);
                     return (Mesh: i, Colour: Texture("g_Diffuse"), Relief: relief ? Texture("g_Bumpmap") : NeutralTextures.FlatNormal, Specular: specular ? Texture("g_Specular") : "",
-                        Cutout: material.MTD.Contains(SourceCutout, StringComparison.Ordinal), Tint: TintCode(reader.SurfaceColours(material.MTD)));
+                        Cutout: material.MTD.Contains(SourceCutout, StringComparison.Ordinal), Tint: TintCode(reader.SurfaceColours(material.MTD)), Sky: reader.SkySlot(material.MTD), Older: reader.OlderSpecular(material.MTD));
                 }).ToArray();
                 var held = binder.Files.Where(f => f.Name.EndsWith(".tpf", StringComparison.OrdinalIgnoreCase)).SelectMany(f => TextureReader.ReadPackage(f.Bytes)).ToArray();
                 return (piece.Stem, piece.Hand, Model: model, Meshes: meshes, Textures: held);
@@ -507,14 +517,21 @@ internal static class FirelinkBuild
         files.Add("mod/" + post, ShaderArchive.Replace(postArchive, [toneStage],
             compiler.Assemble(DisplayShader.DisplayLikeSource(compiler.Disassemble(toneProgram), arrivalTone.BrightExposure, arrivalCorrection), toneProgram)));
         // The host composes a frame from its accumulated diffuse, specular and emitted light. The build's scenery carries the
-        // source's lighting as marked emitted light, which the stage now shows alone.
-        const string rendering = "shader/GXRendererShader.shaderbnd.dcx", compositeStage = "GXLightComposite.ppo";
+        // source's lighting as marked emitted light, which the stage now shows alone. A character stores the part of its
+        // light that shadow darkens: the stages for a directional light accumulate the sun's shadow alone on it, and the
+        // stage that multiplies accumulated light by surface colour multiplies the stored light back in.
+        const string rendering = "shader/GXRendererShader.shaderbnd.dcx";
         var renderingArchive = archive.Read(rendering);
-        var compositeProgram = ShaderArchive.Read(renderingArchive, compositeStage);
-        files.Add("mod/" + rendering, ShaderArchive.Replace(renderingArchive, [compositeStage],
-            compiler.Assemble(CompositeShader.KeepSourceLight(compiler.Disassemble(compositeProgram)), compositeProgram)));
+        foreach (var (stage, rewrite) in new (string, Func<string, string>)[] { ("GXLightComposite.ppo", CompositeShader.KeepSourceLight), ("GXLightCmbAlbedo.ppo", LightShader.CombineMarked),
+            ("GXLightAcc_DDirLight1.ppo", LightShader.ShadeMarked), ("GXLightAcc_DDirLightShadowed1.ppo", LightShader.ShadeMarked), ("GXLightAcc_DDirLightShadowed1_Cloud.ppo", LightShader.ShadeMarked) })
+        {
+            var program = ShaderArchive.Read(renderingArchive, stage);
+            renderingArchive = ShaderArchive.Replace(renderingArchive, [stage], compiler.Assemble(rewrite(compiler.Disassemble(program)), program));
+        }
+        files.Add("mod/" + rendering, renderingArchive);
         string graphics = $"param/drawparam/{Map[..6]}_{Map[7..9]}00.gparam.dcx";
-        files.Add("mod/" + graphics, HostAtmosphere.RemoveDirectionalLights(HostAtmosphere.RemoveHostEffects(archive.Read(graphics))));
+        // One host sun stays on, from where the source's shadows are cast.
+        files.Add("mod/" + graphics, HostAtmosphere.LightBySun(HostAtmosphere.RemoveHostEffects(archive.Read(graphics)), new(towardsSun[0], towardsSun[1], towardsSun[2]), new(1, 1, 1, SunLight / HostSunGain)));
 
         var characterSupports = new SortedDictionary<string, string>(StringComparer.Ordinal);
         // Each model is lit, fogged and scattered by the rows its placements select.
@@ -569,17 +586,25 @@ internal static class FirelinkBuild
         }, StringComparer.Ordinal);
         // A living character's colour is read by the host's own character program, which expects display-encoded colour.
         var pieceMeshes = peoplePieces.Values.SelectMany(pieces => pieces.SelectMany(piece => piece.Meshes)).ToArray();
-        // A character surface's colour map, metal map and relief map with gloss are made from the source's colour, specular
-        // and relief maps and its definition's colours; each is named by what it is made from.
-        static string ColourOf(string colour, string specular, string tint) => $"aog:colour:{colour}:{specular}:{tint}";
-        static string MetalOf(string colour, string specular, string tint) => $"aog:metal:{colour}:{specular}:{tint}";
-        static string ReliefOf(string relief, string specular) => $"aog:relief:{relief}:{specular}";
-        var characterSurfaces = livingModels.Values.SelectMany(m => m.Meshes.Select(x => (x.Colour, x.Relief, x.Specular, x.Tint))).Concat(pieceMeshes.Select(m => (m.Colour, m.Relief, m.Specular, m.Tint))).Distinct().ToArray();
-        // The host's character program expects display-encoded colour.
-        var displayColours = characterSurfaces.Select(m => ColourOf(m.Colour, m.Specular, m.Tint)).ToHashSet(StringComparer.Ordinal);
+        // A character's program reads the source's own colour, specular and relief maps, unchanged. They are named apart from
+        // the scenery's textures; a surface with no specular map takes a dull one.
+        static string SurfaceOf(string name) => name == "" ? NeutralTextures.Dull : NeutralTextures.Is(name) ? name : "aog:surface:" + name;
+        var characterSurfaces = livingModels.Values.SelectMany(m => m.Meshes.Select(x => (x.Colour, x.Relief, x.Specular, x.Tint, x.Cutout, x.Sky, x.Older))).Concat(pieceMeshes.Select(m => (m.Colour, m.Relief, m.Specular, m.Tint, m.Cutout, m.Sky, m.Older))).Distinct().ToArray();
+        // A lighting row names four sky cubes by number; a surface reflects the one its definition chooses (leather the first,
+        // metal the third here). The area has a cube of its own only for some numbers.
+        // lazy: a number the area has no cube for takes the row's first. Seen in game against the source: with the cube of
+        // that number from the set every area shares, metal blazes white where the source's is dim and cool; with the
+        // area's own it is the source's. How the source itself resolves the number is not read.
+        var areaSkies = TextureReader.Read(source, characterRow.SpecularEnvironment.Textures.Select(t => $"EnvSpc_m10_{t:D3}").Distinct(StringComparer.Ordinal).ToArray(), false).Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
+        string SkyOf(int slot) => $"EnvSpc_m10_{characterRow.SpecularEnvironment.Textures[slot]:D3}" is var own && areaSkies.Contains(own) ? own : characterSkyName;
         var characterInputs = characterSurfaces.SelectMany(m => new[] { m.Colour, m.Relief, m.Specular }).Where(n => n != "" && !NeutralTextures.Is(n)).Distinct(StringComparer.Ordinal).ToArray();
-        var livingTextures = displayColours.Concat(characterSurfaces.Select(m => MetalOf(m.Colour, m.Specular, m.Tint))).Concat(characterSurfaces.Select(m => ReliefOf(m.Relief, m.Specular))).Distinct(StringComparer.Ordinal).ToArray();
-        var required = models.SelectMany(m => m.Textures).Concat(environments.Values).Concat(livingModels.Count == 0 ? [] : livingTextures)
+        // Beside its maps a surface takes the two cubes that light it and the source's reflectance table.
+        var livingTextures = characterSurfaces.SelectMany(m => new[] { m.Colour, m.Relief, m.Specular }).Select(SurfaceOf).Append(characterCubeName).Concat(characterSurfaces.Select(m => SkyOf(m.Sky))).Append(CharacterTable).Distinct(StringComparer.Ordinal).ToArray();
+        // Each kind of surface (a source definition's two colours, cut out or not, its specular map read the newer way or the
+        // older) has a definition of the build's own.
+        var characterKinds = characterSurfaces.Select(m => (m.Tint, m.Cutout, m.Older)).Distinct().OrderBy(k => k.Tint, StringComparer.Ordinal).ThenBy(k => k.Cutout).ThenBy(k => k.Older).ToArray();
+        string CharacterDefinition(string tint, bool cutout, bool older) => $"{CharacterFamily}_{Array.IndexOf(characterKinds, (tint, cutout, older)):D2}";
+        var required = models.SelectMany(m => m.Textures).Concat(environments.Values).Concat(characterSurfaces.Length == 0 ? [] : livingTextures)
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         var environmentBinder = BND4.Read(archive.Read($"map/m10/{Map}/{Map}_envmap_00_high_00.tpfbnd.dcx"));
         var textureTemplate = environmentBinder.Files.Select(f => DCX.Is(f.Bytes) ? DCX.Decompress(f.Bytes) : f.Bytes)
@@ -601,19 +626,18 @@ internal static class FirelinkBuild
         foreach (string name in characterInputs.Where(n => !inputs.ContainsKey(n) && partTextures.ContainsKey(n))) inputs.Add(name, partTextures[name]);
         foreach (var texture in TextureReader.Read(source, characterInputs.Where(n => !inputs.ContainsKey(n)).ToArray())) inputs.Add(texture.Name, texture.Bytes);
         byte[] Input(string name) => NeutralTextures.Is(name) ? NeutralTextures.Bytes(name) : inputs.TryGetValue(name, out var found) ? found : throw new InvalidDataException("Source character texture is missing: " + name);
-        foreach (var surface in characterSurfaces)
+        foreach (string name in characterInputs) raw.TryAdd(SurfaceOf(name), Input(name));
+        if (characterSurfaces.Length > 0)
         {
-            var (surfaceColour, metalColour) = Tint(surface.Tint);
-            var made = HostCharacterTextures.Surface(Input(surface.Colour), surface.Specular == "" ? null : Input(surface.Specular), surfaceColour, metalColour, CarriedReflectance);
-            raw.TryAdd(ColourOf(surface.Colour, surface.Specular, surface.Tint), made.Colour);
-            raw.TryAdd(MetalOf(surface.Colour, surface.Specular, surface.Tint), made.Metal);
-            raw.TryAdd(ReliefOf(surface.Relief, surface.Specular), HostCharacterTextures.ReliefAndGloss(Input(surface.Relief), surface.Specular == "" ? null : Input(surface.Specular)));
+            var system = source.Read("other/SYSTEX_TEX.tpf.dcx");
+            raw.Add(CharacterTable, HostCharacterTextures.Table(TextureReader.ReadPackage(DCX.Is(system) ? DCX.Decompress(system) : system).Single(t => t.Name == "SYSTEX_DFG").Bytes));
         }
-        // The cube that lights characters is read in the same pass; it is written only if scenery needs it too.
-        foreach (var texture in TextureReader.Read(source, required.Append(characterCubeName).Append(characterSkyName).Where(n => !NeutralTextures.Is(n) && !raw.ContainsKey(n)).Distinct(StringComparer.Ordinal).ToArray())) raw.Add(texture.Name, texture.Bytes);
-        var characterCube = BlockTexture.DecodeRadiance(raw[characterCubeName]);
-        var characterLight = SourceCharacterLight.Fit(characterCube, CharacterColour("gFC_EnvDifMapMulCol").Select(v => v * environmentSettings.Strength).ToArray(),
-            CharacterColour("gFC_HemAmbCol_u"), CharacterColour("gFC_HemAmbCol_d"));
+        // The sky cube also fills the host's own reflection cubes, whether or not a character is built.
+        foreach (var texture in TextureReader.Read(source, required.Append(characterSkyName).Where(n => !NeutralTextures.Is(n) && !raw.ContainsKey(n)).Distinct(StringComparer.Ordinal).ToArray())) raw.Add(texture.Name, texture.Bytes);
+        // The host's baked light holds the hemisphere colour alone, for what the host's own programs draw: shadow leaves
+        // it be, as it does in the source, and the host's sun adds the rest. A build's characters take none of it.
+        float[] upperLight = CharacterColour("gFC_HemAmbCol_u"), lowerLight = CharacterColour("gFC_HemAmbCol_d");
+        var characterLight = SourceCharacterLight.Hemisphere(upperLight, lowerLight);
         // The host keeps the baked light once for each state of the sky and each quality setting.
         var characterVolumes = new List<string>();
         for (int state = 0; state < 100; state++)
@@ -633,7 +657,7 @@ internal static class FirelinkBuild
             // lazy: one reserved namespace of a thousand textures; split across namespaces when a larger area needs more.
             string stem = $"aet950_{i:D3}", name = stem.ToUpperInvariant() + "_a";
             foreach (string suffix in new[] { "", "_l" })
-                Add($"asset/aet/aet950/{stem}{suffix}.tpf.dcx", textureWriter.Write(name + suffix, raw[required[i]], displayColours.Contains(required[i])));
+                Add($"asset/aet/aet950/{stem}{suffix}.tpf.dcx", textureWriter.Write(name + suffix, raw[required[i]], false));
             names.Add(required[i], name + ".tif");
         }
         // Enemies and people are written whole, as characters of their own. A person's body is the source human's
@@ -641,8 +665,19 @@ internal static class FirelinkBuild
         var wholeHuman = LivingPeople.Count == 0 ? null : ModelReader.Read(BND3.Read(source.Read("chr/c0000.chrbnd.dcx")).Files.SingleOrDefault(f => f.Name.EndsWith("c0000.flver", StringComparison.OrdinalIgnoreCase))?.Bytes
             ?? throw new InvalidDataException("Source install has no human skeleton model")).Item1;
         var wholeCharacters = new SortedDictionary<string, object>(StringComparer.Ordinal); var wholePeople = new SortedDictionary<string, object>(StringComparer.Ordinal);
-        // The host definitions whose cut-out twin some mesh is drawn with.
-        var cutoutOf = new SortedSet<string>(StringComparer.Ordinal);
+        var shaders = archive.Read("shader/shaderbdle.shaderbdlebnd.dcx");
+        byte[] Metadata(string family)
+        {
+            using var reader = new BND4Reader(ShaderArchive.ReadFamily(shaders, family + ".shaderbdle"));
+            return reader.ReadFile(reader.Files.Single(f => f.Name.EndsWith(".metaparam", StringComparison.Ordinal)));
+        }
+        // The build's character family is the host's plain one with three texture inputs more, declared as a host family
+        // with many inputs declares its own: the diffuse cube, the sky cube and the reflectance table.
+        byte[] characterMetadata = Metadata(HostCharacterFamily), characterDonorMetadata = Metadata(CharacterDonorFamily);
+        int characterInputCount = ShaderMetadata.Read(characterMetadata).Textures.Count;
+        int[] characterAddedSlots = [characterInputCount, characterInputCount + 1, characterInputCount + 2];
+        var characterFamilyMetadata = ShaderMetadata.EnableEmission(ShaderMetadata.AppendTextures(characterMetadata, characterDonorMetadata, characterAddedSlots));
+        var characterAddedNames = characterAddedSlots.Select(slot => ShaderMetadata.Read(characterFamilyMetadata).Textures.Single(t => t.Slot == slot).Name).ToArray();
         foreach (string hostName in livingCharacters.Values.Select(l => l.Host).Concat(LivingPeople.Values.Select(l => l.Host)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
         {
             var binder = BND4.Read(archive.Read($"chr/{hostName}.chrbnd.dcx"));
@@ -650,21 +685,20 @@ internal static class FirelinkBuild
             var hostModel = FLVER2.Read(file.Bytes);
             int Exemplar(string fragment) => hostModel.Meshes.FindIndex(m => hostModel.Materials[m.MaterialIndex].MTD.Contains(fragment, StringComparison.Ordinal)) is >= 0 and var found
                 ? found : throw new InvalidDataException($"Host character {hostName} has no material like {fragment}");
-            HostCharacterModel.Part Dress(int mesh, int exemplar, string colour, string relief, string specular, bool cutout, string tint)
+            HostCharacterModel.Part Dress(int mesh, int exemplar, string colour, string relief, string specular, bool cutout, string tint, int sky, bool older)
             {
-                if (cutout) cutoutOf.Add(hostModel.Materials[hostModel.Meshes[exemplar].MaterialIndex].MTD);
                 var inputs = hostModel.Materials[hostModel.Meshes[exemplar].MaterialIndex].Textures.Select(t => t.ParamName).ToArray();
                 string Input(string suffix) => inputs.Count(i => i.EndsWith(suffix, StringComparison.Ordinal)) == 1 ? inputs.Single(i => i.EndsWith(suffix, StringComparison.Ordinal))
                     : throw new InvalidDataException($"Host character material does not have one input ending {suffix}");
-                return new(mesh, exemplar, new Dictionary<string, string> { [Input(ColourInput)] = names[ColourOf(colour, specular, tint)], [Input(ReliefInput)] = names[ReliefOf(relief, specular)], [Input(MetalInput)] = names[MetalOf(colour, specular, tint)] },
-                    cutout ? CutoutDefinition : null);
+                return new(mesh, exemplar, new Dictionary<string, string> { [Input(ColourInput)] = names[SurfaceOf(colour)], [Input(ReliefInput)] = names[SurfaceOf(relief)], [Input(MetalInput)] = names[SurfaceOf(specular)] },
+                    CharacterDefinition(tint, cutout, older), [(characterAddedNames[0], names[characterCubeName]), (characterAddedNames[1], names[SkyOf(sky)]), (characterAddedNames[2], names[CharacterTable])]);
             }
             foreach (var (name, person) in LivingPeople.Where(p => p.Value.Host == hostName))
             {
                 var placed = sourceLayout.Parts.Enemies.Single(p => p.Name == name);
                 var pieces = peoplePieces[name].Select(piece =>
                 {
-                    var parts = piece.Meshes.Select(mesh => Dress(mesh.Mesh, Exemplar(piece.Hand == "" ? person.Body : person.Held), mesh.Colour, mesh.Relief, mesh.Specular, mesh.Cutout, mesh.Tint)).ToArray();
+                    var parts = piece.Meshes.Select(mesh => Dress(mesh.Mesh, Exemplar(piece.Hand == "" ? person.Body : person.Held), mesh.Colour, mesh.Relief, mesh.Specular, mesh.Cutout, mesh.Tint, mesh.Sky, mesh.Older)).ToArray();
                     // What is held hangs from the hand's weapon bone: every node of its model is carried there.
                     var pairs = piece.Hand == "" ? null : piece.Model.Nodes.Select(n => n.Name).Distinct(StringComparer.Ordinal).ToDictionary(n => n, _ => piece.Hand, StringComparer.Ordinal);
                     return new HostCharacterModel.Body(piece.Model, pairs, parts, null, null, 1);
@@ -678,7 +712,7 @@ internal static class FirelinkBuild
             // An enemy has files of its own, under its own identity; its meshes take this host's layouts and materials.
             foreach (var (name, living) in livingCharacters.Where(c => c.Value.Host == hostName))
             {
-                var parts = livingModels[name].Meshes.Select(mesh => Dress(mesh.Mesh, Exemplar(mesh.Mark == "" ? living.Body : living.Held), mesh.Colour, mesh.Relief, mesh.Specular, mesh.Cutout, mesh.Tint)).ToArray();
+                var parts = livingModels[name].Meshes.Select(mesh => Dress(mesh.Mesh, Exemplar(mesh.Mark == "" ? living.Body : living.Held), mesh.Colour, mesh.Relief, mesh.Specular, mesh.Cutout, mesh.Tint, mesh.Sky, mesh.Older)).ToArray();
                 var whole = WholeCharacter.Write(source, archive, name, Identity(name), new(hostName, living.Physics, living.Gaze), livingModels[name].Model, parts);
                 foreach (var (path, bytes) in whole.Files) files.Add("mod/" + path, bytes);
                 wholeCharacters.Add(name, new
@@ -690,12 +724,6 @@ internal static class FirelinkBuild
             }
         }
 
-        var shaders = archive.Read("shader/shaderbdle.shaderbdlebnd.dcx");
-        byte[] Metadata(string family)
-        {
-            using var reader = new BND4Reader(ShaderArchive.ReadFamily(shaders, family + ".shaderbdle"));
-            return reader.ReadFile(reader.Files.Single(f => f.Name.EndsWith(".metaparam", StringComparison.Ordinal)));
-        }
         var definitions = BND4.Read(archive.Read("material/allmaterial.matbinbnd.dcx"));
         BinderFile Definition(string family) => definitions.Files.Single(f => f.Name.Replace('\\', '/')
             .EndsWith("/Map_Base/matxml/" + family + ".matbin", StringComparison.Ordinal));
@@ -764,16 +792,21 @@ internal static class FirelinkBuild
                 throw new InvalidDataException("Ground material identity is occupied");
             definitions.Files.Add(new BinderFile(hostDefinition.Flags, definitions.Files.Max(f => f.ID) + 1, definitionName, definition));
         }
-        // The characters' cut-out definition: the plain host definition their meshes are laid out for, with a coverage threshold.
-        if (cutoutOf.Count > 1) throw new InvalidDataException("Cut-out character meshes are laid out for more than one host definition");
-        foreach (string plainPath in cutoutOf)
+        // A character surface's definition: the host's plain one, drawn by the build's family, with the source definition's two
+        // colours, the added textures and, for torn cloth, hair and mail, a coverage threshold.
+        if (characterKinds.Length > 0)
         {
-            string stem = Path.GetFileNameWithoutExtension(plainPath.Replace('\\', '/'));
-            var plainDefinition = definitions.Files.SingleOrDefault(f => Path.GetFileNameWithoutExtension(f.Name.Replace('\\', '/')).Equals(stem, StringComparison.OrdinalIgnoreCase))
-                ?? throw new InvalidDataException("Host install has no material definition " + stem);
-            string cutoutName = plainDefinition.Name[..^Path.GetFileName(plainDefinition.Name.Replace('\\', '/')).Length] + CutoutDefinition + ".matbin";
-            if (definitions.Files.Any(f => f.Name.Equals(cutoutName, StringComparison.OrdinalIgnoreCase))) throw new InvalidDataException("The character cut-out definition is already installed");
-            definitions.Files.Add(new BinderFile(plainDefinition.Flags, definitions.Files.Max(f => f.ID) + 1, cutoutName, HostCharacterMaterial.Cutout(plainDefinition.Bytes, CutoutReference)));
+            BinderFile CharacterBase(string family) => definitions.Files.SingleOrDefault(f => f.Name.Replace('\\', '/').EndsWith("/Chr_Base/matxml/" + family + ".matbin", StringComparison.Ordinal))
+                ?? throw new InvalidDataException("Host install has no character material definition " + family);
+            var plainDefinition = CharacterBase(HostCharacterFamily); var donorCharacterDefinition = CharacterBase(CharacterDonorFamily).Bytes;
+            foreach (var (tint, cutout, older) in characterKinds)
+            {
+                string ownName = plainDefinition.Name[..^Path.GetFileName(plainDefinition.Name.Replace('\\', '/')).Length] + CharacterDefinition(tint, cutout, older) + ".matbin";
+                if (definitions.Files.Any(f => f.Name.Equals(ownName, StringComparison.OrdinalIgnoreCase))) throw new InvalidDataException("A character definition is already installed");
+                var (surfaceColour, metalColour) = Tint(tint);
+                definitions.Files.Add(new BinderFile(plainDefinition.Flags, definitions.Files.Max(f => f.ID) + 1, ownName,
+                    HostCharacterMaterial.Own(plainDefinition.Bytes, donorCharacterDefinition, characterAddedNames, HostCharacterFamily, CharacterFamily, surfaceColour, metalColour, cutout ? CutoutReference : null, older)));
+            }
         }
         files.Add("mod/material/allmaterial.matbinbnd.dcx", definitions.Write());
         definitions = null!;
@@ -802,7 +835,7 @@ internal static class FirelinkBuild
         var plain = compiler.Disassemble(HostStage("_Gbuf.vpo"));
         // Scrolling surfaces follow the frame clock the host's forward programs read.
         var clock = PixelShader.FindClock(compiler.Disassemble(HostStage("_Fwd.ppo")));
-        files.Add("mod/shader/shaderbdle.shaderbdlebnd.dcx", ShaderArchive.AddFamilies(shaders, HostFamily,
+        var groundFamilies =
             // Only families a built surface uses are written; a material may exist only as a cutout.
             groundDefinitions.Keys.Select(name => KeyValuePair.Create(name, families[BaseFamily(name)]))
                 .Select(family => (family.Key, (Func<string, byte[], byte[]>)((suffix, bytes) =>
@@ -848,7 +881,49 @@ internal static class FirelinkBuild
                     return compiler.Assemble(PixelShader.ComposeLayeredGround(compiler.Disassemble(bytes), Forward(plain, view), slots, HostTargets, light,
                         cut ? 128 / 255f : null, air, cut ? fade : null, null, scroll), bytes);
                 return bytes;
-            }))).ToArray()));
+            }))).ToArray();
+        // The character family: its deferred vertex stages forward the vector to the camera, and its deferred pixel stages
+        // light a surface as the source does, handing the host the part its sun's shadow falls on.
+        var characterFamilies = new List<(string Template, string Name, Func<string, byte[], byte[]> Edit)>();
+        object? characterShadeRecord = null;
+        if (characterKinds.Length > 0)
+        {
+            int viewRow;
+            string plainCharacter;
+            using (var family = new BND4Reader(ShaderArchive.ReadFamily(shaders, HostCharacterFamily + ".shaderbdle")))
+            {
+                var deferred = family.Files.Where(f => Regex.IsMatch(f.Name, @"_Gbuf[^\\/]*\.vpo$")).ToArray();
+                viewRow = deferred.Max(f => VertexShader.FreeOutputRow(compiler.Disassemble(family.ReadFile(f))));
+                plainCharacter = compiler.Disassemble(family.ReadFile(deferred.Single(f => f.Name.EndsWith(HostCharacterFamily + "_Gbuf.vpo", StringComparison.Ordinal))));
+            }
+            string viewedCharacter = VertexShader.AddView(plainCharacter, viewRow);
+            var declaredInputs = ShaderMetadata.Read(characterMetadata).Textures;
+            int Slot(string suffix) => declaredInputs.Count(t => t.Name.EndsWith(suffix, StringComparison.Ordinal)) == 1 ? declaredInputs.Single(t => t.Name.EndsWith(suffix, StringComparison.Ordinal)).Slot
+                : throw new InvalidDataException("Host character family does not have one input ending " + suffix);
+            var characterSlots = new CharacterShader.Slots(Slot(ColourInput), Slot(MetalInput), Slot(ReliefInput), characterAddedSlots[0], characterAddedSlots[1], characterAddedSlots[2]);
+            // The blur of a reflection is counted in levels from a cube's smallest, so the cubes must agree on their count.
+            var skyLevels = characterSurfaces.Select(m => new DDS(raw[SkyOf(m.Sky)]).dwMipMapCount).Distinct().ToArray();
+            if (skyLevels.Length != 1) throw new InvalidDataException("The row's sky cubes differ in their number of levels");
+            var table = new DDS(raw[CharacterTable]);
+            if (table.dwWidth != table.dwHeight) throw new InvalidDataException("The source's reflectance table is not square");
+            var characterShade = new CharacterShader.Light(
+                Diffuse: CharacterColour("gFC_EnvDifMapMulCol").Select(v => v * environmentSettings.Strength).ToArray(), Sky: reflectionGain, SkyLevels: skyLevels[0],
+                Upper: upperLight, Lower: lowerLight, Sun: towardsSun,
+                ShadeStart: shadow.FadeStart, ShadeLength: shadow.FadeLength, Shade: [shadow.Density, shadow.Density, shadow.Density], TableSize: table.dwWidth);
+            characterShadeRecord = new { diffuse = characterShade.Diffuse, sky = characterShade.Sky, skyLevels = characterShade.SkyLevels, upper = upperLight, lower = lowerLight, sun = towardsSun, sunLight = SunLight,
+                shadeStart = characterShade.ShadeStart, shadeLength = characterShade.ShadeLength, shade = shadow.Density, table = table.dwWidth,
+                skies = characterSurfaces.Select(m => SkyOf(m.Sky)).Distinct().Order(StringComparer.Ordinal).ToArray(),
+                definitions = characterKinds.Select(k => new { name = CharacterDefinition(k.Tint, k.Cutout, k.Older), colours = k.Tint, cutout = k.Cutout, olderSpecular = k.Older }).ToArray() };
+            characterFamilies.Add((HostCharacterFamily, CharacterFamily, (suffix, bytes) =>
+            {
+                if (suffix == ".metaparam") return characterFamilyMetadata;
+                if (Regex.IsMatch(suffix, @"^_Gbuf.*\.vpo$")) return compiler.Assemble(VertexShader.AddView(compiler.Disassemble(bytes), viewRow), bytes);
+                if (suffix is not ("_Gbuf.ppo" or "_Gbuf_[A].ppo")) return bytes;
+                string module = compiler.Disassemble(bytes);
+                return compiler.Assemble(CharacterShader.Compose(module, viewedCharacter, characterSlots, CharacterTargets, CharacterShader.FindColours(module), characterShade), bytes);
+            }));
+        }
+        files.Add("mod/shader/shaderbdle.shaderbdlebnd.dcx", ShaderArchive.AddFamilies(shaders, [.. groundFamilies.Select(f => (HostFamily, f.Item1, f.Item2)), .. characterFamilies]));
 
         // Navigation: each source mesh becomes a host mesh, written into the first installed mesh file that has faces and
         // numbered after the built collision it lies on, as the host pairs its own; the map's index lists them, the edges
@@ -924,7 +999,7 @@ internal static class FirelinkBuild
             }),
             restingPoint = new { entity = restingEntity, flag = restingFlag, position = new[] { resting.Position.X, resting.Position.Y, resting.Position.Z } },
             arrival = new { collision = terrain.Arrival, selection = arrival, focus = arrivalFocus, tone = arrivalTone, exposure = arrivalTone.BrightExposure, correction = arrivalCorrection },
-            characterLight = new { row = characterRow.Id, constant = characterLight.Constant, x = characterLight.X, y = characterLight.Y, z = characterLight.Z, sky = characterSkyName, reflection = reflectionGain[0] * ReflectionScale / CarriedReflectance, volumes = characterVolumes },
+            characterLight = new { row = characterRow.Id, constant = characterLight.Constant, x = characterLight.X, y = characterLight.Y, z = characterLight.Z, sky = characterSkyName, cube = characterCubeName, reflection = reflectionGain[0] * ReflectionScale, shadow = arrival.Shadow, program = characterShadeRecord, volumes = characterVolumes },
             unbuiltSurfaces = unbuilt,
             unbuiltObjects,
             unbuiltCharacters,

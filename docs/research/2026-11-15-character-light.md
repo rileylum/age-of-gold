@@ -98,30 +98,112 @@ specular colour and power instead. For the hollow's leather the factor is 0.6, a
 linear light. The host's plain character definition has a colour setting applied to the
 colour map in linear light (seen in game), but one for the whole surface.
 
-The host lights a surface's colour times what is not metal, and reflects 4 % blended towards
-the colour by metal. With d and f the source's diffuse light and reflectance at a texel and x
-what is not metal, both match where 0.04 x² − (d + f) x + d = 0 has a root no greater than
-one; the colour is then d + f − 0.04 x. Where the source reflects less than the host's floor
-there is no root: the texel stays plain and keeps its colour. (A closest fit by least squares
-gives up a dark surface's colour to bring the reflection down, and turns dark leather into
-black metal.)
+The host lights a surface's colour times what is not metal, and reflects 4 % blended towards the colour by metal. Maps
+made texel by texel to match the source under those rules were tried first: they cannot go below the host's floor, a
+closest fit by least squares turns dark leather into black metal, and nothing in them shades. They are not used.
+
+## A character program of the build's own
+
+The host's own character program cannot be made to match: it has a 4 % reflectance floor, sharper reflections, and no
+way to shade a surface the way the source does. So a build draws its characters with a program family of its own, made
+from the host's plain character family. What was found on the way:
+
+- The host's deferred character stage writes the same five targets as its scenery stage: an encoded normal (half the
+  unit normal plus a little over a half), metal and gloss, the surface colour, an unused target, and emitted light with a
+  weight. It reads only the material's textures and constants: no cubes, no baked light, no shadow map. A family's
+  metadata must say that it writes emitted light, or the light does not show.
+- A family's metadata declares its texture inputs by slot, and a slot is the texture register the stages read. Three
+  inputs appended to the plain family's three (declared as a host family with many inputs declares its own) are bound:
+  a cube put in the fourth slot showed on a body (seen in game). So the source's diffuse cube, its sky cube and its
+  reflectance table can be read directly.
+- The host's vertex stages take a vertex's position relative to the camera before projecting it, so the vector to the
+  camera is in hand there and can be forwarded to the pixel stage.
+- The material's two colour settings reach the stage unchanged, in a constant buffer the stage already opens.
+- How the host lights a deferred surface, read from its own stages. A stage for each directional light adds, to an
+  accumulation of diffuse light, the light's colour times how far the stored normal faces it times a shadow value (the
+  lesser of the first two values of a screen-sized shadow mask), with a view-dependent diffuse term; it takes the
+  light's direction and colour from the light set whose number the surface stores beside its colour. Stages for the
+  environment boxes add the baked light along the stored normal; a later stage multiplies that by a screen-space
+  occlusion value. Point lights add theirs. Then one small stage multiplies the whole accumulation by the stored colour
+  times what is not metal, and the composition stage adds reflections and emitted light.
+- A first scheme stored the sun's own direction as the normal, so that the sun lit the stored colour at full strength,
+  and subtracted in the emitted light what the baked light would add. It does not hold: with a false normal the
+  screen-space occlusion and the host's diffuse term change with the viewing angle (seen in game: the same flat grey
+  body showed from 0.09 to 0.41 of its colour, front against back), so nothing fixed can be subtracted.
+- What holds: a surface of whole metal and no gloss takes no diffuse light from the host at all. So that pair of values
+  can mark a character, and two of the host's stages can be told what to do with a marked surface: the sun's stage
+  accumulates the shadow value alone, scaled up by 1024, and the colour stage multiplies by the stored colour scaled
+  down by 1024. The frame then shows the stored colour times the shadow, whatever the normal or the viewing angle; the
+  baked light and point lights the host also accumulates there come to under a thousandth of themselves.
+- The host turns its sun's two angles (x, y) into the direction to the light (cos x sin y, -sin x, cos x cos y): found
+  by trying the four sign choices and seeing which facing went unlit.
+- The host's shadow value leaves the side of a body turned away from the light lit, and the host darkens it by the
+  light's own facing term, which a marked surface does not pass through. A hollow seen from behind in the source is
+  matt and dark, so a character's stage shades by the turn of the surface itself. Whether the source does shade that
+  side is not settled: a seated man's chest faces away from the shadow light and is an even dark teal in the source,
+  black in the build.
+- None of the source's scenery pieces casts shadows; its objects and characters do. With every built placement casting,
+  a character standing by a wall was in shadow where the source's stands in the light.
+
+The source's character light, in the terms the program restates (read from the remastered source's program, decompiled
+privately):
+
+- The colour map times the definition's plain colour, or its metal colour where the specular map's green says metal,
+  raised to 2.2, is the surface's colour. What is not metal scatters it; metal reflects it; a plain surface reflects a
+  fifth of the specular map's blue times the metal colour's brightness. The specular map's fourth channel scales all of
+  it, and the sky's light once more.
+- The sky's light is the diffuse cube along the normal times the scattered colour, plus the sky cube times the
+  reflectance, both times a gain. The sky cube is read between the mirror direction and the normal, nearer the normal
+  the rougher the surface (red channel), at a level of the cube's count less three plus 1.2 times the base-two logarithm
+  of the roughness. It fades as the mirror direction sinks below the surface itself. The reflectance is the head-on
+  reflectance times one number plus a grazing reflectance times another, both read from a table by roughness and the
+  angle to the eye. The table is a file of the source's: two half-precision numbers a texel, 256 square.
+- A lighting row names four sky cubes by number, and a definition chooses which its surfaces reflect: at Firelink
+  leather takes the first and metal the third. The area has a cube of its own only for the first number: warm straight
+  overhead (about 0.26), blue around that, black below. A set every area shares (`other/envlight.tpf`) has a cube for
+  each number; its third is about 3.0 overhead. Tried in game for metal, with the row's gain: white where lit, which the
+  source's metal is not. So which cube a number without an area cube takes is not known; the build uses the area's.
+- The program reads the specular map one of two ways, by a setting of the definition's: roughness, metal, level and
+  openness; or, the older way, a reflection colour with roughness in the fourth channel on a surface that scatters all
+  of its colour. Of 580 definitions 92 state the first, 110 the second and 378 neither. Those that state neither (the
+  blades, the mail) read the first way: read the second, their maps gave magenta and green (seen in game).
+- Shadow multiplies the sky's light and leaves the hemisphere colour alone. The shadow row says where the casting light
+  stands, how dark and what colour a shadow is, and how far from the camera shadows are whole and then fade out. Every
+  collision of Firelink selects one row: black, full, whole to three metres and gone at ten. So in the source a shaded
+  character is only shaded when seen from close by.
+- The shadow table's definition spells one field's first letter with a full-width character.
+- Not carried: the source also multiplies by a vertex colour, adds point lights (the bonfire's), a screen-space
+  darkening, and fog and scattering; and it treats a surface turned away from the shadow light by a gradient setting
+  that is zero in this row.
 
 ## What the build does with it
 
-- The source's character light for the arrival's row is restated as a constant and three
-  linear terms (the closest fit over every facing) and written, uniformly, into every volume
-  of every state and quality. The host's directional lights are put out. Closed loop on the
-  grey body, the shown levels were within about a tenth of the levels predicted from the
-  source's row on side-facing surfaces, and a little low on top.
-- Every reflection cube takes the source sky's levels of its size, every box reflects at the
-  source's gain through the measured scale, and the composition stage shows the scenery's
-  marked light alone. Scenery in the three compared views stays within a few levels of the
-  source game's.
-- Each character surface's colour map and metal map are made texel by texel from the source's
-  colour map, specular map and definition colours, as above.
+- A character family is cloned from the host's plain one. Its deferred vertex stages forward the vector to the camera;
+  its deferred pixel stages work out the source's light from the source's own colour, specular and relief maps
+  (unchanged), the two cubes and the table, and the definition's two colours.
+- The part a full shadow would remove is stored as the surface colour, less the share a surface turned away from the
+  shadow light has already lost (wholly from a cosine of a sixteenth past side-on, an estimate), and the surface is marked with whole
+  metal and no gloss; the rest is emitted, with a weight of minus two. The host's stages for a directional light and its colour
+  stage are rewritten as above, and the composition stage shows accumulated diffuse light plus emitted light where the
+  weight is minus two, without the host's reflections or glow.
+- The host keeps one sun, from where the source's shadow light stands. A build's characters take only its shadow. Every
+  other directional light is out.
+- The host's baked light, in every volume of every state and quality, is the source's hemisphere colour alone. What the
+  host's own programs draw (the player in host gear) is therefore lit by the hemisphere colour and the shadowed sun, and
+  reflects the source's sky from the host's cubes at the source's gain through the measured scale. The sun is white and
+  adds half a facing surface's colour: a stand-in for the source's sky light, which is not directional.
+- A built scenery placement casts shadows only if the source's does.
+- The composition stage shows the scenery's marked light alone, as before.
 
-Not done: characters take no shadow from scenery and cast none on it; one row lights the
-whole map; reflections from rough surfaces are sharper than the source's.
+Not done: one row lights the whole map; the items listed as not carried above. A host surface of exactly whole metal
+and no gloss would be taken for a character's.
+
+Not right yet (15 November, evening): against the source game's pictures, mean levels of three views agree within a
+few levels and skin and leather are close, but metal reflects warmer and harsher (a blade's edge and flat, mail), and
+mail that is an even dark teal in the source is black with bright edges. The row's reflection gain as the build works
+it out (white times 3.00, raised to 2.2, times the renderer's strength of 3: 33.6), the cube a number resolves to, the
+count of levels the blur is measured from, and the shade of a surface turned from the light are each inferred, not
+read from the running game. A capture of one frame of the source game would give them.
 
 ## Decoding the source's textures
 

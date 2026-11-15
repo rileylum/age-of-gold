@@ -4,7 +4,8 @@ namespace AgeOfGold.Scene;
 
 internal static class TextureReader
 {
-    internal static IEnumerable<(string Name, byte[] Bytes)> Read(Install source, IEnumerable<string> names)
+    /// <param name="all">When false, a name the area's packages do not hold is left out instead of refused.</param>
+    internal static IEnumerable<(string Name, byte[] Bytes)> Read(Install source, IEnumerable<string> names, bool all = true)
     {
         var needed = names.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -34,7 +35,7 @@ internal static class TextureReader
                 if (!found.Add(texture.Name)) throw new InvalidDataException($"Ambiguous source texture: {texture.Name}");
                 yield return texture;
             }
-        if (!found.SetEquals(needed))
+        if (all && !found.SetEquals(needed))
             throw new InvalidDataException("Source textures not found: " + string.Join(", ", needed.Except(found).Order(StringComparer.Ordinal)));
     }
 

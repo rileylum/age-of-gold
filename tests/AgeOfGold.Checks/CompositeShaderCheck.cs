@@ -41,7 +41,8 @@ internal static class CompositeShaderCheck
         foreach (var text in new[] { compiler.Disassemble(output), compiler.Disassemble(compiler.Assemble(CompositeShader.KeepSourceLight(lateModule), original)) })
         {
         float[] diffuse = [0.2f, 0.3f, 0.4f, 1], specular = [0.05f, 0.5f, 0.02f, 1];
-        foreach (var (emitted, marked) in new[] { (new[] { 0.1f, 0.6f, 0.25f, -1f }, true), (new[] { 0.1f, 0.6f, 0.25f, 0.5f }, false), (new[] { 0.3f, 0f, 0.7f, 0f }, false) })
+        foreach (var (emitted, marked, shaded) in new[] { (new[] { 0.1f, 0.6f, 0.25f, -1f }, true, false), (new[] { 0.1f, 0.6f, 0.25f, 0.5f }, false, false), (new[] { 0.3f, 0f, 0.7f, 0f }, false, false),
+            (new[] { 0.1f, -0.45f, 0.25f, -2f }, true, true) })
         {
             var evaluator = new ShaderEvaluator
             {
@@ -53,7 +54,9 @@ internal static class CompositeShaderCheck
             {
                 // Where the emitted light is marked by a weight below nothing it is the build's own lighting, shown alone
                 // and without glow; elsewhere the host composes as it did.
-                float scene = marked ? emitted[c] : diffuse[c] + specular[c] + emitted[c], glow = marked ? 0 : emitted[c] * emitted[3];
+                // A weight of minus two marks a character's light: the part the host shaded arrives as accumulated diffuse
+                // light and the emitted part may take away what the host's ambient light added, but never below nothing.
+                float scene = shaded ? MathF.Max(diffuse[c] + emitted[c], 0) : marked ? emitted[c] : diffuse[c] + specular[c] + emitted[c], glow = marked ? 0 : emitted[c] * emitted[3];
                 if (MathF.Abs(evaluator.Outputs[(0, c)] - scene) > 1e-6f || MathF.Abs(evaluator.Outputs[(1, c)] - glow) > 1e-6f)
                     throw new Exception($"Composed channel {c} is {evaluator.Outputs[(0, c)]} with glow {evaluator.Outputs[(1, c)]}; expected {scene} and {glow}");
             }
@@ -63,7 +66,7 @@ internal static class CompositeShaderCheck
         try { CompositeShader.KeepSourceLight(rewritten); throw new Exception("A composition stage was rewritten twice"); } catch (InvalidDataException) { }
         var weightless = compiler.Disassemble(compiler.Compile(Fixture.Replace("emitted.rgb * emitted.a", "emitted.rgb"), "Main", "ps_6_0"));
         try { CompositeShader.KeepSourceLight(weightless); throw new Exception("A composition stage with no emitted weight was accepted"); } catch (InvalidDataException) { }
-        Console.WriteLine("PASS: the composition stage shows marked emitted light alone and without glow, and composes everything else as the host does");
+        Console.WriteLine("PASS: the composition stage shows marked emitted light alone, or with the host-shaded diffuse light where marked twice, without glow, and composes everything else as the host does");
     }
 
     private static string Required(string name) => Environment.GetEnvironmentVariable(name) ?? throw new Exception("Set " + name);

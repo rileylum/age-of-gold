@@ -45,7 +45,8 @@ internal static class VertexShader
 
     /// <summary>
     /// Forwards the world-space vector from the vertex to the camera, with the view depth as its fourth component (TANGENT8).
-    /// The installed programs compute that vector themselves to output its length; this finds it there.
+    /// The installed scenery programs compute that vector themselves to output its length; the installed character programs
+    /// take the position relative to the camera before projecting it. This finds the vector in either place.
     /// </summary>
     internal static string AddView(string module, int outputRow)
     {
@@ -93,10 +94,37 @@ internal static class VertexShader
             if (squares.Length == 3 && axes.All(a => a is not null)) vectors.Add(axes!);
         }
         var distinct = vectors.Select(v => string.Join(",", v)).Distinct().ToArray();
+        var reversed = new List<string>();
+        if (distinct.Length == 0 && depth is not null)
+        {
+            // No length is written: the view depth is projected from a position less three values of one constant row.
+            var projected = Closure(depth.Value.Value);
+            var relative = new Dictionary<string, string?[]>(StringComparer.Ordinal);
+            foreach (string value in projected)
+            {
+                if (!instructions.TryGetValue(value, out var difference)) continue;
+                var parts = Regex.Match(difference.Text, @"^fsub(?: fast)? float (%[\w.$-]+), (%[\w.$-]+)$");
+                if (!parts.Success || !instructions.TryGetValue(parts.Groups[2].Value, out var constant)) continue;
+                var axis = Regex.Match(constant.Text, @"^extractvalue %dx\.types\.CBufRet\.f32 (%[\w.$-]+), ([0-2])$");
+                if (!axis.Success) continue;
+                if (!relative.TryGetValue(axis.Groups[1].Value, out var axes)) relative.Add(axis.Groups[1].Value, axes = new string?[3]);
+                if (axes[axis.Groups[2].Value[0] - '0'] is not null) throw new InvalidDataException("Vertex program takes a position from the camera twice");
+                axes[axis.Groups[2].Value[0] - '0'] = value;
+            }
+            var whole = relative.Values.Where(axes => axes.All(a => a is not null)).ToArray();
+            if (whole.Length == 1)
+                for (int axis = 0; axis < 3; axis++)
+                {
+                    // The program's own vector runs from the camera to the vertex; the forwarded one runs back.
+                    var parts = Regex.Match(instructions[whole[0][axis]!].Text, @"^fsub(?: fast)? float (%[\w.$-]+), (%[\w.$-]+)$");
+                    reversed.Add($"  %aog_view{axis} = fsub fast float {parts.Groups[2].Value}, {parts.Groups[1].Value}");
+                    distinct = [$"%aog_view0,%aog_view1,%aog_view2"];
+                }
+        }
         if (distinct.Length != 1 || depth is null) throw new InvalidDataException("Vertex program does not compute one camera vector and view depth");
         var vector = distinct[0].Split(',');
-        if (vector.Append(depth.Value.Value).Any(v => instructions[v].Line > last)) throw new InvalidDataException("Camera vector follows the program's outputs");
-        var body = vector.Append(depth.Value.Value).Select((value, column) => $"  call void @dx.op.storeOutput.f32(i32 5, i32 {view}, i32 0, i8 {column}, float {value})");
+        if (vector.Append(depth.Value.Value).Any(v => instructions.TryGetValue(v, out var made) && made.Line > last)) throw new InvalidDataException("Camera vector follows the program's outputs");
+        var body = reversed.Concat(vector.Append(depth.Value.Value).Select((value, column) => $"  call void @dx.op.storeOutput.f32(i32 5, i32 {view}, i32 0, i8 {column}, float {value})"));
         // Every path writes the new output, as the installed programs do for their own.
         var zeros = Enumerable.Range(0, 4).Select(column => $"  call void @dx.op.storeOutput.f32(i32 5, i32 {view}, i32 0, i8 {column}, float 0.000000e+00)");
         return string.Join('\n', lines.SelectMany((line, i) => i == start ? [line, .. zeros] : i == last ? [line, .. body] : new[] { line })) + "\n";

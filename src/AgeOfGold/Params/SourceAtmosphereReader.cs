@@ -7,14 +7,42 @@ namespace AgeOfGold.Params;
 internal static class SourceAtmosphereReader
 {
     /// <summary>The drawing-table rows a collision placement selects for a character standing on it.</summary>
-    internal sealed record Selection(int Light, int Fog, int Scattering, int DepthOfField, int ToneMap, int ToneCorrection);
+    internal sealed record Selection(int Light, int Fog, int Scattering, int DepthOfField, int ToneMap, int ToneCorrection, int Shadow);
 
     /// <summary>A depth-of-field row: where far and near blur begin and end, in metres, and their strengths in percent.</summary>
     internal sealed record Focus(float FarStart, float FarEnd, float FarStrength, float NearStart, float NearEnd, float NearStrength, float Dispersion);
 
     internal static Dictionary<string, Selection> Selections(Install source) =>
         MSB1.Read(source.Read("map/MapStudio/m10_02_00_00.msb")).Parts.Collisions.ToDictionary(p => p.Name,
-            p => new Selection(p.LightID, p.FogID, p.ScatterID, p.DofID, p.ToneMapID, p.ToneCorrectID), StringComparer.Ordinal);
+            p => new Selection(p.LightID, p.FogID, p.ScatterID, p.DofID, p.ToneMapID, p.ToneCorrectID, p.ShadowID), StringComparer.Ordinal);
+
+    /// <summary>
+    /// A shadow row: the casting light's two angles in degrees, how much of the light a shadow removes, the shadow's colour,
+    /// and the distance from the camera up to which shadows are whole and over which they then fade out, in metres.
+    /// </summary>
+    internal sealed record Shadow(float Elevation, float Azimuth, float Density, float[] Colour, float FadeStart, float FadeLength)
+    {
+        /// <summary>The unit direction from a surface to the light. The light shines along (cos x sin y, -sin x, cos x cos y), as the source's scattering sun does.</summary>
+        // lazy: the convention is the scattering sun's, carried over to this light; it is checked by eye against the source game's shadows.
+        internal float[] TowardsLight
+        {
+            get
+            {
+                double x = Elevation * Math.PI / 180, y = Azimuth * Math.PI / 180;
+                return [(float)(-Math.Cos(x) * Math.Sin(y)), (float)Math.Sin(x), (float)(-Math.Cos(x) * Math.Cos(y))];
+            }
+        }
+    }
+
+    internal static SortedDictionary<int, Shadow> Shadows(Install source) => Rows(source, "m10_ShadowBank.param", "SHADOW_BANK", v =>
+    {
+        // lazy: where the shadow map begins and ends, its depth offsets and its volume are the source renderer's own
+        // business; the host casts the shadows with its own map.
+        // The install's definition spells one field with a full-width first letter.
+        foreach (string unused in new[] { "beginDist", "endDist", "calibulateFar", "persedDepthOffset", "\uFF47radFactor", "shadowVolumeDepth" }) _ = v(unused);
+        var shadow = new Shadow(v("lightDegRotX"), v("lightDegRotY"), v("densityRatio") / 100, [v("colR") / 255, v("colG") / 255, v("colB") / 255], v("fadeBeginDist"), v("fadeDist"));
+        return shadow.Density is >= 0 and <= 1 && shadow.Colour.All(c => c is >= 0 and <= 1) && shadow.FadeStart >= 0 && shadow.FadeLength >= 0 ? shadow : throw new InvalidDataException("Invalid source shadow row");
+    });
 
     /// <summary>A tone-map row: the exposure key and the luminance range the eye adapts within; bloom and shaft settings.</summary>
     internal sealed record Tone(float Key, float MinLuminance, float MaxLuminance, float AdaptSpeed, float BloomBegin, float BloomStrength,

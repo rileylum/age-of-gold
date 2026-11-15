@@ -33,19 +33,22 @@ internal static class HostAtmosphere
     }
 
     /// <summary>
-    /// Puts out the host's directional lights at every time of day. They light only what the host's own programs draw,
-    /// which in a build is characters; the source lights a character from its environment alone, which the build gives the
-    /// host as baked ambient light.
+    /// A build lights its scenery and its characters itself. One host sun stays on, without highlights, so that the host's
+    /// own lighting pass casts its shadows on what a character's program stores facing it; every other directional light
+    /// is put out. <paramref name="colour"/>'s fourth value is the sun's strength.
     /// </summary>
-    // lazy: with no directional light a character takes no shadow from the scenery; the source darkens its environment
-    // light there, which needs a shadowed term of the build's own.
-    internal static byte[] RemoveDirectionalLights(byte[] parameters)
+    internal static byte[] LightBySun(byte[] parameters, System.Numerics.Vector3 towards, System.Numerics.Vector4 colour)
     {
+        if (MathF.Abs(towards.Length() - 1) > 1e-4f) throw new InvalidDataException("The sun's direction must be a unit vector");
         var file = GPARAM.Read(parameters);
-        foreach (string light in new[] { "Light DiffColor0", "Light SpecColor0", "Light DiffColor1", "Light SpecColor1",
+        foreach (string light in new[] { "Light SpecColor0", "Light DiffColor1", "Light SpecColor1",
             "Light LocalLight DiffColor1", "Light LocalLight SpecColor1", "Light LocalLight DiffColor2", "Light LocalLight SpecColor2" })
             // A colour's fourth value is its strength.
-            Set(file, "Directional " + light, v => v is System.Numerics.Vector4 colour ? colour with { W = 0 } : throw new InvalidDataException("Unsupported directional light setting"));
+            Set(file, "Directional " + light, v => v is System.Numerics.Vector4 dark ? dark with { W = 0 } : throw new InvalidDataException("Unsupported directional light setting"));
+        Set(file, "Directional Light DiffColor0", v => v is System.Numerics.Vector4 ? colour : throw new InvalidDataException("Unsupported directional light setting"));
+        // The host's two angles (x, y) point to the light along (cos x sin y, -sin x, cos x cos y).
+        var angle = new System.Numerics.Vector2(-MathF.Asin(Math.Clamp(towards.Y, -1, 1)), MathF.Atan2(towards.X, towards.Z));
+        Set(file, "Directional Light Angle0", v => v is System.Numerics.Vector2 ? angle : throw new InvalidDataException("Unsupported directional light angle"));
         return file.Write();
     }
 

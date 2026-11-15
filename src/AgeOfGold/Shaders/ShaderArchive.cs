@@ -47,16 +47,22 @@ internal static class ShaderArchive
         AddFamilies(archive, template, [(name, edit)]);
 
     /// <summary>Adds several families cloned from one installed family in a single rewrite of the archive.</summary>
-    internal static byte[] AddFamilies(byte[] archive, string template, IReadOnlyList<(string Name, Func<string, byte[], byte[]> Edit)> families)
+    internal static byte[] AddFamilies(byte[] archive, string template, IReadOnlyList<(string Name, Func<string, byte[], byte[]> Edit)> families) =>
+        AddFamilies(archive, families.Select(f => (template, f.Name, f.Edit)).ToArray());
+
+    /// <summary>Adds several families, each cloned from an installed family of its own, in a single rewrite of the archive.</summary>
+    internal static byte[] AddFamilies(byte[] archive, IReadOnlyList<(string Template, string Name, Func<string, byte[], byte[]> Edit)> families)
     {
-        CheckPath([template, .. families.Select(f => f.Name)]);
+        CheckPath([.. families.Select(f => f.Template), .. families.Select(f => f.Name)]);
         if (families.Count == 0 || families.Select(f => f.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != families.Count)
             throw new InvalidDataException("Added shader families need distinct names");
         var outer = Open(archive);
-        var original = Entry(outer, template + ".shaderbdle");
-        int at = original.Name.LastIndexOfAny(['/', '\\']) + 1;
-        foreach (var (name, edit) in families)
+        // The installed families are read before any is added, so a new family never serves as another's template.
+        var originals = families.Select(f => f.Template).Distinct(StringComparer.Ordinal).ToDictionary(t => t, t => Entry(outer, t + ".shaderbdle"), StringComparer.Ordinal);
+        foreach (var (template, name, edit) in families)
         {
+            var original = originals[template];
+            int at = original.Name.LastIndexOfAny(['/', '\\']) + 1;
             if (outer.Files.Any(f => Leaf(f.Name).Equals(name + ".shaderbdle", StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidDataException("Shader family already exists: " + name);
             var inner = Open(original.Bytes);
@@ -74,7 +80,6 @@ internal static class ShaderArchive
         }
         return Write(outer);
     }
-
     private static string Leaf(string name) => Path.GetFileName(name.Replace('\\', '/'));
     private static byte[] Write(IBinder binder) => binder switch { BND3 b => b.Write(), BND4 b => b.Write(), _ => throw new InvalidOperationException() };
 

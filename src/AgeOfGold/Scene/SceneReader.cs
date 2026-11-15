@@ -45,7 +45,7 @@ internal sealed class SceneReader
             {
                 name = p.Name, model = p.ModelName, position = Vector(p.Position), rotation = Vector(p.Rotation), scale = Vector(p.Scale),
                 lighting = p.LightID, fog = p.FogID, scattering = p.ScatterID, playerLight = p.LanternID, disablePointLights = p.DisablePointLightEffect,
-                drawGroups = p.DrawGroups,
+                drawGroups = p.DrawGroups, castsShadow = p.IsShadowSrc != 0,
             }).ToArray();
 
     // The patch binder overrides the base one. Within a binder a name can appear twice with different contents (the remaster
@@ -71,8 +71,6 @@ internal sealed class SceneReader
     internal (float[] Plain, float[] Metal) SurfaceColours(string definitionPath)
     {
         var definition = Definition(Stem(definitionPath));
-        // The remastered source reads metal and roughness from the specular map unless a definition says otherwise.
-        if (definition.Params.SingleOrDefault(p => p.Name == "g_MaterialWorkflow") is { Value: not 0 }) throw new InvalidDataException("Unclassified material workflow: " + definitionPath);
         float[] Colour(string name)
         {
             if (definition.Params.SingleOrDefault(p => p.Name == name)?.Value is not float[] { Length: 3 } colour || definition.Params.SingleOrDefault(p => p.Name == name + "Power")?.Value is not float power
@@ -82,6 +80,24 @@ internal sealed class SceneReader
         }
         return (Colour("g_DiffuseMapColor"), Colour("g_SpecularMapColor"));
     }
+
+    /// <summary>
+    /// Whether the source reads a definition's specular map the older way, as a reflection colour on a surface that scatters
+    /// all of its colour, rather than as roughness, metal and a reflecting level.
+    /// </summary>
+    // A definition that does not say reads the newer way: seen in game, the maps of such definitions (blades, mail) read
+    // the older way give magenta and green, so they are laid out as roughness, metal and level.
+    internal bool OlderSpecular(string definitionPath) => Definition(Stem(definitionPath)).Params.SingleOrDefault(p => p.Name == "g_MaterialWorkflow")?.Value switch
+    {
+        1 => true,
+        null or 0 => false,
+        _ => throw new InvalidDataException("Unclassified material workflow: " + definitionPath),
+    };
+
+    /// <summary>Which of a lighting row's four sky cubes a definition's surfaces reflect.</summary>
+    internal int SkySlot(string definitionPath) =>
+        Definition(Stem(definitionPath)).Params.SingleOrDefault(p => p.Name == "g_EnvSpcSlotNo")?.Value is int slot and >= 0 and < 4 ? slot
+            : throw new InvalidDataException("Material definition does not choose one of four sky cubes: " + definitionPath);
 
     /// <summary>An object's model in the same shape as a map piece's; its textures come from <see cref="ReadObjectTextures"/>.</summary>
     internal byte[] ReadObject(string name) => JsonSerializer.SerializeToUtf8Bytes(Model(name, ObjectFile(name, ".flver")));
