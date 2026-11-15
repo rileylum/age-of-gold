@@ -99,6 +99,11 @@ internal sealed class SceneReader
         Definition(Stem(definitionPath)).Params.SingleOrDefault(p => p.Name == "g_EnvSpcSlotNo")?.Value is int slot and >= 0 and < 4 ? slot
             : throw new InvalidDataException("Material definition does not choose one of four sky cubes: " + definitionPath);
 
+    /// <summary>How much of a shadow's density a definition's surfaces take.</summary>
+    internal float ShadowStrength(string definitionPath) =>
+        Definition(Stem(definitionPath)).Params.SingleOrDefault(p => p.Name == "g_ShadowPowMul")?.Value is float strength and >= 0 && float.IsFinite(strength) ? strength
+            : throw new InvalidDataException("Material definition does not say how much of a shadow it takes: " + definitionPath);
+
     /// <summary>An object's model in the same shape as a map piece's; its textures come from <see cref="ReadObjectTextures"/>.</summary>
     internal byte[] ReadObject(string name) => JsonSerializer.SerializeToUtf8Bytes(Model(name, ObjectFile(name, ".flver")));
 

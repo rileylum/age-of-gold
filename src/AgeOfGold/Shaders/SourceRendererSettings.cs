@@ -12,15 +12,16 @@ internal sealed record SourceRendererSettings(float HemisphereStrength, float No
     {
         if (image.Version != new Version(1, 3, 1, 0))
             throw new InvalidDataException("Unsupported source renderer version; expected 1.3.1.0");
-        return new(Float("m_dbgAmbientStrength"), Float("m_dbgNormalStrength"));
+        return new(Setting(image, "m_dbgAmbientStrength"), Setting(image, "m_dbgNormalStrength"));
+    }
 
-        float Float(string name)
-        {
-            var value = BitConverter.UInt32BitsToSingle(image.U32(image.Raw(Storage(image, name, 2), 4)));
-            if (!float.IsFinite(value) || value < 0)
-                throw new InvalidDataException($"Invalid source renderer setting value: {name}");
-            return value;
-        }
+    /// <summary>The value the program starts a named decimal setting of its renderer with.</summary>
+    internal static float Setting(ExecutableImage image, string name)
+    {
+        var value = BitConverter.UInt32BitsToSingle(image.U32(image.Raw(Storage(image, name, 2), 4)));
+        if (!float.IsFinite(value) || value < 0)
+            throw new InvalidDataException($"Invalid source renderer setting value: {name}");
+        return value;
     }
 
     internal static int Storage(ExecutableImage image, string name, uint kind)

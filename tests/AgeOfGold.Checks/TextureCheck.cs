@@ -39,6 +39,17 @@ internal static class TextureCheck
             throw new Exception("Missing requested texture was accepted");
         }
         catch (InvalidDataException) { }
+        // One named file of a package, whatever its textures are called: a light capture's file holds its cubes.
+        int before = install.Fingerprints.Count;
+        var filed = TextureReader.ReadFile(install, "map/m10/authored", "authored-colour");
+        if (filed.Length != 1 || filed[0].Name != "authored-colour" || !filed[0].Bytes.SequenceEqual(expected)) throw new Exception("A package's named file was not read exactly");
+        try
+        {
+            TextureReader.ReadFile(install, "map/m10/authored", "absent");
+            throw new Exception("A missing file of a package was accepted");
+        }
+        catch (InvalidDataException) { }
+        if (install.Fingerprints.Count != before) throw new Exception("A package's named file changed what was fingerprinted");
         var cube = new DDS { dwWidth = 4, dwHeight = 4, dwMipMapCount = 1, dwCaps2 = DDS.CUBEMAP_ALLFACES };
         cube.ddspf.dwFlags = DDS.DDPF.FOURCC; cube.ddspf.dwFourCC = "DX10";
         cube.header10 = new() { dxgiFormat = DDS.DXGI_FORMAT.BC6H_UF16, miscFlag = DDS.RESOURCE_MISC.TEXTURECUBE };

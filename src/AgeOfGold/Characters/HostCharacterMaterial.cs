@@ -29,7 +29,8 @@ internal static class HostCharacterMaterial
     /// </summary>
     /// <param name="added">The added texture inputs, by the names the family's metadata gives them; the donor definition declares them.</param>
     /// <param name="older">Whether the source reads the surface's specular map the older way, as a reflection colour; the definition's first number of its own says so.</param>
-    internal static byte[] Own(byte[] plain, byte[] donor, IReadOnlyList<string> added, string hostFamily, string family, float[] plainColour, float[] metalColour, int? cutout, bool older)
+    /// <param name="share">The share of a shadow's density the surface takes; the definition's second number of its own says so.</param>
+    internal static byte[] Own(byte[] plain, byte[] donor, IReadOnlyList<string> added, string hostFamily, string family, float[] plainColour, float[] metalColour, int? cutout, bool older, float share)
     {
         var definition = MATBIN.Read(cutout is { } reference ? Cutout(plain, reference) : plain);
         if (!definition.SourcePath.Contains(hostFamily, StringComparison.Ordinal) || !definition.ShaderPath.Contains(hostFamily, StringComparison.Ordinal))
@@ -42,8 +43,10 @@ internal static class HostCharacterMaterial
             || plainColour.Length != 3 || metalColour.Length != 3 || !plainColour.Concat(metalColour).All(float.IsFinite))
             throw new InvalidDataException("Host character definition lacks its two colour settings, or a colour is not three numbers");
         var reading = definition.Params.SingleOrDefault(p => p.Name.EndsWith("_snp_0_float_0", StringComparison.Ordinal));
-        if (reading is not { Type: MATBIN.ParamType.Float, Value: float }) throw new InvalidDataException("Host character definition lacks a number of its own");
-        reading.Value = older ? 1f : 0f;
+        var shared = definition.Params.SingleOrDefault(p => p.Name.EndsWith("_snp_0_float_1", StringComparison.Ordinal));
+        if (reading is not { Type: MATBIN.ParamType.Float, Value: float } || shared is not { Type: MATBIN.ParamType.Float, Value: float } || !(share >= 0) || !float.IsFinite(share))
+            throw new InvalidDataException("Host character definition lacks two numbers of its own, or the share of a shadow is not a number from nought up");
+        reading.Value = older ? 1f : 0f; shared.Value = share;
         colour.Value = plainColour.ToArray();
         kind.Value = new[] { metalColour[0], metalColour[1], metalColour[2], rest[3], rest[4] };
         var declared = MATBIN.Read(donor).Samplers;

@@ -27,25 +27,22 @@ internal static class SourceLightingCheck
         point.Fields.Add(new(point, PARAMDEF.DefType.f32, "dwindleBegin"));
         var definitions = new BND3 { Version = "AUTHORED", Files = [File(0, "light.paramdef", light.Write()), File(1, "point.paramdef", point.Write())] };
         var scenery = Table(light, 175);
-        var characters = Table(light, 250);
         var points = Table(point, 125);
         var tables = new BND3 { Version = "AUTHORED", Files = [
-            File(0, "m10_LightBank.param", scenery.Write()), File(1, "s10_LightBank.param", characters.Write()),
-            File(2, "m10_PointLightBank.param", points.Write()),
+            File(0, "m10_LightBank.param", scenery.Write()), File(1, "m10_PointLightBank.param", points.Write()),
         ] };
         Write("paramdef/paramdef.paramdefbnd.dcx", definitions.Write());
         Write("param/DrawParam/a10_DrawParam.parambnd.dcx", tables.Write());
         var actual = SourceLightingReader.Read(new Install(path, "DarkSoulsRemastered.exe"));
-        var row = actual.Scenery.Single(r => r.Id == 3);
+        var row = actual.Sets.Single(r => r.Id == 3);
         Require(row.Diffuse.Length == 3 && row.Diffuse[0].Elevation == 13 && row.Diffuse[0].Azimuth == -27, "directional light angles");
         Require(row.Diffuse[0].Colour == new SourceLightingReader.Colour(63f / 255, 127f / 255, 223f / 255, 1.75f), "colour and intensity units");
         Require(row.Upper == row.Lower && row.Specular.Colour == row.Upper, "hemisphere or specular colour");
         Require(row.DiffuseEnvironment.Textures.SequenceEqual(new[] { 17 })
             && row.SpecularEnvironment.Textures.SequenceEqual(new[] { 19, 23, 29, 31 }), "environment texture references");
-        Require(actual.Characters.Single(r => r.Id == 3).Upper.Intensity == 2.5f, "separate character lighting");
         Require(actual.Points.Single(r => r.Id == 8) is { FadeStart: 2.5f, FadeEnd: 10.5f, Colour.Intensity: 1.25f }, "point light falloff");
-        Require(actual.Scenery.Select(r => r.Id).SequenceEqual(new[] { 3, 8 }), "stable row ordering");
-        Console.WriteLine("PASS: source lighting uses installed definitions, separates scenery and characters, retains light directions, colour units, environment references and falloff");
+        Require(actual.Sets.Select(r => r.Id).SequenceEqual(new[] { 3, 8 }), "stable row ordering");
+        Console.WriteLine("PASS: source lighting uses installed definitions, retains light directions, colour units, environment references and falloff");
         void RejectCurrent(string description)
         {
             Write("paramdef/paramdef.paramdefbnd.dcx", definitions.Write());
@@ -68,17 +65,16 @@ internal static class SourceLightingCheck
         scenery.Rows[0].ID = 8;
         tables.Files[0].Bytes = scenery.Write();
         points.Rows[0]["dwindleEnd"].Value = float.NaN;
-        tables.Files[2].Bytes = points.Write();
+        tables.Files[1].Bytes = points.Write();
         RejectCurrent("non-finite point-light falloff");
         points.Rows[0]["dwindleEnd"].Value = 1f;
-        tables.Files[2].Bytes = points.Write();
+        tables.Files[1].Bytes = points.Write();
         RejectCurrent("reversed point-light falloff");
         points.Rows[0]["dwindleEnd"].Value = 10.5f;
-        tables.Files[2].Bytes = points.Write();
+        tables.Files[1].Bytes = points.Write();
         light.Fields.Add(new(light, PARAMDEF.DefType.s16, "unclassified"));
         definitions.Files[0].Bytes = light.Write();
         tables.Files[0].Bytes = Table(light, 175).Write();
-        tables.Files[1].Bytes = Table(light, 250).Write();
         RejectCurrent("unclassified lighting field");
         Console.WriteLine("PASS: ambiguous definitions, unsupported layouts, duplicate rows, unknown fields and invalid falloff fail");
 

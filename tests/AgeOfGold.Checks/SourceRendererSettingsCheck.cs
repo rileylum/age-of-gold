@@ -23,7 +23,7 @@ internal static class SourceRendererSettingsCheck
         if (environment)
             Require(environmentSettings == SourceEnvironmentSettings.Read(source, Required("AOG_LLVM_MINGW")), "Repeated environment settings differ");
         var lighting = SourceLightingReader.Read(source);
-        var groups = new[] { lighting.Scenery, lighting.Characters };
+        var groups = new[] { lighting.Sets };
         var rows = groups.Select(group => group.Select(row => new
         {
             row.Id,
@@ -62,7 +62,7 @@ internal static class SourceRendererSettingsCheck
         File.WriteAllText(Path.Combine(output, "check.json"), JsonSerializer.Serialize(new
         {
             repeatIdentical = true, unchangedInputs = true, source = source.Fingerprints, host = host.Fingerprints,
-            sceneryRows = rows[0].Length, characterRows = rows[1].Length,
+            lightRows = rows[0].Length,
             independentCapture = Environment.GetEnvironmentVariable("AOG_SOURCE_LIGHTING_REFERENCE") is not null,
         }, new JsonSerializerOptions { WriteIndented = true }) + "\n");
         Console.WriteLine("PASS: installed renderer settings and ambient parameters, repeat, capture when supplied and unchanged installs");

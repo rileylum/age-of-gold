@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using SoulsFormats;
 
 namespace AgeOfGold.Params;
@@ -6,15 +7,29 @@ namespace AgeOfGold.Params;
 /// <summary>Reads which atmosphere rows the source map selects and what those rows hold.</summary>
 internal static class SourceAtmosphereReader
 {
-    /// <summary>The drawing-table rows a collision placement selects for a character standing on it.</summary>
-    internal sealed record Selection(int Light, int Fog, int Scattering, int DepthOfField, int ToneMap, int ToneCorrection, int Shadow);
+    /// <summary>
+    /// The drawing-table rows a collision placement selects for a character standing on it, and the number of the pair of
+    /// cubes, captured near it, that light the character; none where the map names no capture for the collision.
+    /// </summary>
+    internal sealed record Selection(int Light, int Fog, int Scattering, int DepthOfField, int ToneMap, int ToneCorrection, int Shadow, int? Probe);
 
     /// <summary>A depth-of-field row: where far and near blur begin and end, in metres, and their strengths in percent.</summary>
     internal sealed record Focus(float FarStart, float FarEnd, float FarStrength, float NearStart, float NearEnd, float NearStrength, float Dispersion);
 
-    internal static Dictionary<string, Selection> Selections(Install source) =>
-        MSB1.Read(source.Read("map/MapStudio/m10_02_00_00.msb")).Parts.Collisions.ToDictionary(p => p.Name,
-            p => new Selection(p.LightID, p.FogID, p.ScatterID, p.DofID, p.ToneMapID, p.ToneCorrectID, p.ShadowID), StringComparer.Ordinal);
+    internal static Dictionary<string, Selection> Selections(Install source)
+    {
+        var map = MSB1.Read(source.Read("map/MapStudio/m10_02_00_00.msb"));
+        // A collision names a capture by its place in the map's list of them; a capture's name ends in the number its
+        // cubes are stored under.
+        int? Probe(short place)
+        {
+            if (place < 0) return null;
+            var number = place < map.Events.Environments.Count ? Regex.Match(map.Events.Environments[place].Name ?? "", @"\d+$") : Match.Empty;
+            return number.Success ? int.Parse(number.Value, CultureInfo.InvariantCulture) : throw new InvalidDataException("A collision names a light capture that is missing or not numbered");
+        }
+        return map.Parts.Collisions.ToDictionary(p => p.Name,
+            p => new Selection(p.LightID, p.FogID, p.ScatterID, p.DofID, p.ToneMapID, p.ToneCorrectID, p.ShadowID, Probe(p.EnvLightMapSpotIndex)), StringComparer.Ordinal);
+    }
 
     /// <summary>
     /// A shadow row: the casting light's two angles in degrees, how much of the light a shadow removes, the shadow's colour,

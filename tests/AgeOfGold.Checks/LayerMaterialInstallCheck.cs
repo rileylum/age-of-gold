@@ -19,7 +19,7 @@ internal static class LayerMaterialInstallCheck
         var definition = Input("template.matbin"); var donorDefinition = Input("donor.matbin");
         var metadata = Input("template.metaparam"); var donorMetadata = Input("donor.metaparam");
         using var scene = JsonDocument.Parse(SceneReader.Read(source));
-        var lighting = SourceLightingReader.Read(source).Scenery.ToDictionary(r => r.Id);
+        var lighting = SourceLightingReader.Read(source).Sets.ToDictionary(r => r.Id);
         var selected = scene.RootElement.GetProperty("models").EnumerateArray()
             .Select(m => (Name: m.GetProperty("name").GetString()!, Surfaces: m.GetProperty("surfaces").EnumerateArray()
                 .Where(s => s.GetProperty("material").GetProperty("definition").GetString() == "M[DB][M]").ToArray()))

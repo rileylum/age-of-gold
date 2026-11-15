@@ -13,31 +13,32 @@ internal static class CharacterShader
     internal sealed record Slots(int Colour, int Specular, int Relief, int Diffuse, int Sky, int Table);
 
     /// <summary>
-    /// Where the material's settings sit: a constant buffer's register, a row each for the plain and metal colours, and the
-    /// row and column of the number that says which way the specular map is read (nought the newer, one the older).
+    /// Where the material's settings sit: a constant buffer's register, a row each for the plain and metal colours, the
+    /// row and column of the number that says which way the specular map is read (nought the newer, one the older), and
+    /// those of the share of a shadow the surface takes.
     /// </summary>
-    internal sealed record Colours(int Register, int Plain, int Metal, int ReadingRow, int ReadingColumn);
+    internal sealed record Colours(int Register, int Plain, int Metal, int ReadingRow, int ReadingColumn, int ShareRow, int ShareColumn);
 
     /// <summary>
     /// The source's light on a character. <paramref name="Diffuse"/> and <paramref name="Sky"/> scale the two cubes;
     /// <paramref name="Upper"/> and <paramref name="Lower"/> are the hemisphere's colours; all in linear light.
     /// <paramref name="Sun"/> is the unit direction to the light that casts the shadows. Shade is whole up to
     /// <paramref name="ShadeStart"/> metres from the camera and gone <paramref name="ShadeLength"/> metres further;
-    /// <paramref name="Shade"/> is how much of the sky's light a full shadow removes.
+    /// <paramref name="Shade"/>, times the share the material states, is how much a full shadow takes from the factor
+    /// the sky's light is multiplied by, squared.
+    /// A surface is in its own shadow by how far its normal is from the light: wholly when the cosine between them is
+    /// <paramref name="ShadeTurn"/> less one over <paramref name="ShadeEdge"/>, not at all from <paramref name="ShadeTurn"/> up.
+    /// <paramref name="Glow"/> multiplies what a surface gives off where its specular map is not open.
+    /// <paramref name="Air"/> is the fog and scattering between the surface and the camera, when the place has them.
     /// </summary>
-    internal sealed record Light(float[] Diffuse, float[] Sky, int SkyLevels, float[] Upper, float[] Lower, float[] Sun, float ShadeStart, float ShadeLength, float[] Shade, int TableSize);
-
-    // The source's shadow map shades a surface turned away from its light. The host's leaves such a surface lit and counts
-    // on its own lighting to darken it, which a character's stored light does not pass through. So the stage shades by
-    // the turn itself: wholly from this far past side-on, not at all from this far short of it.
-    // lazy: a fixed soft edge; the source's own edge is its shadow map's, with a depth offset that is not carried.
-    private const float Terminator = 0.0625f;
+    internal sealed record Light(float[] Diffuse, float[] Sky, int SkyLevels, float[] Upper, float[] Lower, float[] Sun, float ShadeStart, float ShadeLength, float[] Shade,
+        float ShadeTurn, float ShadeEdge, float Glow, int TableSize, AgeOfGold.Params.SourceAir.Values? Air);
 
     /// <summary>Finds the two colours a host character material carries, by the names its program declares them under.</summary>
     internal static Colours FindColours(string module)
     {
         string? buffer = null; var registers = new Dictionary<string, int>(); var plain = new List<(string Buffer, int Offset)>(); var metal = new List<(string Buffer, int Offset)>();
-        var reading = new List<(string Buffer, int Offset)>();
+        var reading = new List<(string Buffer, int Offset)>(); var share = new List<(string Buffer, int Offset)>();
         foreach (string line in module.Replace("\r\n", "\n").Split('\n'))
         {
             var opened = Regex.Match(line, @"^; cbuffer (\w+)$");
@@ -51,14 +52,16 @@ internal static class CharacterShader
                 if (Regex.IsMatch(member.Groups[1].Value, @"_snp_0_color_0(_0)?$")) metal.Add((buffer, offset));
                 // The material's first number of its own.
                 if (Regex.IsMatch(member.Groups[1].Value, @"_snp_0_float_0(_0)?$")) reading.Add((buffer, offset));
+                // And its second.
+                if (Regex.IsMatch(member.Groups[1].Value, @"_snp_0_float_1(_0)?$")) share.Add((buffer, offset));
             }
             var bound = Regex.Match(line, @"^; (\w+)\s+cbuffer\s+\S+\s+\S+\s+CB\d+\s+cb(\d+)\s+1$");
             if (bound.Success) registers[bound.Groups[1].Value] = int.Parse(bound.Groups[2].Value, CultureInfo.InvariantCulture);
         }
-        if (plain.Count != 1 || metal.Count != 1 || reading.Count != 1 || plain[0].Buffer != metal[0].Buffer || plain[0].Buffer != reading[0].Buffer || plain[0].Offset % 16 != 0 || metal[0].Offset % 16 != 0
-            || reading[0].Offset % 4 != 0 || !registers.TryGetValue(plain[0].Buffer, out int register))
-            throw new InvalidDataException("Host character program does not declare one plain colour, one material colour and one material number together");
-        return new(register, plain[0].Offset / 16, metal[0].Offset / 16, reading[0].Offset / 16, reading[0].Offset % 16 / 4);
+        if (plain.Count != 1 || metal.Count != 1 || reading.Count != 1 || share.Count != 1 || plain[0].Buffer != metal[0].Buffer || plain[0].Buffer != reading[0].Buffer || plain[0].Buffer != share[0].Buffer
+            || plain[0].Offset % 16 != 0 || metal[0].Offset % 16 != 0 || reading[0].Offset % 4 != 0 || share[0].Offset % 4 != 0 || !registers.TryGetValue(plain[0].Buffer, out int register))
+            throw new InvalidDataException("Host character program does not declare one plain colour, one material colour and two material numbers together");
+        return new(register, plain[0].Offset / 16, metal[0].Offset / 16, reading[0].Offset / 16, reading[0].Offset % 16 / 4, share[0].Offset / 16, share[0].Offset % 16 / 4);
     }
 
     private const string Name = @"%[\w.$-]+";
@@ -66,10 +69,11 @@ internal static class CharacterShader
 
     /// <summary>
     /// The source lights a character by a diffuse cube and a sky reflection, both darkened by shadow, and by a hemisphere
-    /// colour that shadow leaves alone. The host's deferred stage has no shadow to read, so the rewritten program stores
-    /// the part a shadow would remove as its surface colour and marks the surface with whole metal and no gloss; the
-    /// host's lighting stages multiply a marked surface's stored colour by the sun's shadow and nothing else
-    /// (<see cref="LightShader"/>). The rest is emitted.
+    /// colour and the surface's own glow, which shadow leaves alone; the whole then passes through the place's air. The
+    /// host's deferred stage has no shadow to read, so the rewritten program emits the wholly shadowed light, stores as
+    /// its surface colour what a surface out of the host's shadow shows above that, and marks the surface with whole metal
+    /// and no gloss; the host's lighting stages multiply a marked surface's stored colour by the sun's shadow and nothing
+    /// else (<see cref="LightShader"/>).
     /// </summary>
     internal static string Compose(string module, string vertex, Slots slots, PixelShader.Targets targets, Colours colours, Light light)
     {
@@ -79,6 +83,7 @@ internal static class CharacterShader
         if (MathF.Abs(light.Sun.Sum(v => v * v) - 1) > 1e-4f) throw new InvalidDataException("The direction to the shadows' light must be a unit vector");
         if (light.Shade.Any(v => v is < 0 or > 1)) throw new InvalidDataException("A shadow removes between none and all of the light");
         if (!(light.ShadeLength > 0) || !float.IsFinite(light.ShadeStart) || light.SkyLevels < 3 || light.TableSize < 2) throw new InvalidDataException("Unsupported shade reach, sky levels or table size");
+        if (!(light.ShadeEdge > 0) || !float.IsFinite(light.ShadeTurn) || !(light.Glow >= 0)) throw new InvalidDataException("Unsupported shade edge or glow");
         int[] surface = [slots.Colour, slots.Specular, slots.Relief], added = [slots.Diffuse, slots.Sky, slots.Table];
         if (surface.Concat(added).Distinct().Count() != 6) throw new InvalidDataException("A character needs six distinct texture slots");
 
@@ -86,7 +91,7 @@ internal static class CharacterShader
         var signatures = new ShaderSignatures(module, "ps");
         signatures.Link(produced.Find(true, "TANGENT", 8));
         int viewInput = signatures.Find(false, "TANGENT", 8).Id;
-        signatures.Use(false, viewInput, 7);
+        signatures.Use(false, viewInput, light.Air is null ? 7 : 15);
         int Target(int index) => signatures.Find(true, "SV_Target", index).Id;
         int normalTarget = Target(targets.Normal), colourTarget = Target(targets.Colour), emissionTarget = Target(targets.Emission);
         // The host keeps metal and gloss in the target after its normal.
@@ -235,14 +240,14 @@ internal static class CharacterShader
         string brightness = Max("brightness", Dot3("luminance", metallic, [Float(0.2126729f), Float(0.7151522f), Float(0.072175f)]), Float(0.001f));
         string dull = Unary("dull", 7, Mul("dullscaled", Mul("dulllevel", level, Float(0.2f)), brightness));
         string plainShare = Sub("plainshare", "1.000000e+00", metal);
-        var scatter = new string[3]; var facing = new string[3];
+        var scatter = new string[3]; var facing = new string[3]; var basis = new string[3];
         for (int i = 0; i < 3; i++)
         {
             char c = channels[i];
             string tint = Mad("tint" + c, Sub("tintdelta" + c, metallic[i], plain[i]), metal, plain[i]);
-            string basis = Linear("basis" + c, Mul("raw" + c, Part("colour" + c, colourTexel, i), tint));
-            scatter[i] = Mul("scatter" + c, Mul("scatterplain" + c, basis, plainShare), open);
-            string newer = Unary("facingnewer" + c, 7, Mul("facingopen" + c, Mad("facingmix" + c, Sub("facingdelta" + c, basis, dull), metal, dull), open));
+            basis[i] = Linear("basis" + c, Mul("raw" + c, Part("colour" + c, colourTexel, i), tint));
+            scatter[i] = Mul("scatter" + c, Mul("scatterplain" + c, basis[i], plainShare), open);
+            string newer = Unary("facingnewer" + c, 7, Mul("facingopen" + c, Mad("facingmix" + c, Sub("facingdelta" + c, basis[i], dull), metal, dull), open));
             facing[i] = Either("facing" + c, Linear("facingolder" + c, Unary("facingmapped" + c, 7, Mul("facingtinted" + c, mapped[i], metallic[i]))), newer);
         }
         string grazing = Min("grazing", Mul("grazingscaled", Add("grazingsum", Add("grazingpair", facing[0], facing[1]), facing[2]), Float(50 * 0.33f)), "1.000000e+00");
@@ -268,22 +273,38 @@ internal static class CharacterShader
         // Shade is whole near the camera and fades out with distance.
         string reach = Unary("reach", 7, Mul("reachscaled", Sub("reachleft", Float(light.ShadeStart + light.ShadeLength), distance), Float(1 / light.ShadeLength)));
 
-        // How far the surface itself (not its relief) is turned from the light: nought facing it, one turned away.
-        string lit0 = Unary("facinglight", 7, Mad("turn", Dot3("turndot", surfaceNormal, [Float(light.Sun[0]), Float(light.Sun[1]), Float(light.Sun[2])]), Float(0.5f / Terminator), "5.000000e-01"));
-        var kept = new string[3]; var emitted = new string[3];
+        // A surface turned from the shadows' light is in its own shadow, by its relief-bent normal.
+        string turned = Unary("turned", 7, Mul("turnscaled", Sub("turn", Float(light.ShadeTurn), Dot3("turndot", normal, [Float(light.Sun[0]), Float(light.Sun[1]), Float(light.Sun[2])])), Float(light.ShadeEdge)));
+        // Of a shadow's density the surface takes the share its material states.
+        string shareRow = colours.ShareRow == colours.ReadingRow ? readingRow : Emit("sharerow", $"call %dx.types.CBufRet.f32 @dx.op.cbufferLoadLegacy.f32(i32 59, %dx.types.Handle {constants[0].Key}, i32 {colours.ShareRow})");
+        string shared = Mul("shared", reach, Emit("share", $"extractvalue %dx.types.CBufRet.f32 {shareRow}, {colours.ShareColumn}"));
+        var shown = new string[3]; var dark = new string[3];
         for (int i = 0; i < 3; i++)
         {
             char c = channels[i];
             string reflected = Mul("reflected" + c, Mul("skyfaded" + c, Mul("sky" + c, Part("skytexel" + c, skyTexel, i), Float(light.Sky[i])), horizonSquare), Mad("reflectance" + c, facing[i], scale, grazed));
             string lit = Mul("lit" + c, Mad("skylit" + c, Mul("diffuse" + c, Part("diffusetexel" + c, diffuseTexel, i), Float(light.Diffuse[i])), scatter[i], reflected), open);
-            string ambient = Mul("ambient" + c, Mad("hemi" + c, hemisphere, Float(light.Upper[i] - light.Lower[i]), Float(light.Lower[i])), scatter[i]);
-            // What a full shadow would remove is stored for the host to shade. A stored colour stops at one, which is past
-            // the brightest level the display shows.
-            string removed = Mul("removed" + c, Mul("reached" + c, lit, reach), Float(light.Shade[i]));
-            // Of that, a surface turned away has already lost its share; the host's shadow may take the rest.
-            kept[i] = Mul("kept" + c, removed, lit0);
-            emitted[i] = Add("emitted" + c, ambient, Sub("open" + c, lit, removed));
+            // Shadow leaves the hemisphere's light alone, and what the surface gives off: ten times its colour where its
+            // specular map is not open.
+            string steady = Mad("steady" + c, Mad("hemi" + c, hemisphere, Float(light.Upper[i] - light.Lower[i]), Float(light.Lower[i])), scatter[i],
+                Mul("glow" + c, Mul("glowing" + c, Sub("closed" + c, "1.000000e+00", open), Float(10 * light.Glow)), basis[i]));
+            // The sky's light is multiplied by the square of what the shadow leaves of it.
+            // lazy: the square is the source's own setting, read where the build is put together; another power needs a
+            // power here.
+            string whole = Mul("whole" + c, shared, Float(light.Shade[i]));
+            string leftDark = Sub("leftdark" + c, "1.000000e+00", whole), leftShown = Sub("leftshown" + c, "1.000000e+00", Mul("selfshade" + c, whole, turned));
+            dark[i] = Mad("dark" + c, lit, Mul("dimdark" + c, leftDark, leftDark), steady);
+            shown[i] = Mad("shown" + c, lit, Mul("dimshown" + c, leftShown, leftShown), steady);
         }
+        if (light.Air is not null)
+        {
+            string depth = Emit("viewdepth", $"call float @dx.op.loadInput.f32(i32 4, i32 {viewInput}, i32 0, i8 3, i32 undef)");
+            var aired = ShaderAir.Lit(Emit, light.Air, [.. view, depth], ("shown", shown), ("dark", dark));
+            shown = aired[0]; dark = aired[1];
+        }
+        // What the host's shadow removes is stored for it to shade. A stored colour stops at one, which is past the
+        // brightest level the display shows.
+        var kept = channels.Select((c, i) => Sub("kept" + c, shown[i], dark[i])).ToArray(); var emitted = dark;
 
         // The stores: every value the program wrote stays except metal and gloss (the mark), colour and emitted light.
         var final = new Dictionary<(int Id, int Column), int>();

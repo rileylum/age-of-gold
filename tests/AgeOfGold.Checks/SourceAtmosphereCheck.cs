@@ -18,8 +18,12 @@ internal static class SourceAtmosphereCheck
         }
         var layout = new MSB1();
         layout.Models.Collisions.Add(new() { Name = "h0000" });
-        layout.Parts.Collisions.Add(new() { Name = "authored-floor", ModelName = "h0000", LightID = 25, FogID = 7, ScatterID = 8, DofID = 9, ToneMapID = 10, ToneCorrectID = 11, ShadowID = 10 });
-        layout.Parts.Collisions.Add(new() { Name = "authored-cellar", ModelName = "h0000", DofID = 4 });
+        layout.Parts.Collisions.Add(new() { Name = "authored-floor", ModelName = "h0000", LightID = 25, FogID = 7, ScatterID = 8, DofID = 9, ToneMapID = 10, ToneCorrectID = 11, ShadowID = 10, EnvLightMapSpotIndex = 1 });
+        layout.Parts.Collisions.Add(new() { Name = "authored-cellar", ModelName = "h0000", DofID = 4, EnvLightMapSpotIndex = -1 });
+        // Light captures: a collision names one by its place in this list, and its name ends in its cubes' number.
+        layout.Regions.Regions.Add(new() { Name = "authored-spot", Shape = new MSB.Shape.Point() });
+        foreach (string name in new[] { "authored capture 03", "authored capture 17" })
+            layout.Events.Environments.Add(new() { Name = name, PartName = "authored-floor", RegionName = "authored-spot" });
         Write("map/MapStudio/m10_02_00_00.msb", layout.Write());
         var definition = new PARAMDEF { ParamType = "DOF_BANK", DataVersion = 1 };
         // An unusual field order proves the offsets come from this install's definition.
@@ -83,7 +87,8 @@ internal static class SourceAtmosphereCheck
 
         var install = new Install(path, "DarkSoulsRemastered.exe");
         var selection = SourceAtmosphereReader.Selections(install)["authored-floor"];
-        if (selection != new SourceAtmosphereReader.Selection(25, 7, 8, 9, 10, 11, 10)) throw new Exception("Collision atmosphere selections differ");
+        if (selection != new SourceAtmosphereReader.Selection(25, 7, 8, 9, 10, 11, 10, 17)) throw new Exception("Collision atmosphere selections differ");
+        if (SourceAtmosphereReader.Selections(install)["authored-cellar"].Probe is not null) throw new Exception("A collision that names no light capture was given one");
         // The light stands thirty degrees above the horizon. It shines along (cos x sin y, -sin x, cos x cos y) for its angles x and y, as the
         // source's scattering sun does, so a quarter turn back puts it towards +X from a surface.
         var shade = SourceAtmosphereReader.Shadows(install)[10];

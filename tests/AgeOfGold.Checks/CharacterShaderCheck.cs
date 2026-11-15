@@ -58,14 +58,20 @@ internal static class CharacterShaderCheck
 
     private static readonly CharacterShader.Slots Slots = new(0, 1, 2, 3, 4, 5);
     private static readonly PixelShader.Targets Targets = new(0, 2, 4, -2);
-    private static readonly CharacterShader.Light Light = new(
-        Diffuse: [2.5f, 2.75f, 3f], Sky: [9f, 9.5f, 10f], SkyLevels: 8, Upper: [0.6f, 0.7f, 0.9f], Lower: [0.1f, 0.08f, 0.06f],
-        Sun: [0.36f, 0.8f, -0.48f], ShadeStart: 3, ShadeLength: 7, Shade: [1f, 0.9f, 0.8f], TableSize: 256);
+    // Fog by view depth and scattering along the view, on the gamma-encoded light, as the scenery's check states them.
+    private static readonly AgeOfGold.Params.SourceAir.Values Air = new([0.004f, 0.005f, 0.007f], [4e-6f, 7e-6f, 1.5e-5f], [8e-4f, 1e-3f, 1.5e-3f], [0.84f, 1.4f, 0.8f],
+        [0.17f, -0.94f, -0.3f], [0.8f, 2.3f, 2.6f], [0.8f, 0.9f, 1f], 1.3f, 0.5f, 0.9f, [0.17f, 0.18f, 0.16f], 2, 1 / 12f, 0.65f);
+    private static readonly CharacterShader.Light Clear = new(
+        Diffuse: [2.5f, 2.75f, 3f], Sky: [0.9f, 0.95f, 1f], SkyLevels: 8, Upper: [0.12f, 0.14f, 0.2f], Lower: [0.2f, 0.16f, 0.12f],
+        Sun: [0.36f, 0.8f, -0.48f], ShadeStart: 3, ShadeLength: 7, Shade: [0.8f, 0.7f, 0.6f], ShadeTurn: 0.2f, ShadeEdge: 5, Glow: 1.5f, TableSize: 256, Air: null);
+    private static readonly CharacterShader.Light Light = Clear with { Air = Air };
     private static readonly Vector3 Plain = new(0.6f, 0.55f, 0.5f);
     // The material's metal colour: a dim one and a bright one, so that plain texels reflect both less and more than the
     // level at which the source's grazing reflection is whole.
     private static Vector3 Metallic;
     private static bool Older;
+    // The share of a shadow the material's definition takes: a different one for each way of reading the specular map.
+    private static float Share => Older ? 1 : 0.75f;
 
     internal static void Run()
     {
@@ -97,13 +103,18 @@ internal static class CharacterShaderCheck
         var original = compiler.Compile(Pixel, "Main", "ps_6_0");
         var module = compiler.Disassemble(original);
         var colours = CharacterShader.FindColours(module);
-        if (colours != new CharacterShader.Colours(3, 0, 9, 10, 0)) throw new Exception("The material's two colours were not located: " + colours);
+        if (colours != new CharacterShader.Colours(3, 0, 9, 10, 0, 10, 1)) throw new Exception("The material's two colours and two numbers were not located: " + colours);
         var composed = CharacterShader.Compose(module, vertex, Slots, Targets, colours, Light);
         var output = compiler.Assemble(composed, original);
         if (!output.SequenceEqual(compiler.Assemble(CharacterShader.Compose(module, vertex, Slots, Targets, colours, Light), original))) throw new Exception("Character composition does not repeat");
         var text = compiler.Disassemble(output);
+        // Besides the lit fixture: one in clear air, and one whose shadows' light is nearly side-on to the surface.
+        var side = Vector3.Normalize(new(0.9f, -0.15f, 0.25f));
+        var lights = new[] { Light, Clear, Clear with { Sun = [side.X, side.Y, side.Z] } };
+        var texts = lights.Select(l => l == Light ? text : compiler.Disassemble(compiler.Assemble(CharacterShader.Compose(module, vertex, Slots, Targets, colours, l), original))).ToArray();
 
-        bool grazes = false, mirrors = false, facesAway = false, facesLight = false;
+        bool grazes = false, mirrors = false, facesAway = false, facesLight = false, turns = false, glows = false;
+        foreach (var light in lights)
         foreach (bool older in new[] { false, true })
         foreach (var metallic in new[] { new Vector3(0.3f, 0.35f, 0.25f), new Vector3(0.9f, 1f, 0.8f) })
         foreach (bool front in new[] { true, false })
@@ -114,10 +125,10 @@ internal static class CharacterShaderCheck
                     var inputs = new Dictionary<(string, int), float[]>
                     {
                         [("NORMAL", 0)] = [0.3f, 0.9f, -0.2f, 0], [("TANGENT", 0)] = [0.8f, -0.1f, 0.5f, 1], [("TEXCOORD", 0)] = [uv.X, uv.Y, 0, 0],
-                        [("TEXCOORD", 4)] = [0.75f], [("TANGENT", 8)] = [view.X, view.Y, view.Z, 5],
+                        [("TEXCOORD", 4)] = [0.75f], [("TANGENT", 8)] = [view.X, view.Y, view.Z, view.Length() * 0.9f],
                     };
                     var host = Evaluate(module, inputs, front);
-                    var actual = Evaluate(text, inputs, front);
+                    var actual = Evaluate(texts[Array.IndexOf(lights, light)], inputs, front);
 
                     Vector3 surface = Vector3.Normalize(new(0.3f, 0.9f, -0.2f)) * (front ? 1 : -1), tangent = Vector3.Normalize(new(0.8f, -0.1f, 0.5f));
                     var bitangent = Vector3.Normalize(Vector3.Cross(Vector3.Normalize(new(0.3f, 0.9f, -0.2f)), tangent));
@@ -149,47 +160,71 @@ internal static class CharacterShaderCheck
                     float sharp = Math.Clamp(1 - rough, 0, 1);
                     var looked = (rough + MathF.Sqrt(sharp)) * sharp * (mirrored - normal) + normal;
                     float horizon = Math.Clamp(1.3f * Vector3.Dot(surface, mirrored) + 1, 0, 1); horizon *= horizon;
-                    float blur = Light.SkyLevels - 3 + 1.2f * MathF.Log2(rough);
+                    float blur = light.SkyLevels - 3 + 1.2f * MathF.Log2(rough);
                     var table = Table(new(rough * 255 / 256 + 0.5f / 256, Math.Clamp(towards, 0, 1) * 255 / 256 + 0.5f / 256));
-                    var sky = Sky(looked, blur) * new Vector3(Light.Sky) * horizon * (facing * table.X + new Vector3(grazing * table.Y));
-                    var lit = (Cube(normal) * new Vector3(Light.Diffuse) * diffuse + sky) * open;
-                    var hemisphere = Vector3.Lerp(new(Light.Lower), new(Light.Upper), normal.Y * 0.5f + 0.5f) * diffuse;
+                    var sky = Sky(looked, blur) * new Vector3(light.Sky) * horizon * (facing * table.X + new Vector3(grazing * table.Y));
+                    var lit = (Cube(normal) * new Vector3(light.Diffuse) * diffuse + sky) * open;
+                    // Shadow leaves the hemisphere's light alone, and what the surface gives off of itself: ten times its
+                    // colour where its specular map is not open, by the source's own multiplier.
+                    var glow = 10 * (1 - open) * light.Glow * basis;
+                    glows |= glow.Length() > 0.01f;
+                    var steady = Vector3.Lerp(new(light.Lower), new(light.Upper), normal.Y * 0.5f + 0.5f) * diffuse + glow;
                     // Shade reaches a set distance from the camera and fades out over the last of it.
-                    float reach = Math.Clamp((Light.ShadeStart + Light.ShadeLength - distance) / Light.ShadeLength, 0, 1);
-                    var shaded = lit * reach * new Vector3(Light.Shade);
-                    // A surface turned away from the light that casts the shadows is in its own shadow, whatever the host's
-                    // shadow map says of it: the turn is taken from the surface itself, not its relief, and softened a little.
-                    float turned = Math.Clamp(0.5f - Vector3.Dot(surface, new Vector3(Light.Sun)) * 8, 0, 1);
-                    facesAway |= turned == 1; facesLight |= turned == 0;
-                    // The host's lighting stages show a marked surface's stored colour times the sun's shadow and nothing else;
-                    // the emitted light carries the rest.
-                    var emitted = hemisphere + lit - shaded;
-                    var stored = shaded * (1 - turned);
+                    float reach = Math.Clamp((light.ShadeStart + light.ShadeLength - distance) / light.ShadeLength, 0, 1);
+                    // A surface turned from the light that casts the shadows is in its own shadow, by its relief-bent normal:
+                    // wholly once it is side-on, not at all a fifth of the way towards the light.
+                    float turned = Math.Clamp((light.ShadeTurn - Vector3.Dot(normal, new Vector3(light.Sun))) * light.ShadeEdge, 0, 1);
+                    facesAway |= turned == 1; facesLight |= turned == 0; turns |= turned is > 0.1f and < 0.9f;
+                    // The source darkens its sky light by the square of what the shadow leaves, then passes the whole through
+                    // its air. The host supplies the shadow later, so the stage emits the wholly shadowed light and stores
+                    // what a surface out of the host's shadow shows above that.
+                    Vector3 Shown(float shadowed)
+                    {
+                        var left = Vector3.One - new Vector3(light.Shade) * Share * reach * MathF.Min(shadowed + turned, 1);
+                        return Aired(light.Air, lit * left * left + steady, view, view.Length() * 0.9f);
+                    }
+                    var emitted = Shown(1);
+                    var stored = Shown(0) - emitted;
                     Near(actual, 0, normal * 0.5f + new Vector3(0.5002f), "stored normal changed");
-                    Near(actual, 2, stored, "stored colour is not what a full shadow removes of a surface facing the light");
+                    Near(actual, 2, stored, "stored colour is not what the host's shadow removes");
                     Near(actual, 4, emitted, "emitted light");
                     // The mark: whole metal and no gloss.
                     if (actual[(4, 3)] != -2 || actual[(1, 0)] != 1 || actual[(1, 1)] != 0 || actual[(1, 2)] != host[(1, 2)]) throw new Exception("Character mark differs");
                     foreach (int target in new[] { 0, 1, 2, 3 })
                         if (actual[(target, 3)] != host[(target, 3)]) throw new Exception("A target's fourth value changed");
-                    foreach (float shadow in new[] { 0f, 1f })
-                    {
-                        var shown = stored * (1 - shadow) + emitted;
-                        var source = lit * (Vector3.One - reach * new Vector3(Light.Shade) * (1 - (1 - shadow) * (1 - turned))) + hemisphere;
-                        if (Vector3.Distance(shown, source) > 1e-4f * MathF.Max(1, source.Length())) throw new Exception($"Shown light {shown} is not the source's {source}");
-                    }
                 }
 
         if (!grazes || !mirrors) throw new Exception("The check's texels do not cover both a dull and a mirror-like grazing reflection");
-        if (!facesAway || !facesLight) throw new Exception("The check's surfaces do not face both towards and away from the light");
+        if (!facesAway || !facesLight || !turns) throw new Exception("The check's surfaces do not face towards, away from and side-on to the light");
+        if (!glows) throw new Exception("The check's texels do not cover a surface that glows");
         Reject(() => CharacterShader.Compose(composed, vertex, Slots, Targets, colours, Light), "already");
         Reject(() => CharacterShader.Compose(module, plain, Slots, Targets, colours, Light), "semantic");
         Reject(() => CharacterShader.Compose(module, vertex, Slots with { Sky = 2 }, Targets, colours, Light), "slot");
         Reject(() => CharacterShader.Compose(module, vertex, Slots with { Specular = 7 }, Targets, colours, Light), "slot");
         Reject(() => CharacterShader.Compose(module, vertex, Slots, Targets, colours, Light with { Shade = [0.5f, 1.5f, 0.5f] }), "shadow");
+        Reject(() => CharacterShader.Compose(module, vertex, Slots, Targets, colours, Light with { ShadeEdge = 0 }), "edge");
         Reject(() => CharacterShader.Compose(module, vertex, Slots, Targets, colours, Light with { Sun = [0.5f, 0.5f, 0.5f] }), "unit");
         Reject(() => CharacterShader.Compose(module, vertex, Slots, Targets, colours with { Register = 5 }, Light), "constant");
-        Console.WriteLine("PASS: a character's deferred stage stores what a shadow removes of the source's sky light, emits the rest, and marks itself");
+        Console.WriteLine("PASS: a character's deferred stage emits the source's wholly shadowed light through its air, stores what the host's shadow removes, and marks itself");
+    }
+
+    private static Vector3 Aired(AgeOfGold.Params.SourceAir.Values? air, Vector3 light, Vector3 toCamera, float depth)
+    {
+        if (air is null) return light;
+        float distance = toCamera.Length(), cosine = Vector3.Dot(toCamera / distance, new Vector3(air.SunDirection));
+        float fog = Math.Clamp(Math.Clamp((depth - air.FogBegin) * air.FogScale, 0, 1) * air.FogLimit, 0, 1);
+        float mie = air.Phase[0] / MathF.Pow(air.Phase[1] - air.Phase[2] * cosine, 1.5f);
+        var result = new float[3];
+        for (int c = 0; c < 3; c++)
+        {
+            float encoded = MathF.Pow(light[c], 1 / 2.2f);
+            encoded += (air.FogColour[c] - encoded) * fog;
+            float through = MathF.Pow(2, -distance * air.Extinction[c] * air.Distance * 2.0813689f);
+            float added = (air.BetaDashRayleigh[c] * (1 + cosine * cosine) + air.BetaDashMie[c] * mie) * (1 - through) / air.Extinction[c] * air.ReflectanceStrength * air.SunColour[c];
+            encoded += (encoded * through * air.Reflectance[c] + added - encoded) * air.Blend;
+            result[c] = MathF.Pow(encoded, 2.2f);
+        }
+        return new(result);
     }
 
     private static Vector2 Tile(Vector2 uv, int slot) => new(uv.X * (1 + slot * 0.25f) + slot * 0.0625f, uv.Y * (2 - slot * 0.125f) - slot * 0.03125f);
@@ -217,7 +252,7 @@ internal static class CharacterShaderCheck
             Constants = (register, index) => register switch
             {
                 1 => [1 + index * 0.25f, 2 - index * 0.125f, index * 0.0625f, -index * 0.03125f],
-                3 => index == 0 ? [Plain.X, Plain.Y, Plain.Z, 1] : index == 9 ? [Metallic.X, Metallic.Y, Metallic.Z, 1] : index == 10 ? [Older ? 1 : 0, 0, 0, 0] : throw new Exception("Unexpected material constant"),
+                3 => index == 0 ? [Plain.X, Plain.Y, Plain.Z, 1] : index == 9 ? [Metallic.X, Metallic.Y, Metallic.Z, 1] : index == 10 ? [Older ? 1 : 0, Share, 0, 0] : throw new Exception("Unexpected material constant"),
                 _ => throw new Exception("Unexpected constant register"),
             },
             Sample = (slot, at, _) =>

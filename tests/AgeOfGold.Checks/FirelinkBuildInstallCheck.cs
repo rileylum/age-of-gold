@@ -129,6 +129,9 @@ internal static class FirelinkBuildInstallCheck
         // Every enemy is moved from its source place by the one displacement the whole map shares.
         var enemyOffset = layout.Parts.Enemies.Single(p => p.Name == enemies[0].GetProperty("name").GetString()).Position - sourceEnemies[enemies[0].GetProperty("source").GetString()!].Position;
         var bodyFiles = new Dictionary<string, FLVER2>(StringComparer.Ordinal);
+        // The source collisions the placements of each built body stand on.
+        var stoodOn = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        void Stands(string identity, string collision) { if (!stoodOn.TryGetValue(identity, out var on)) stoodOn[identity] = on = new(StringComparer.Ordinal); on.Add(collision); }
         var sourceDefinitions = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var wholeAttacks = new Dictionary<int, AgeOfGold.Characters.SourceCharacterReader.SourceAttacks>();
         var hostArchive = new AgeOfGold.Archives.HostArchive(new Install(host, "eldenring.exe"));
@@ -149,7 +152,10 @@ internal static class FirelinkBuildInstallCheck
             {
                 // The enemy is built whole: files of its own under an identity the host lacks, and a row that names the source's behaviour variation.
                 string identity = placed.ModelName, sourceModel = from.ModelName;
-                var report = manifest.RootElement.GetProperty("wholeCharacters").GetProperty(sourceModel);
+                // A model placed in a second light is a character of its own, reported under the model's name and a number.
+                var report = manifest.RootElement.GetProperty("wholeCharacters").EnumerateObject().Single(c => (c.Name == sourceModel || c.Name.StartsWith(sourceModel + "+", StringComparison.Ordinal))
+                    && c.Value.GetProperty("identity").GetString() == identity).Value;
+                Stands(identity, from.CollisionName);
                 if (report.GetProperty("identity").GetString() != identity || !Regex.IsMatch(identity, @"^c6[4-9]\d\d$") || new[] { "chrbnd", "anibnd", "behbnd" }.Any(kind => hostArchive.Contains($"chr/{identity}.{kind}.dcx") || !File.Exists(Path.Combine(mod, $"chr/{identity}.{kind}.dcx")))
                     || !File.Exists(Path.Combine(mod, $"action/script/{identity}.hks"))
                     // The map lists the model under its own identity, in its name and in its path: without the path the host does not stand the character.
@@ -211,6 +217,7 @@ internal static class FirelinkBuildInstallCheck
             var raw = (byte[])builtCharacters.Rows.Single(r => r.ID == placed.NPCParamID)["raw"].Value;
             string identity = placed.ModelName;
             var report = manifest.RootElement.GetProperty("wholePeople").GetProperty(from.Name);
+            Stands(identity, from.CollisionName);
             if (from.ModelName != "c0000" || placed.Name != "aog_" + from.Name || placed.EntityID != 0 || layout.Parts.Collisions.Count(c => c.Name == placed.CollisionPartName) != 1
                 || (placed.Position - enemyOffset - from.Position).Length() > 1e-3f || placed.Rotation != from.Rotation
                 // Enemies' rows carry side 6; a person's row does not.
@@ -253,9 +260,9 @@ internal static class FirelinkBuildInstallCheck
         if (people.Length != 2 || manifest.RootElement.GetProperty("unbuiltCharacters").GetProperty("c0000").GetInt32() != sourceEnemies.Values.Count(p => p.ModelName == "c0000") - people.Length)
             throw new Exception("Built people are not the two humans present from the start");
         // Each enemy model and each person has a character to itself; the build replaces no host character.
-        if (manifest.RootElement.GetProperty("wholeCharacters").EnumerateObject().Count() != enemyModels.Length || manifest.RootElement.GetProperty("wholePeople").EnumerateObject().Count() != people.Length
+        if (manifest.RootElement.GetProperty("wholeCharacters").EnumerateObject().Count() != enemies.Select(e => e.GetProperty("body").GetString()).Distinct().Count() || manifest.RootElement.GetProperty("wholePeople").EnumerateObject().Count() != people.Length
             || Directory.GetFiles(Path.Combine(mod, "chr"), "*.chrbnd.dcx").Select(f => Path.GetFileName(f)[..5]).Any(c => hostArchive.Contains($"chr/{c}.chrbnd.dcx")))
-            throw new Exception("Built characters are not one for each enemy model and person, or a host character is replaced");
+            throw new Exception("Built characters are not one for each enemy model in each light and each person, or a host character is replaced");
         // Navigation: one mesh for each source mesh, numbered after the built collision it lies on and listed in the map's index.
         var walk = manifest.RootElement.GetProperty("navigation");
         var meshes = BND4.Read(Path.Combine(mod, "map/m10/m10_01_00_00/m10_01_00_00.nvmhktbnd.dcx")).Files;
@@ -434,8 +441,15 @@ internal static class FirelinkBuildInstallCheck
         var builtTextures = manifest.RootElement.GetProperty("textures").EnumerateObject().ToDictionary(t => t.Value.GetString()!, t => t.Name, StringComparer.OrdinalIgnoreCase);
         var characterLight = manifest.RootElement.GetProperty("characterLight");
         int cutoutMeshes = 0, dressedSurfaces = 0;
-        var rowSkies = AgeOfGold.Params.SourceLightingReader.Read(new Install(source, "DarkSoulsRemastered.exe")).Characters.Single(r => r.Id == characterLight.GetProperty("row").GetInt32())
-            .SpecularEnvironment.Textures.Select(t => $"EnvSpc_m10_{t:D3}").ToHashSet(StringComparer.Ordinal);
+        // The light a character takes from a source collision, read here from the source map itself: the collision's
+        // light, fog and scattering rows, and the number its light capture's name ends in.
+        var sourceMap = MSB1.Read(Path.Combine(source, "map/MapStudio/m10_02_00_00.msb"));
+        (int Light, int Fog, int Scattering, int Capture) LightOn(string collision)
+        {
+            var part = sourceMap.Parts.Collisions.Single(c => c.Name == collision);
+            return (part.LightID, part.FogID, part.ScatterID, int.Parse(Regex.Match(sourceMap.Events.Environments[part.EnvLightMapSpotIndex].Name, @"\d+$").Value, System.Globalization.CultureInfo.InvariantCulture));
+        }
+        int lights = 0;
         // The source's definitions: the patch binder's over the base one's, and the first of a repeated name.
         var sourceMaterials = new Dictionary<string, MTD>(StringComparer.OrdinalIgnoreCase);
         foreach (string binder in new[] { "mtd/Mtd.mtdbnd.dcx", "mtd/MtdPatch.mtdbnd.dcx" })
@@ -448,13 +462,17 @@ internal static class FirelinkBuildInstallCheck
         foreach (var (identity, body) in bodyFiles)
             foreach (var material in body.Materials)
             {
-                var named = Regex.Match(material.MTD, @"\\(aog_character_\d{2})\.matxml$");
+                // Every placement of a body stands in one light, and the body's definitions and cubes are that light's.
+                var on = stoodOn[identity].Select(LightOn).Distinct().ToArray();
+                if (on.Length != 1) throw new Exception($"Built body {identity} is placed in more than one light");
+                string family = $"aog_character_{on[0].Light}_{on[0].Fog}_{on[0].Scattering}";
+                var named = Regex.Match(material.MTD, @"\\(" + family + @"_\d{2})\.matxml$");
                 if (!named.Success) throw new Exception($"Built body {identity} is drawn by an unexpected definition: {material.MTD}");
                 var definition = MATBIN.Read(materials["chr_base/matxml/" + named.Groups[1].Value + ".matbin"].Single());
                 bool cut = ((int[])definition.Params.Single(q => q.Name == "g_AlphaRef").Value).SequenceEqual([128, 0]);
                 if (!cut && !((int[])definition.Params.Single(q => q.Name == "g_AlphaRef").Value).SequenceEqual([0, 0])) throw new Exception("A character definition has an unexpected coverage threshold");
                 cutoutMeshes += cut ? 1 : 0;
-                if (!definition.ShaderPath.EndsWith(@"\aog_character.spx", StringComparison.Ordinal) || !definition.SourcePath.EndsWith(@"\aog_character.matxml", StringComparison.Ordinal)
+                if (!definition.ShaderPath.EndsWith(@"\" + family + ".spx", StringComparison.Ordinal) || !definition.SourcePath.EndsWith(@"\" + family + ".matxml", StringComparison.Ordinal)
                     || !definition.Samplers.Select(q => q.Type).SequenceEqual(material.Textures.Select(t => t.ParamName)) || material.Textures.Count != 6)
                     throw new Exception($"Built body {identity}'s definition is not the build's family's, or names other inputs than its mesh fills");
                 string Wears(string input) => builtTextures[material.Textures.Single(t => t.ParamName.EndsWith(input, StringComparison.Ordinal)).Path];
@@ -465,22 +483,43 @@ internal static class FirelinkBuildInstallCheck
                     || Built(Named("_AlbedoMap_0")).GetDXGIFormat() is not (DDS.DXGI_FORMAT.BC1_UNORM or DDS.DXGI_FORMAT.BC7_UNORM) || Built(Named("_NormalMap_4")).GetDXGIFormat() != DDS.DXGI_FORMAT.BC5_UNORM)
                     throw new Exception($"Built body {identity} does not wear the source's own maps: {Wears("_AlbedoMap_0")}, {Wears("_MetallicMap_0")}, {Wears("_NormalMap_4")}");
                 var added = material.Textures.Skip(3).Select(t => builtTextures[t.Path]).ToArray();
-                // The sky cube is one of the four the row names; which, the surface's source definition chooses.
-                if (added.Length != 3 || added[0] != characterLight.GetProperty("cube").GetString() || !rowSkies.Contains(added[1]) || added[2] != "aog:table"
+                // The cubes are those captured for the collision; the sky cube is one of the capture's four.
+                if (added.Length != 3 || added[0] != $"GI_EnvDif_m10_02_{on[0].Capture:D4}" || !Regex.IsMatch(added[1], $"^GI_EnvSpc_m10_02_{on[0].Capture:D4}_[0-3]$") || added[2] != "aog:table"
                     || Built(material.Textures[5].Path).GetDXGIFormat() != DDS.DXGI_FORMAT.BC5_UNORM || Built(material.Textures[5].Path).dwWidth != 256 || Built(material.Textures[4].Path).GetDXGIFormat() != DDS.DXGI_FORMAT.BC6H_UF16)
                     throw new Exception($"Built body {identity} lacks the diffuse cube, the sky cube or the reflectance table: {string.Join(", ", added)}");
                 dressedSurfaces++;
                 // An enemy's two colours are those of one of its source definitions.
                 float[] plainColour = (float[])definition.Params.Single(q => q.Name == "g_DiffuseMapColor").Value, metalColour = (float[])definition.Params.Single(q => q.Name.EndsWith("_snp_0_color_0", StringComparison.Ordinal)).Value;
-                if (sourceDefinitions.TryGetValue(identity, out var from) && !from.Any(d => Close(plainColour, Factor(d, "g_DiffuseMapColor")) && Close(metalColour, Factor(d, "g_SpecularMapColor"))))
-                    throw new Exception($"Built body {identity} wears colours no source definition of its gives: {string.Join(",", plainColour)} and {string.Join(",", metalColour)}");
+                // And the share of a shadow it takes is that definition's.
+                float share = (float)definition.Params.Single(q => q.Name.EndsWith("_snp_0_float_1", StringComparison.Ordinal)).Value;
+                if (sourceDefinitions.TryGetValue(identity, out var from) && !from.Any(d => Close(plainColour, Factor(d, "g_DiffuseMapColor")) && Close(metalColour, Factor(d, "g_SpecularMapColor"))
+                    && share == (float)sourceMaterials[d].Params.Single(q => q.Name == "g_ShadowPowMul").Value))
+                    throw new Exception($"Built body {identity} wears colours or a share of shadow no source definition of its gives: {string.Join(",", plainColour)} and {string.Join(",", metalColour)}, {share}");
             }
         if (cutoutMeshes == 0 || dressedSurfaces == 0 || sourceDefinitions.Count == 0) throw new Exception($"Built characters lack torn cloth's cut-out definition or dressed surfaces: {cutoutMeshes} cut-out meshes, {dressedSurfaces} surfaces");
         // The family: the host's plain character family with three inputs more, vertex stages that forward the vector to the
         // camera, and deferred pixel stages that mark their light as a character's.
-        using (var characterFamily = new BND4Reader(ShaderArchive.ReadFamily(shaders, "aog_character.shaderbdle")))
+        var sourceInstall = new Install(source, "DarkSoulsRemastered.exe");
+        var program = characterLight.GetProperty("program");
+        var lightRows = AgeOfGold.Params.SourceLightingReader.Read(sourceInstall).Sets.ToDictionary(r => r.Id);
+        float hemisphereStrength = SourceRendererSettings.Read(sourceInstall).HemisphereStrength;
+        // A row's colour times its intensity, raised to linear light.
+        float[] Raised(AgeOfGold.Params.SourceLightingReader.Colour colour, float strength) => new[] { colour.Red, colour.Green, colour.Blue }.Select(v => MathF.Pow(v * colour.Intensity, 2.2f) * strength).ToArray();
+        bool Same(JsonElement stated, float[] expected) => stated.EnumerateArray().Select(v => v.GetSingle()).Zip(expected, (x, y) => MathF.Abs(x - y) <= 1e-5f * MathF.Max(1, y)).All(same => same) && stated.GetArrayLength() == 3;
+        foreach (var light in program.GetProperty("lights").EnumerateArray())
         {
-            byte[] Member(string suffix) => characterFamily.ReadFile(characterFamily.Files.Single(f => f.Name.EndsWith("aog_character" + suffix, StringComparison.Ordinal)));
+            string family = light.GetProperty("family").GetString()!;
+            var row = lightRows[light.GetProperty("row").GetInt32()];
+            // A family is named for its rows; its two cubes are scaled by the row's environment colours and its hemisphere
+            // is the row's, at the source's own ambient strength.
+            if (family != $"aog_character_{row.Id}_{light.GetProperty("fog").GetInt32()}_{light.GetProperty("scattering").GetInt32()}"
+                || !stoodOn.Values.SelectMany(on => on.Select(LightOn)).Any(on => (on.Light, on.Fog, on.Scattering) == (row.Id, light.GetProperty("fog").GetInt32(), light.GetProperty("scattering").GetInt32()))
+                || !Same(light.GetProperty("diffuse"), Raised(row.DiffuseEnvironment.Colour, 1)) || !Same(light.GetProperty("sky"), Raised(row.SpecularEnvironment.Colour, 1))
+                || !Same(light.GetProperty("upper"), Raised(row.Upper, hemisphereStrength)) || !Same(light.GetProperty("lower"), Raised(row.Lower, hemisphereStrength)) || !light.GetProperty("air").GetBoolean())
+                throw new Exception("A character family's light is not its rows': " + family);
+            lights++;
+            using var characterFamily = new BND4Reader(ShaderArchive.ReadFamily(shaders, family + ".shaderbdle"));
+            byte[] Member(string suffix) => characterFamily.ReadFile(characterFamily.Files.Single(f => f.Name.EndsWith(family + suffix, StringComparison.Ordinal)));
             if (ShaderMetadata.Read(Member(".metaparam")).Textures.Count != 6) throw new Exception("Built character family does not declare six texture inputs");
             foreach (string stage in new[] { "_Gbuf.vpo", "_Gbuf_Skin.vpo", "_Gbuf@[cl].vpo", "_Gbuf_Skin@[cl].vpo" })
                 if (new ShaderSignatures(compiler.Disassemble(Member(stage))).Members(true).Count(m => m.Name == "TANGENT" && m.Index == 8) != 1) throw new Exception("Built character vertex stage does not forward the view: " + stage);
@@ -488,17 +527,25 @@ internal static class FirelinkBuildInstallCheck
             {
                 string pixel = compiler.Disassemble(Member(stage));
                 if (!pixel.Contains("%aog_skytexel = call %dx.types.ResRet.f32 @dx.op.sampleLevel.f32(", StringComparison.Ordinal) || !pixel.Contains("i8 3, float -2.000000e+00)", StringComparison.Ordinal)
+                    || !pixel.Contains("%aog_airlitdarkr = ", StringComparison.Ordinal) || !pixel.Contains("%aog_turned = ", StringComparison.Ordinal)
                     || !Regex.IsMatch(pixel, @"storeOutput\.f32\(i32 5, i32 1, i32 0, i8 0, float 1\.000000e\+00\)") || !Regex.IsMatch(pixel, @"storeOutput\.f32\(i32 5, i32 1, i32 0, i8 1, float 0\.000000e\+00\)"))
                     throw new Exception("Built character pixel stage does not light and mark its surface: " + stage);
             }
         }
-        // Characters take the source's light. One host sun stays on, white, without highlights, from where the source's
+        // The area's characters stand in more than one light, and one model in two.
+        if (lights < 2 || lights != stoodOn.Values.SelectMany(on => on.Select(LightOn)).Select(on => (on.Light, on.Fog, on.Scattering)).Distinct().Count()
+            || !manifest.RootElement.GetProperty("wholeCharacters").EnumerateObject().Any(c => c.Name.Contains('+')))
+            throw new Exception("Built character families are not one for each set of rows a built character stands in");
+        // The source's own settings: a shadow's power of two, and the cosine and edge of a surface's own shadow.
+        if (program.GetProperty("shadePower").GetSingle() != 2 || program.GetProperty("shadeTurn").GetSingle() != 0.2f || program.GetProperty("shadeEdge").GetSingle() != 5 || program.GetProperty("probeGain").GetSingle() != 1
+            || !(program.GetProperty("glow").GetSingle() > 0))
+            throw new Exception("The character program's settings are not the source's");
+        // Characters take the source's light. One host sun stays on, without highlights, from where the source's
         // shadows are cast, to shade what a character stores facing it; the environment boxes keep the host's own
         // multipliers; and every baked volume, for each state of the sky and each quality, holds throughout the arrival
         // row's hemisphere light.
-        var sourceInstall = new Install(source, "DarkSoulsRemastered.exe");
-        var program = characterLight.GetProperty("program");
-        float sunLight = program.GetProperty("sunLight").GetSingle();
+        var sunColour = program.GetProperty("sunColour").EnumerateArray().Select(v => v.GetSingle()).ToArray();
+        float sunLight = sunColour.Max();
         var shadowRow = AgeOfGold.Params.SourceAtmosphereReader.Shadows(sourceInstall)[characterLight.GetProperty("shadow").GetInt32()];
         // The light shines along (cos x sin y, -sin x, cos x cos y) for its two angles; a surface looks back along it.
         double shadowX = shadowRow.Elevation * Math.PI / 180, shadowY = shadowRow.Azimuth * Math.PI / 180;
@@ -511,7 +558,8 @@ internal static class FirelinkBuildInstallCheck
         if (new[] { "Light SpecColor0", "Light DiffColor1", "Light SpecColor1", "Light LocalLight DiffColor1", "Light LocalLight SpecColor1", "Light LocalLight DiffColor2", "Light LocalLight SpecColor2" }
             .Any(light => graphics["Directional " + light].Single().Values.Any(v => ((System.Numerics.Vector4)v).W != 0))
             // Measured in the host: a sun of strength one adds 0.40 of a stored colour that faces it.
-            || graphics["Directional Light DiffColor0"].Single().Values.Any(v => (System.Numerics.Vector4)v != new System.Numerics.Vector4(1, 1, 1, sunLight / 0.40f))
+            || sunColour.Length != 3 || sunColour.Any(v => !(v > 0))
+            || graphics["Directional Light DiffColor0"].Single().Values.Any(v => System.Numerics.Vector4.Distance((System.Numerics.Vector4)v, new(sunColour[0] / sunLight, sunColour[1] / sunLight, sunColour[2] / sunLight, sunLight / 0.40f)) > 1e-5f)
             || graphics["Directional Light Angle0"].Single().Values.Any(v =>
             {
                 var angle = (System.Numerics.Vector2)v;
@@ -524,8 +572,7 @@ internal static class FirelinkBuildInstallCheck
         float[] Term(string name) => characterLight.GetProperty(name).EnumerateArray().Select(v => v.GetSingle()).ToArray();
         float[][] lightTerms = [Term("constant"), Term("x"), Term("y"), Term("z")];
         int lightRowId = characterLight.GetProperty("row").GetInt32();
-        var lightRow = AgeOfGold.Params.SourceLightingReader.Read(sourceInstall).Characters.Single(r => r.Id == lightRowId);
-        float hemisphereStrength = SourceRendererSettings.Read(sourceInstall).HemisphereStrength;
+        var lightRow = lightRows[lightRowId];
         float Linear(float colour, float intensity) => MathF.Pow(colour * intensity, 2.2f) * hemisphereStrength;
         float[] above = [Linear(lightRow.Upper.Red, lightRow.Upper.Intensity), Linear(lightRow.Upper.Green, lightRow.Upper.Intensity), Linear(lightRow.Upper.Blue, lightRow.Upper.Intensity)];
         float[] below = [Linear(lightRow.Lower.Red, lightRow.Lower.Intensity), Linear(lightRow.Lower.Green, lightRow.Lower.Intensity), Linear(lightRow.Lower.Blue, lightRow.Lower.Intensity)];
@@ -535,7 +582,8 @@ internal static class FirelinkBuildInstallCheck
         var volumePaths = characterLight.GetProperty("volumes").EnumerateArray().Select(v => v.GetString()!).ToArray();
         // Seven states of the sky in three qualities.
         if (volumePaths.Length != 21 || volumePaths.Distinct().Count() != 21) throw new Exception($"Built baked light covers {volumePaths.Length} state and quality binders, not 21");
-        var sky = AgeOfGold.Scene.TextureReader.Read(sourceInstall, [characterLight.GetProperty("sky").GetString()!]).Single().Bytes;
+        var sky = AgeOfGold.Scene.TextureReader.ReadFile(sourceInstall, "map/m10/GI_EnvM_m10", $"GI_Env_m10_02_{characterLight.GetProperty("capture").GetInt32():D4}")
+            .Single(t => t.Name == characterLight.GetProperty("sky").GetString()).Bytes;
         var skyHeader = new DDS(sky);
         static int Levels(int size, int first, int count) => Enumerable.Range(first, count).Sum(level => { int blocks = (Math.Max(1, size >> level) + 3) / 4; return blocks * blocks * 16; });
         int skyFace = Levels(skyHeader.dwWidth, 0, skyHeader.dwMipMapCount), cubes = 0;

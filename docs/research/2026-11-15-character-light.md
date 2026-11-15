@@ -205,6 +205,62 @@ it out (white times 3.00, raised to 2.2, times the renderer's strength of 3: 33.
 count of levels the blur is measured from, and the shade of a surface turned from the light are each inferred, not
 read from the running game. A capture of one frame of the source game would give them.
 
+## Read from a frame of the source game (15 November, night)
+
+One frame of the source game was captured at the hollow's front view with RenderDoc and replayed privately; the
+capture and everything read out of it stay in the capture scratch. What the hollow's draws were given (their
+constants, their textures, their program) corrects several things inferred above.
+
+- **The light row.** A character takes its row from the table the scenery selects from, by the number its collision
+  names. The build had read a second table of the same shape under that number; the character draws do not use it,
+  and the tool no longer reads it. The hemisphere's two colours are the row's at the renderer's ambient strength, as
+  for scenery.
+- **The cubes' strengths.** The two cubes are scaled by the row's two environment colours times one. Scenery's are
+  scaled by the renderer's environment strength of three, which the build had applied to characters as well: with the
+  wrong table that made the reflection gain 33.6 where the source's is one.
+- **The cubes.** A character does not take the area's scenery cubes. The map lists light captures, each a point; a
+  collision names one by its place in that list; the capture's name ends in a number, and a package of the area's
+  holds a diffuse cube and a sky cube under that number. Firelink has sixteen captures. A sky cube's name also ends
+  in which of a definition's four choices it is, and only the first is stored: in the frame, the hollow's metal
+  (which chooses the third) and its leather (the first) are given the same cube. The count of levels the blur is
+  measured from is the cube's own, eight.
+- **Shadow.** The sky's light is multiplied by the square of one less the shadow's strength times its reach times
+  how shadowed the surface is. The strength is the row's density times a share the definition states (four fifths
+  for every character definition built here). The power is a named setting of the program's; a variant of the
+  program that also reads a light map multiplies by a second named setting, which the character draws here do not.
+  How shadowed is the shadow map's answer plus the surface's own: wholly once its relief-bent normal is side-on to
+  the shadows' light, not at all from a cosine of a fifth towards it. So a surface turned from the light is shaded
+  by the program itself, as the build guessed, but by the bent normal and over a wider edge.
+- **Glow.** A surface gives off ten times its colour, times a named setting of one, where its specular map's fourth
+  channel is less than whole; shadow leaves it alone.
+- **Air.** The whole then passes through the collision's fog and scattering rows, as scenery does. Even at no
+  distance the scattering row tints what it lights (the row's reflectance colour, half blended), which is why a
+  build's characters looked warmer than the source's.
+- **Also.** The whole is multiplied by a screen-space darkening. No point light reached the hollow in that frame.
+  The vertex colours of the four enemy models built are white throughout, so nothing is lost by not reading them.
+- Three numbers were read from the frame and are written into the tool, because where the source's program keeps
+  them was not found: the cubes' strength of one, and the cosine and edge of a surface's own shadow.
+
+What the build does now: each character takes the light of the collision the source places it on. A character
+family is made for each set of light, fog and scattering rows its characters stand in, with that light compiled into
+its deferred pixel stages; a material names the two cubes of the collision's capture; and a model placed in a second
+light is built again as a character of its own. The pixel stage emits the wholly shadowed light, passed through the
+air, and stores what a surface out of the host's shadow shows above that, so the frame is the source's at both ends
+of the host's shadow and a straight line between (the source's own edge is curved). What the host's programs draw
+(the player in host gear) takes the arrival's hemisphere colour from the baked light, a sun coloured as the
+arrival's diffuse cube is overhead at the row's strength, and the arrival's sky cube in the host's cubes.
+
+Not carried: a character that walks onto a collision selecting another light keeps the one it was placed in; the
+screen-space darkening; point lights.
+
+Seen in the game against the source's pictures (16 November): the seated warrior's mail is the source's even dark
+teal where it was black with bright edges, and the hollow's metal no longer blazes; mean levels of the three views
+are within eight of the source's in every channel. Still off: the hem of mail hanging under his thighs and the
+front of one shin are lit where the source's are dark. Both lie under his own body as the shadows' light sees them,
+so the likely cause is that the host's shadow does not reach from one part of a character onto another a hand's
+breadth away, where the source's shadow map (which covers only the nearest ten metres) does. Not measured: an
+attempt to show the host's shadow alone on a character did not finish.
+
 ## Decoding the source's textures
 
 The source's colour maps are often in the high-quality four-channel block format. The tool
@@ -231,5 +287,7 @@ modes: every value agreed.
 - The fromsoft-formats 0.17.0 documentation (GPL-3.0-or-later) for the three quality words of
   an environment binder's path, checked against the install. It does not describe the
   volumes' contents; no code was read or incorporated.
+- RenderDoc 1.46 (MIT licence) captured and replayed the frame, privately; none of its code was read or
+  incorporated, and nothing of the capture is in the repository.
 - Everything about the host's and source's behaviour comes from read-only inspection of
   Riley's installs and from running a build offline.

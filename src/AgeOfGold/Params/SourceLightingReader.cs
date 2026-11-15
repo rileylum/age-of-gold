@@ -10,7 +10,8 @@ internal static class SourceLightingReader
     internal sealed record LightSet(int Id, Directional[] Diffuse, Directional Specular,
         Colour Upper, Colour Lower, EnvironmentLight DiffuseEnvironment, EnvironmentLight SpecularEnvironment);
     internal sealed record PointLight(int Id, float FadeStart, float FadeEnd, Colour Colour);
-    internal sealed record Lighting(LightSet[] Scenery, LightSet[] Characters, PointLight[] Points);
+    /// <summary>The area's light rows, which its scenery and the characters standing in it both select from, and its point lights.</summary>
+    internal sealed record Lighting(LightSet[] Sets, PointLight[] Points);
 
     internal static Lighting Read(Install source)
     {
@@ -19,7 +20,6 @@ internal static class SourceLightingReader
         var tables = BND3.Read(source.Read("param/DrawParam/a10_DrawParam.parambnd.dcx"));
         return new Lighting(
             Rows("m10_LightBank.param", "LIGHT_BANK").Select(Set).ToArray(),
-            Rows("s10_LightBank.param", "LIGHT_BANK").Select(Set).ToArray(),
             Rows("m10_PointLightBank.param", "POINT_LIGHT_BANK").Select(Point).ToArray());
 
         IEnumerable<PARAM.Row> Rows(string name, string type)

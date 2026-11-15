@@ -39,6 +39,17 @@ internal static class TextureReader
             throw new InvalidDataException("Source textures not found: " + string.Join(", ", needed.Except(found).Order(StringComparer.Ordinal)));
     }
 
+    /// <summary>Every texture of one named file of a package of the source's, whatever the textures are called.</summary>
+    internal static (string Name, byte[] Bytes)[] ReadFile(Install source, string package, string file)
+    {
+        source.Fingerprint(package + ".tpfbhd");
+        using var binder = new BXF3Reader(source.Locate(package + ".tpfbhd"), source.Locate(package + ".tpfbdt"));
+        var found = binder.Files.Where(f => Stem(Stem(f.Name)) == file).ToArray();
+        if (found.Length != 1) throw new InvalidDataException($"Source package {package} does not hold one file {file}");
+        source.Fingerprint(package + ".tpfbdt");
+        return ReadPackage(binder.ReadFile(found[0])).ToArray();
+    }
+
     // PC containers already hold DDS files; console reconstruction and its dependencies are unnecessary.
     internal static IEnumerable<(string Name, byte[] Bytes)> ReadPackage(byte[] bytes)
     {
