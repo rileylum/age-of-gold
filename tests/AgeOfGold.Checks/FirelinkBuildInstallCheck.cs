@@ -199,6 +199,9 @@ internal static class FirelinkBuildInstallCheck
         // People: each source human the manifest lists stands in the built map on a built collision, as a character of the
         // build's own under its own row, with the standing of an installed friendly character and the pose it starts in.
         var people = manifest.RootElement.GetProperty("people").EnumerateArray().ToArray();
+        // The two people at Firelink from the start: the cleric by the ruined church and the warrior by the bonfire.
+        if (!people.Select(p => p.GetProperty("source").GetString()).Order(StringComparer.Ordinal).SequenceEqual(["c0000_0016", "c0000_0018"]))
+            throw new Exception("Built people are not the two who are at Firelink from the start: " + string.Join(", ", people.Select(p => p.GetProperty("source").GetString())));
         var humanFrame = FLVER2.Read(BND3.Read(Path.Combine(source, "chr/c0000.chrbnd.dcx")).Files.Single(f => f.Name.EndsWith("c0000.flver", StringComparison.OrdinalIgnoreCase)).Bytes);
         var peopleBodies = new HashSet<string>(StringComparer.Ordinal);
         foreach (var person in people)

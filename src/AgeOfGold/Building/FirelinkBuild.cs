@@ -84,7 +84,9 @@ internal static class FirelinkBuild
     // lazy: no face front (the source generates it as the game runs) and no hair; one line of talk; only the pose each
     // starts in (see WholeCharacter.WritePerson); the host template's body size.
     private static LivingPerson Friendly() => new("c4300", "m18_00_00_00", "c4300_9009", CharacterMaterial, CharacterMaterial, "m11_10_00_00", "c0000_9010", "c3020", ("Neck", "Head", "Spine", "Spine1"));
-    private static readonly SortedDictionary<string, LivingPerson> LivingPeople = new(StringComparer.Ordinal) { ["c0000_0011"] = Friendly(), ["c0000_0018"] = Friendly() };
+    // The cleric by the ruined church and the warrior by the bonfire. The others the source places here arrive with
+    // events, which the build does not run yet.
+    private static readonly SortedDictionary<string, LivingPerson> LivingPeople = new(StringComparer.Ordinal) { ["c0000_0016"] = Friendly(), ["c0000_0018"] = Friendly() };
     // What a human holds hangs from the weapon bone of its hand.
     private const string RightHandBone = "R_Weapon", LeftHandBone = "L_Weapon";
     // A person's host identity follows the enemies' block: by its character row's place among the source's human rows.
