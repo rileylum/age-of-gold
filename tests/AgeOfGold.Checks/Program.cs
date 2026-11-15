@@ -432,7 +432,6 @@ try
     MaterialWriterCheck.Cutout();
     BlockTextureCheck.Run();
     BlockTextureCheck.Radiance();
-    BlockTextureCheck.Colour();
     CharacterLightCheck.Run();
     BlockTextureCheck.Solid();
     HostIrradianceCheck.Run();

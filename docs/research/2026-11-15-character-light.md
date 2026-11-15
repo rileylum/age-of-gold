@@ -263,9 +263,12 @@ attempt to show the host's shadow alone on a character did not finish.
 
 ## Decoding the source's textures
 
-The source's colour maps are often in the high-quality four-channel block format. The tool
-decodes every mode of it from the format's published definition; privately it is
-byte-identical to an independent decoder on five textures of both games.
+The source's colour maps are often in the high-quality four-channel block format. While a build made a character's
+maps texel by texel, the tool decoded every mode of that format and encoded two of them, from the format's published
+definition (privately byte-identical to an independent decoder on five textures of both games). A character now
+wears the source's maps unchanged, so that code and its checks were removed on 16 November; the commit before holds
+them. What remains writes the two-channel format (the reflectance table) and a block of one colour, and reads the
+HDR cubes.
 
 ## Decoding the source's cubes
 
