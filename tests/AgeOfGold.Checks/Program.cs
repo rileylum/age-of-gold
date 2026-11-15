@@ -88,6 +88,11 @@ try
         DisplayShaderCheck.Run();
         return;
     }
+    if (args.SequenceEqual(new[] { "composite-shader" }))
+    {
+        CompositeShaderCheck.Run();
+        return;
+    }
     if (args.SequenceEqual(new[] { "resting-point" }))
     {
         FirelinkBonfire.Check();
@@ -415,6 +420,11 @@ try
     SourceCharacterCheck.Run(root);
     WholeCharacterCheck.Run();
     MaterialWriterCheck.Cutout();
+    BlockTextureCheck.Run();
+    BlockTextureCheck.Radiance();
+    CharacterLightCheck.Run();
+    BlockTextureCheck.Solid();
+    HostIrradianceCheck.Run();
     SourceHumanCheck.Run(root);
     SourceTalkCheck.Run(root);
     SourceNavigationCheck.Run(root);

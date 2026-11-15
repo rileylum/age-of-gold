@@ -47,6 +47,8 @@ internal sealed class TextureWriter
         var (code, block, linear, encoded) = format switch {
             DDS.DXGI_FORMAT.BC1_UNORM or DDS.DXGI_FORMAT.BC1_UNORM_SRGB when !cube => (0, 8, DDS.DXGI_FORMAT.BC1_UNORM, DDS.DXGI_FORMAT.BC1_UNORM_SRGB),
             DDS.DXGI_FORMAT.BC5_UNORM when !srgb && !cube => (36, 16, DDS.DXGI_FORMAT.BC5_UNORM, DDS.DXGI_FORMAT.BC5_UNORM),
+            // One channel, as the host keeps a character's metal map.
+            DDS.DXGI_FORMAT.BC4_UNORM when !srgb && !cube => (103, 8, DDS.DXGI_FORMAT.BC4_UNORM, DDS.DXGI_FORMAT.BC4_UNORM),
             DDS.DXGI_FORMAT.BC7_UNORM or DDS.DXGI_FORMAT.BC7_UNORM_SRGB when !cube => (112, 16, DDS.DXGI_FORMAT.BC7_UNORM, DDS.DXGI_FORMAT.BC7_UNORM_SRGB),
             DDS.DXGI_FORMAT.BC6H_UF16 when cube && !srgb && environmentFormat is not null =>
                 ((int)environmentFormat.Value, 16, DDS.DXGI_FORMAT.BC6H_UF16, DDS.DXGI_FORMAT.BC6H_UF16),

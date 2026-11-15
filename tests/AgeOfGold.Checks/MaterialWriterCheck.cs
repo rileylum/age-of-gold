@@ -42,13 +42,33 @@ internal static class MaterialWriterCheck
         byte[] plain = new MATBIN
         {
             SourcePath = @"N:\authored\C[AMSN].matxml", ShaderPath = @"N:\authored\C[AMSN].spx", Key = 7,
-            Params = [new() { Name = "g_BlendMode", Key = 1, Type = MATBIN.ParamType.Int, Value = 0 }, new() { Name = "g_AlphaRef", Key = 2, Type = MATBIN.ParamType.Int2, Value = new[] { 0, 0 } }],
+            Params = [new() { Name = "g_BlendMode", Key = 1, Type = MATBIN.ParamType.Int, Value = 0 }, new() { Name = "g_AlphaRef", Key = 2, Type = MATBIN.ParamType.Int2, Value = new[] { 0, 0 } },
+                new() { Name = "g_DiffuseMapColor", Key = 4, Type = MATBIN.ParamType.Float3, Value = new[] { 1f, 1f, 1f } }],
             Samplers = [new() { Type = "C_AMSN__snp_Texture2D_2_AlbedoMap_0", Path = "", Key = 3 }],
         }.Write();
         var cut = MATBIN.Read(AgeOfGold.Characters.HostCharacterMaterial.Cutout(plain, 128));
         if (!((int[])cut.Params.Single(p => p.Name == "g_AlphaRef").Value).SequenceEqual([128, 0]) || (int)cut.Params.Single(p => p.Name == "g_BlendMode").Value != 0 || cut.ShaderPath != @"N:\authored\C[AMSN].spx" || cut.Samplers.Single().Path != "")
             throw new Exception("A cut-out definition is not its plain one with the threshold set");
         if (!MATBIN.Read(plain).Write().AsSpan().SequenceEqual(plain)) throw new Exception("Making a cut-out definition changed its input");
+        // The source multiplies a surface's colour map by a colour of its definition's; the host definition has the same setting.
+        var tinted = MATBIN.Read(AgeOfGold.Characters.HostCharacterMaterial.Tinted(plain, [0.325f, 0.3f, 0.25f]));
+        if (!((float[])tinted.Params.Single(p => p.Name == "g_DiffuseMapColor").Value).SequenceEqual([0.325f, 0.3f, 0.25f]) || !((int[])tinted.Params.Single(p => p.Name == "g_AlphaRef").Value).SequenceEqual([0, 0])
+            || tinted.ShaderPath != @"N:\authored\C[AMSN].spx" || tinted.Samplers.Single().Path != "")
+            throw new Exception("A tinted definition is not its plain one with the colour set");
+        var both = MATBIN.Read(AgeOfGold.Characters.HostCharacterMaterial.Cutout(AgeOfGold.Characters.HostCharacterMaterial.Tinted(plain, [0.5f, 0.5f, 0.5f]), 128));
+        if (!((float[])both.Params.Single(p => p.Name == "g_DiffuseMapColor").Value).SequenceEqual([0.5f, 0.5f, 0.5f]) || !((int[])both.Params.Single(p => p.Name == "g_AlphaRef").Value).SequenceEqual([128, 0]))
+            throw new Exception("A definition does not take both a colour and a cut-out");
+        foreach (var bad in new Action[]
+        {
+            () => AgeOfGold.Characters.HostCharacterMaterial.Tinted(plain, [0.5f, 0.5f]),
+            () => AgeOfGold.Characters.HostCharacterMaterial.Tinted(plain, [0.5f, -0.1f, 0.5f]),
+            () => AgeOfGold.Characters.HostCharacterMaterial.Tinted(plain, [0.5f, float.NaN, 0.5f]),
+            () => AgeOfGold.Characters.HostCharacterMaterial.Tinted(Fixture(1, "authored"), [0.5f, 0.5f, 0.5f]),
+        })
+        {
+            try { bad(); } catch (InvalidDataException) { continue; }
+            throw new Exception("An invalid tint or a definition without a colour setting was accepted");
+        }
         foreach (var bad in new Action[]
         {
             () => AgeOfGold.Characters.HostCharacterMaterial.Cutout(plain, 0),

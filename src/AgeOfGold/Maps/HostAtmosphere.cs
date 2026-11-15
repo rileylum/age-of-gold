@@ -32,6 +32,23 @@ internal static class HostAtmosphere
         return file.Write();
     }
 
+    /// <summary>
+    /// Puts out the host's directional lights at every time of day. They light only what the host's own programs draw,
+    /// which in a build is characters; the source lights a character from its environment alone, which the build gives the
+    /// host as baked ambient light.
+    /// </summary>
+    // lazy: with no directional light a character takes no shadow from the scenery; the source darkens its environment
+    // light there, which needs a shadowed term of the build's own.
+    internal static byte[] RemoveDirectionalLights(byte[] parameters)
+    {
+        var file = GPARAM.Read(parameters);
+        foreach (string light in new[] { "Light DiffColor0", "Light SpecColor0", "Light DiffColor1", "Light SpecColor1",
+            "Light LocalLight DiffColor1", "Light LocalLight SpecColor1", "Light LocalLight DiffColor2", "Light LocalLight SpecColor2" })
+            // A colour's fourth value is its strength.
+            Set(file, "Directional " + light, v => v is System.Numerics.Vector4 colour ? colour with { W = 0 } : throw new InvalidDataException("Unsupported directional light setting"));
+        return file.Write();
+    }
+
     private static void Set(GPARAM file, string name, Func<object, object> value)
     {
         var matches = file.Groups.SelectMany(g => g.Params).Where(p => p.Name1 == name).ToArray();

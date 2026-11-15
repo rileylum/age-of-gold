@@ -98,11 +98,21 @@ internal static class MapSceneryCheck
         if (lit.Regions.EnvironmentMapPoints.Single().Position != new Vector3(1, 205, 2)
             || lit.Regions.EnvironmentMapEffectBoxes.Single(b => b.Name == "authored-outdoors").Position != new Vector3(0, 150, 0)
             || lit.Regions.EnvironmentMapEffectBoxes.Single(b => b.Name == "authored-room").Position != new Vector3(3, 0, 3)
-            || lit.Regions.EnvironmentMapEffectBoxes.Any(b => b.PointLightMult != 3)
+            // The boxes keep the host's own multiplier, which the baked light the build gives them is measured at.
+            || lit.Regions.EnvironmentMapEffectBoxes.Any(b => b.PointLightMult != 1.5f)
             || lit.Regions.SpawnPoints.Single(r => r.Name == "authored-spawn").Position != new Vector3(-3, 240, 7)
             || lit.Regions.SpawnPoints.Single(r => r.Name == "authored-spawn").Rotation != new Vector3(0, 145, 0)
             || lit.Regions.SpawnPoints.Single(r => r.Name == "authored-elsewhere").Position != new Vector3(90, 9, 9))
             throw new Exception("Environment regions or the spawn region did not follow the scenery");
+        // Every environment box reflects its cube at one strength, the source sky's; nothing else of a box or a point changes.
+        var unreflecting = MSBE.Read(lit.Write());
+        FirelinkMapWriter.ReflectSky(lit, 0.75f);
+        var reflecting = MSBE.Read(lit.Write());
+        if (reflecting.Regions.EnvironmentMapEffectBoxes.Count < 2 || reflecting.Regions.EnvironmentMapEffectBoxes.Any(b => b.SpecularLightMult != 0.75f || b.PointLightMult != 1.5f)
+            || !reflecting.Regions.EnvironmentMapPoints.Select(p => (p.Position, p.UnkT00)).SequenceEqual(unreflecting.Regions.EnvironmentMapPoints.Select(p => (p.Position, p.UnkT00))))
+            throw new Exception("Environment boxes do not reflect at the strength given, or something else changed");
+        Reject(() => FirelinkMapWriter.ReflectSky(lit, -1));
+        Reject(() => FirelinkMapWriter.ReflectSky(lit, float.NaN));
         var ambiguous = MSBE.Read(native);
         ambiguous.Regions.EnvironmentMapEffectBoxes.Add(Box("authored-second-outdoors", new(0, -50, 0), 100));
         Reject(() => FirelinkMapWriter.MoveEnvironment(ambiguous, new(0, 200, 0), new(-3, 240, 7), Vector3.Zero));

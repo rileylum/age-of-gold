@@ -132,13 +132,22 @@ internal static class FirelinkMapWriter
         var outdoors = boxes.Where(b => boxes.Where(other => other != b).SelectMany(Corners).All(p => Contains(b, p))).ToArray();
         if (boxes.Count < 2 || outdoors.Length != 1) throw new InvalidDataException("Expected one outdoor environment volume enclosing the others");
         outdoors[0].Position += displacement;
-        // lazy: the accepted playtest's doubled fill for host-lit characters; source environment light for characters is not translated yet.
-        foreach (var box in boxes) box.PointLightMult *= 2;
         foreach (var point in layout.Regions.EnvironmentMapPoints) point.Position += displacement;
         // The host's arrival region sits at its own player start; other spawn regions belong to host events.
         var arrival = layout.Regions.SpawnPoints.Where(r => Vector3.Distance(r.Position, spawn - displacement) < 1).ToArray();
         if (arrival.Length != 1) throw new InvalidDataException("Expected one host spawn region at the host player start");
         arrival[0].Position = spawn; arrival[0].Rotation = spawnRotation;
+    }
+
+    /// <summary>
+    /// Every environment box reflects its cube at one strength. A build fills every cube with the source's one sky, so
+    /// the boxes no longer differ.
+    /// </summary>
+    internal static void ReflectSky(MSBE layout, float strength)
+    {
+        if (!(strength >= 0) || !float.IsFinite(strength)) throw new InvalidDataException("Reflection strength must be a finite value, not negative");
+        if (layout.Regions.EnvironmentMapEffectBoxes.Count == 0) throw new InvalidDataException("Host map has no environment boxes");
+        foreach (var box in layout.Regions.EnvironmentMapEffectBoxes) box.SpecularLightMult = strength;
     }
 
     /// <summary>Places an effect at a point, through a copy of an installed effect region.</summary>

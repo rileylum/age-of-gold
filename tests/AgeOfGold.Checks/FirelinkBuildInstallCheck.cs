@@ -129,6 +129,7 @@ internal static class FirelinkBuildInstallCheck
         // Every enemy is moved from its source place by the one displacement the whole map shares.
         var enemyOffset = layout.Parts.Enemies.Single(p => p.Name == enemies[0].GetProperty("name").GetString()).Position - sourceEnemies[enemies[0].GetProperty("source").GetString()!].Position;
         var bodyFiles = new Dictionary<string, FLVER2>(StringComparer.Ordinal);
+        var sourceDefinitions = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var wholeAttacks = new Dictionary<int, AgeOfGold.Characters.SourceCharacterReader.SourceAttacks>();
         var hostArchive = new AgeOfGold.Archives.HostArchive(new Install(host, "eldenring.exe"));
         foreach (var enemy in enemies)
@@ -161,6 +162,7 @@ internal static class FirelinkBuildInstallCheck
                 var ownBinder = BND4.Read(Path.Combine(mod, $"chr/{identity}.chrbnd.dcx"));
                 var own = bodyFiles[identity] = FLVER2.Read(ownBinder.Files.Single(f => f.Name.EndsWith(".flver", StringComparison.OrdinalIgnoreCase)).Bytes);
                 var sourceBody = FLVER2.Read(BND3.Read(Path.Combine(source, $"chr/{sourceModel}.chrbnd.dcx")).Files.Single(f => f.Name.EndsWith(sourceModel + ".flver", StringComparison.OrdinalIgnoreCase)).Bytes);
+                sourceDefinitions[identity] = sourceBody.Materials.Select(m => Path.GetFileNameWithoutExtension(m.MTD.Replace('\\', '/'))).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
                 // The body stands on the source's own nodes; every texture it names is built; its physics and events are its own.
                 if (!own.Nodes.Select(n => n.Name).SequenceEqual(sourceBody.Nodes.Select(n => n.Name)) || own.Dummies.Count != sourceBody.Dummies.Count || own.Meshes.Count == 0 || own.Materials.Any(m => !Regex.IsMatch(m.Name, @"^aog_\d+$"))
                     || own.Materials.Any(m => m.Textures.Count(t => t.Path.StartsWith("AET950_", StringComparison.Ordinal)) != 3)
@@ -418,6 +420,134 @@ internal static class FirelinkBuildInstallCheck
         if (graphics["VolumetricFog Enable"].Single().Values.Any(v => (bool)v) || graphics["GS Presents - Vignetting Power"].Single().Values.Any(v => (float)v != 0)
             || graphics["GS Presents - Chromatic Aberration Enable"].Single().Values.Any(v => (int)v != 0))
             throw new Exception("Built graphics parameters keep host effects the source lacks");
+        // A whole character is dressed for the host's plain character material: its metal map is one channel and its relief
+        // map, with gloss, four, both made from the source's maps; torn cloth is drawn by a cut-out twin of the definition.
+        DDS Built(string texture)
+        {
+            var package = File.ReadAllBytes(Path.Combine(mod, "asset/aet/aet950", Path.GetFileNameWithoutExtension(texture)[..^2].ToLowerInvariant() + ".tpf.dcx"));
+            return new DDS(AgeOfGold.Scene.TextureReader.ReadPackage(package).Single().Bytes);
+        }
+        var builtTextures = manifest.RootElement.GetProperty("textures").EnumerateObject().ToDictionary(t => t.Value.GetString()!, t => t.Name, StringComparer.OrdinalIgnoreCase);
+        int cutoutMeshes = 0, madeMetal = 0;
+        // The source's definitions: the patch binder's over the base one's, and the first of a repeated name.
+        var sourceMaterials = new Dictionary<string, MTD>(StringComparer.OrdinalIgnoreCase);
+        foreach (string binder in new[] { "mtd/Mtd.mtdbnd.dcx", "mtd/MtdPatch.mtdbnd.dcx" })
+            foreach (var group in BND3.Read(Path.Combine(source, binder)).Files.GroupBy(f => Path.GetFileNameWithoutExtension(f.Name.Replace('\\', '/')), StringComparer.OrdinalIgnoreCase))
+                sourceMaterials[group.Key] = MTD.Read(group.First().Bytes);
+        float[] Factor(string definition, string colour) => ((float[])sourceMaterials[definition].Params.Single(q => q.Name == colour).Value)
+            .Select(v => MathF.Pow(v * (float)sourceMaterials[definition].Params.Single(q => q.Name == colour + "Power").Value, 2.2f)).ToArray();
+        var ownDefinitions = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var (identity, body) in bodyFiles)
+            foreach (var material in body.Materials)
+            {
+                var own = Regex.Match(material.MTD, @"\\aog_character_(\d{4})_(\d{4})_(\d{4})(_cutout)?\.matxml$");
+                if (!own.Success && !material.MTD.EndsWith(@"\C[AMSN].matxml", StringComparison.Ordinal)) throw new Exception($"Built body {identity} is drawn by an unexpected definition: {material.MTD}");
+                if (own.Success)
+                {
+                    cutoutMeshes += own.Groups[4].Success ? 1 : 0;
+                    ownDefinitions.Add(Path.GetFileNameWithoutExtension(material.MTD.Replace('\\', '/')));
+                    // An enemy's colour lies between what its source definitions give a surface that is not metal and one that is.
+                    float[] tint = [int.Parse(own.Groups[1].Value) / 1000f, int.Parse(own.Groups[2].Value) / 1000f, int.Parse(own.Groups[3].Value) / 1000f];
+                    if (sourceDefinitions.TryGetValue(identity, out var from) && !from.Any(d =>
+                        {
+                            float[] plain = Factor(d, "g_DiffuseMapColor"), metal = Factor(d, "g_SpecularMapColor");
+                            return Enumerable.Range(0, 3).All(c => tint[c] >= Math.Min(plain[c], metal[c]) - 1e-3f && tint[c] <= Math.Max(plain[c], metal[c]) + 1e-3f);
+                        }))
+                        throw new Exception($"Built body {identity} multiplies its colour map by {string.Join(", ", tint)}, which no source definition of its gives");
+                }
+                string metal = material.Textures.Single(t => t.ParamName.EndsWith("_MetallicMap_0", StringComparison.Ordinal)).Path, relief = material.Textures.Single(t => t.ParamName.EndsWith("_NormalMap_4", StringComparison.Ordinal)).Path;
+                string metalFrom = builtTextures[metal], reliefFrom = builtTextures[relief];
+                if (metalFrom.StartsWith("aog:metal:", StringComparison.Ordinal)) madeMetal++;
+                else if (metalFrom != "aog:neutral") throw new Exception($"Built body {identity}'s metal map is neither made from a source specular map nor the neutral one: {metalFrom}");
+                if (!reliefFrom.StartsWith("aog:relief:", StringComparison.Ordinal) || Built(relief).GetDXGIFormat() != DDS.DXGI_FORMAT.BC7_UNORM
+                    || (metalFrom != "aog:neutral" && (Built(metal).GetDXGIFormat() != DDS.DXGI_FORMAT.BC4_UNORM || Built(metal).dwMipMapCount < 2
+                        // The two are made from the same specular map, at one size.
+                        || !reliefFrom.EndsWith(":" + metalFrom["aog:metal:".Length..], StringComparison.Ordinal) || Built(relief).dwWidth < Built(metal).dwWidth)))
+                    throw new Exception($"Built body {identity}'s metal and relief maps are not made from the source's specular and relief maps");
+            }
+        // Each definition of the build's own is in the built binder once, with the colour and the cut-out its name states.
+        foreach (string name in ownDefinitions)
+        {
+            var stored = materials.Where(g => g.Key.EndsWith("/" + name + ".matbin", StringComparison.Ordinal)).SelectMany(g => g).ToArray();
+            var parts = name.Split('_');
+            if (stored.Length != 1) throw new Exception("A character definition of the build's own is not in the built binder once: " + name);
+            var definition = MATBIN.Read(stored[0]);
+            if (!((float[])definition.Params.Single(q => q.Name == "g_DiffuseMapColor").Value).SequenceEqual(new[] { int.Parse(parts[2]) / 1000f, int.Parse(parts[3]) / 1000f, int.Parse(parts[4]) / 1000f })
+                || !((int[])definition.Params.Single(q => q.Name == "g_AlphaRef").Value).SequenceEqual(name.EndsWith("_cutout", StringComparison.Ordinal) ? [128, 0] : [0, 0]))
+                throw new Exception("A character definition of the build's own does not hold what its name states: " + name);
+        }
+        // The hollows' leather is darker than its colour map, and some of their cloth is torn.
+        if (cutoutMeshes == 0 || madeMetal == 0 || ownDefinitions.Count < 2 || sourceDefinitions.Count == 0)
+            throw new Exception($"Built characters lack cut-out cloth, made metal maps or definitions of their own: {cutoutMeshes} cut-out meshes, {madeMetal} made metal maps, {ownDefinitions.Count} definitions");
+        // Characters take the source's light. The host's directional lights are out; the environment boxes keep the host's
+        // own multipliers; and every baked volume, for each state of the sky and each quality, holds throughout the terms
+        // the manifest states, which are at least the arrival row's hemisphere light.
+        if (new[] { "Light DiffColor0", "Light SpecColor0", "Light DiffColor1", "Light SpecColor1", "Light LocalLight DiffColor1", "Light LocalLight SpecColor1", "Light LocalLight DiffColor2", "Light LocalLight SpecColor2" }
+            .Any(light => graphics["Directional " + light].Single().Values.Any(v => ((System.Numerics.Vector4)v).W != 0)))
+            throw new Exception("Built graphics parameters keep a host directional light on characters");
+        var hostBoxes = MSBE.Read(hostArchive.Read("map/mapstudio/m10_01_00_00.msb.dcx")).Regions.EnvironmentMapEffectBoxes.ToDictionary(b => b.Name, b => b.PointLightMult);
+        if (hostBoxes.Count == 0 || layout.Regions.EnvironmentMapEffectBoxes.Count != hostBoxes.Count || layout.Regions.EnvironmentMapEffectBoxes.Any(b => b.PointLightMult != hostBoxes[b.Name]))
+            throw new Exception("Built environment boxes do not keep the host's multipliers");
+        var characterLight = manifest.RootElement.GetProperty("characterLight");
+        float[] Term(string name) => characterLight.GetProperty(name).EnumerateArray().Select(v => v.GetSingle()).ToArray();
+        float[][] lightTerms = [Term("constant"), Term("x"), Term("y"), Term("z")];
+        int lightRowId = characterLight.GetProperty("row").GetInt32();
+        var sourceInstall = new Install(source, "DarkSoulsRemastered.exe");
+        var lightRow = AgeOfGold.Params.SourceLightingReader.Read(sourceInstall).Characters.Single(r => r.Id == lightRowId);
+        float hemisphereStrength = SourceRendererSettings.Read(sourceInstall).HemisphereStrength;
+        float Linear(float colour, float intensity) => MathF.Pow(colour * intensity, 2.2f) * hemisphereStrength;
+        float[] above = [Linear(lightRow.Upper.Red, lightRow.Upper.Intensity), Linear(lightRow.Upper.Green, lightRow.Upper.Intensity), Linear(lightRow.Upper.Blue, lightRow.Upper.Intensity)];
+        float[] below = [Linear(lightRow.Lower.Red, lightRow.Lower.Intensity), Linear(lightRow.Lower.Green, lightRow.Lower.Intensity), Linear(lightRow.Lower.Blue, lightRow.Lower.Intensity)];
+        if (lightRowId != manifest.RootElement.GetProperty("arrival").GetProperty("selection").GetProperty("Light").GetInt32() || lightTerms.Any(t => t.Length != 3 || !t.All(float.IsFinite))
+            || Enumerable.Range(0, 3).Any(c => lightTerms[0][c] < (above[c] + below[c]) / 2 - 1e-4f || lightTerms[0][c] > (above[c] + below[c]) / 2 + 10 || lightTerms[2][c] <= 0))
+            throw new Exception("The character light the manifest states is not the arrival row's");
+        var volumePaths = characterLight.GetProperty("volumes").EnumerateArray().Select(v => v.GetString()!).ToArray();
+        // Seven states of the sky in three qualities.
+        if (volumePaths.Length != 21 || volumePaths.Distinct().Count() != 21) throw new Exception($"Built baked light covers {volumePaths.Length} state and quality binders, not 21");
+        var sky = AgeOfGold.Scene.TextureReader.Read(sourceInstall, [characterLight.GetProperty("sky").GetString()!]).Single().Bytes;
+        var skyHeader = new DDS(sky);
+        static int Levels(int size, int first, int count) => Enumerable.Range(first, count).Sum(level => { int blocks = (Math.Max(1, size >> level) + 3) / 4; return blocks * blocks * 16; });
+        int skyFace = Levels(skyHeader.dwWidth, 0, skyHeader.dwMipMapCount), cubes = 0;
+        // Every environment box reflects at the one strength the manifest states.
+        float reflection = characterLight.GetProperty("reflection").GetSingle();
+        if (!(reflection > 0) || layout.Regions.EnvironmentMapEffectBoxes.Any(q => q.SpecularLightMult != reflection))
+            throw new Exception("Built environment boxes do not reflect the sky at the stated strength");
+        // The composition stage shows the scenery's marked light alone.
+        if (!compiler.Disassemble(ShaderArchive.Read(File.ReadAllBytes(Path.Combine(mod, "shader/GXRendererShader.shaderbnd.dcx")), "GXLightComposite.ppo")).Contains("%aog_marked = fcmp fast olt float", StringComparison.Ordinal))
+            throw new Exception("Built composition stage does not keep the scenery's own light apart");
+        foreach (string path in volumePaths)
+        {
+            var built = BND4.Read(Path.Combine(mod, path)); var installed = BND4.Read(hostArchive.Read(path));
+            if (!built.Files.Select(f => (f.ID, f.Name)).SequenceEqual(installed.Files.Select(f => (f.ID, f.Name)))) throw new Exception("Built baked light does not keep the host's members: " + path);
+            int volumes = 0;
+            for (int i = 0; i < built.Files.Count; i++)
+            {
+                var term = Regex.Match(Path.GetFileNameWithoutExtension(built.Files[i].Name.Replace('\\', '/')), @"_GIIV\d{4}_\d{2}_([WXYZ])$");
+                if (!term.Success)
+                {
+                    // A reflection cube keeps the host's package and header and holds, face by face, the sky's levels of its own size.
+                    var cube = AgeOfGold.Scene.TextureReader.ReadPackage(built.Files[i].Bytes).Single().Bytes;
+                    var to = new DDS(cube);
+                    int skip = System.Numerics.BitOperations.Log2((uint)(skyHeader.dwWidth / to.dwWidth)), face = Levels(to.dwWidth, 0, to.dwMipMapCount);
+                    if (built.Files[i].Bytes.Length != installed.Files[i].Bytes.Length || cube.Length != to.DataOffset + 6 * face || to.dwWidth << skip != skyHeader.dwWidth
+                        || Enumerable.Range(0, 6).Any(f => !cube.AsSpan(to.DataOffset + f * face, face).SequenceEqual(sky.AsSpan(skyHeader.DataOffset + f * skyFace + Levels(skyHeader.dwWidth, 0, skip), face))))
+                        throw new Exception("A built reflection cube does not hold the source's sky: " + built.Files[i].Name);
+                    cubes++;
+                    continue;
+                }
+                var dds = AgeOfGold.Scene.TextureReader.ReadPackage(built.Files[i].Bytes).Single().Bytes;
+                var header = new DDS(dds);
+                var expected = AgeOfGold.Maps.HostIrradiance.Encode(lightTerms["WXYZ".IndexOf(term.Groups[1].Value, StringComparison.Ordinal)]);
+                var texels = BlockTextureCheck.ReadOneLine(dds.AsSpan(header.DataOffset, 16));
+                bool same = dds.Length == AgeOfGold.Scene.TextureReader.ReadPackage(installed.Files[i].Bytes).Single().Bytes.Length && (dds.Length - header.DataOffset) % 16 == 0;
+                for (int at = header.DataOffset + 16; same && at < dds.Length; at += 16) same = dds.AsSpan(at, 16).SequenceEqual(dds.AsSpan(header.DataOffset, 16));
+                if (!same || Enumerable.Range(0, 16).Any(t => Math.Abs(texels[t * 4] - expected[0]) > 1 || Math.Abs(texels[t * 4 + 1] - expected[1]) > 1 || Math.Abs(texels[t * 4 + 2] - expected[2]) > 1 || texels[t * 4 + 3] != expected[3]))
+                    throw new Exception("A built volume does not hold the stated light throughout: " + built.Files[i].Name);
+                volumes++;
+            }
+            if (volumes == 0 || volumes % 4 != 0) throw new Exception("Built baked light has no whole sets of volumes: " + path);
+        }
+        if (cubes == 0) throw new Exception("Built baked light has no reflection cubes");
         var tables = AgeOfGold.Archives.Regulation.Read(File.ReadAllBytes(Path.Combine(host, "eldenring.exe")), File.ReadAllBytes(Path.Combine(mod, "regulation.bin"))).Tables;
         var effectRows = tables.Files.Single(f => f.Name.EndsWith("SpEffectVfxParam.param", StringComparison.Ordinal)).Bytes;
         int rowCount = BitConverter.ToUInt16(effectRows, 0x0A);

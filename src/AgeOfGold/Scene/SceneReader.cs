@@ -64,6 +64,25 @@ internal sealed class SceneReader
         return definitions[name] = MTD.Read(chosen);
     }
 
+    /// <summary>
+    /// What a definition multiplies a surface's colour map by, as factors on linear light: where the surface is not
+    /// metal, and where it is. The source multiplies by the colour times its power before its display curve.
+    /// </summary>
+    internal (float[] Plain, float[] Metal) SurfaceColours(string definitionPath)
+    {
+        var definition = Definition(Stem(definitionPath));
+        // The remastered source reads metal and roughness from the specular map unless a definition says otherwise.
+        if (definition.Params.SingleOrDefault(p => p.Name == "g_MaterialWorkflow") is { Value: not 0 }) throw new InvalidDataException("Unclassified material workflow: " + definitionPath);
+        float[] Colour(string name)
+        {
+            if (definition.Params.SingleOrDefault(p => p.Name == name)?.Value is not float[] { Length: 3 } colour || definition.Params.SingleOrDefault(p => p.Name == name + "Power")?.Value is not float power
+                || colour.Append(power).Any(v => !float.IsFinite(v) || v < 0))
+                throw new InvalidDataException($"Material definition lacks a colour and its power, {name}: {definitionPath}");
+            return colour.Select(v => MathF.Pow(v * power, 2.2f)).ToArray();
+        }
+        return (Colour("g_DiffuseMapColor"), Colour("g_SpecularMapColor"));
+    }
+
     /// <summary>An object's model in the same shape as a map piece's; its textures come from <see cref="ReadObjectTextures"/>.</summary>
     internal byte[] ReadObject(string name) => JsonSerializer.SerializeToUtf8Bytes(Model(name, ObjectFile(name, ".flver")));
 

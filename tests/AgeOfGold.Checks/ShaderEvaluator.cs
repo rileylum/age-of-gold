@@ -82,6 +82,8 @@ internal sealed class ShaderEvaluator
                     ("loadInput", 4) => Input(I(a[1]), I(a[3])),
                     ("storeOutput", 5) => Store(I(a[1]), I(a[3]), F(a[4])),
                     ("cbufferLoadLegacy", 59) => Constants((((int, int))Value(Strip(a[1]))).Item2, I(a[2])),
+                    // A load reads one texel; the check's textures are the same everywhere.
+                    ("textureLoad", 66) => Sample((((int, int))Value(Strip(a[1]))).Item2, [], true),
                     ("sample", 60) => Sample((((int, int))Value(Strip(a[1]))).Item2, [F(a[3]), F(a[4])], false),
                     ("sampleLevel", 62) => Sample((((int, int))Value(Strip(a[1]))).Item2, a[5].EndsWith("undef", StringComparison.Ordinal) ? [F(a[3]), F(a[4])] : [F(a[3]), F(a[4]), F(a[5])], true),
                     ("unary", 6) => MathF.Abs(F(a[1])),
