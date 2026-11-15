@@ -63,15 +63,32 @@ thing at a time and reading the shown frame back through the build's own display
   the emitted light times its weight to a second target for glow. The scenery's source
   lighting is the emitted light; marking it with a weight below nothing lets the composition
   stage show it alone.
-- The two games' reflections cannot be matched by one strength. The source reflects from a
-  surface that is not metal a share set by its specular map, around a hundredth for the
-  hollow's leather; the host reflects a fixed share several times that. Compared with captures
-  of the source game from the same eye, a box multiplier of 0.3 matches leather and skin and
-  leaves metal dimmer than the source's; 1.0 is nearer on metal and leaves leather glossy. A
-  steeper gloss curve does not help: a rougher surface reflects the blurred sky, which is
-  bright.
-- The host material's unnamed colour setting tints surface colour and reflections alike; it is
-  not a separate reflectance.
+- The host's reflection scale, measured on a white, rough, all-metal body under cubes of one
+  grey: the shown value is the cube's value times the box's specular multiplier times 20.8.
+  The source shows the cube's value times its specular gain, so a source gain converts to a
+  box multiplier by dividing by 20.8. A first setting made by eye was five times too weak and
+  left metal black.
+- The host reflects at least 4 % from anything that is not metal. The source reflects a fifth
+  of the specular map's blue channel times the brightness of the definition's specular colour:
+  about 1 % for the hollow's leather, up to 20 % in patches of the warrior's mail whose colour
+  map is black there. The build's maps therefore carry four times the source's reflectance and
+  the boxes reflect four times more weakly, which puts the host's floor at the source's 1 %.
+- The host material's unnamed colour setting tints surface colour and reflections alike; of
+  its two unnamed numbers one overrides metal and the other frosts the surface. None is a
+  separate reflectance.
+- For a rough surface the source looks its reflection up near the surface's facing, well
+  blurred, so it reads as a second soft light. The host's reflections are sharper. Changing
+  the gloss curve made little visible difference.
+
+## Shade
+
+In the source's character program the shadow map multiplies the whole environment term,
+diffuse and specular. The area's shadow rows give a black shadow colour at full density, so a
+character in shadow keeps only the hemisphere colour: soft, bluish, without reflections. One
+row reaches only ten metres from the camera. The build does not shade characters, so one
+sitting in shade is lit and reflects as if in the open; with correct reflectance this is the
+largest remaining fault. The host bakes its light for characters into volumes fine enough
+(about a metre) to hold a baked shadow.
 
 ## Surface colour
 
@@ -81,6 +98,14 @@ specular colour and power instead. For the hollow's leather the factor is 0.6, a
 linear light. The host's plain character definition has a colour setting applied to the
 colour map in linear light (seen in game), but one for the whole surface.
 
+The host lights a surface's colour times what is not metal, and reflects 4 % blended towards
+the colour by metal. With d and f the source's diffuse light and reflectance at a texel and x
+what is not metal, both match where 0.04 x² − (d + f) x + d = 0 has a root no greater than
+one; the colour is then d + f − 0.04 x. Where the source reflects less than the host's floor
+there is no root: the texel stays plain and keeps its colour. (A closest fit by least squares
+gives up a dark surface's colour to bring the reflection down, and turns dark leather into
+black metal.)
+
 ## What the build does with it
 
 - The source's character light for the arrival's row is restated as a constant and three
@@ -88,15 +113,21 @@ colour map in linear light (seen in game), but one for the whole surface.
   of every state and quality. The host's directional lights are put out. Closed loop on the
   grey body, the shown levels were within about a tenth of the levels predicted from the
   source's row on side-facing surfaces, and a little low on top.
-- Every reflection cube takes the source sky's levels of its size, every box reflects at one
-  strength, and the composition stage shows the scenery's marked light alone. Scenery in the
-  three compared views stays within a few levels of the source game's.
-- Each character surface is drawn by a definition of the build's own carrying the source's
-  colour factor, the plain and metal factors mixed by the specular map's share of metal.
+- Every reflection cube takes the source sky's levels of its size, every box reflects at the
+  source's gain through the measured scale, and the composition stage shows the scenery's
+  marked light alone. Scenery in the three compared views stays within a few levels of the
+  source game's.
+- Each character surface's colour map and metal map are made texel by texel from the source's
+  colour map, specular map and definition colours, as above.
 
 Not done: characters take no shadow from scenery and cast none on it; one row lights the
-whole map; metal is dimmer than the source's; the colour factor is not told apart texel by
-texel.
+whole map; reflections from rough surfaces are sharper than the source's.
+
+## Decoding the source's textures
+
+The source's colour maps are often in the high-quality four-channel block format. The tool
+decodes every mode of it from the format's published definition; privately it is
+byte-identical to an independent decoder on five textures of both games.
 
 ## Decoding the source's cubes
 

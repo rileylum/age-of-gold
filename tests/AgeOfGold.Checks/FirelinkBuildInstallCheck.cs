@@ -431,57 +431,40 @@ internal static class FirelinkBuildInstallCheck
             return new DDS(AgeOfGold.Scene.TextureReader.ReadPackage(package).Single().Bytes);
         }
         var builtTextures = manifest.RootElement.GetProperty("textures").EnumerateObject().ToDictionary(t => t.Value.GetString()!, t => t.Name, StringComparer.OrdinalIgnoreCase);
-        int cutoutMeshes = 0, madeMetal = 0;
+        int cutoutMeshes = 0, madeSurfaces = 0;
         // The source's definitions: the patch binder's over the base one's, and the first of a repeated name.
         var sourceMaterials = new Dictionary<string, MTD>(StringComparer.OrdinalIgnoreCase);
         foreach (string binder in new[] { "mtd/Mtd.mtdbnd.dcx", "mtd/MtdPatch.mtdbnd.dcx" })
             foreach (var group in BND3.Read(Path.Combine(source, binder)).Files.GroupBy(f => Path.GetFileNameWithoutExtension(f.Name.Replace('\\', '/')), StringComparer.OrdinalIgnoreCase))
                 sourceMaterials[group.Key] = MTD.Read(group.First().Bytes);
-        float[] Factor(string definition, string colour) => ((float[])sourceMaterials[definition].Params.Single(q => q.Name == colour).Value)
-            .Select(v => MathF.Pow(v * (float)sourceMaterials[definition].Params.Single(q => q.Name == colour + "Power").Value, 2.2f)).ToArray();
-        var ownDefinitions = new SortedSet<string>(StringComparer.Ordinal);
+        // A definition's colour times its power, to a thousandth, as the made textures' names state it.
+        string Factor(string definition, string colour) => string.Join('_', ((float[])sourceMaterials[definition].Params.Single(q => q.Name == colour).Value)
+            .Select(v => ((int)MathF.Round(v * (float)sourceMaterials[definition].Params.Single(q => q.Name == colour + "Power").Value * 1000)).ToString("D4")));
         foreach (var (identity, body) in bodyFiles)
             foreach (var material in body.Materials)
             {
-                var own = Regex.Match(material.MTD, @"\\aog_character_(\d{4})_(\d{4})_(\d{4})(_cutout)?\.matxml$");
-                if (!own.Success && !material.MTD.EndsWith(@"\C[AMSN].matxml", StringComparison.Ordinal)) throw new Exception($"Built body {identity} is drawn by an unexpected definition: {material.MTD}");
-                if (own.Success)
-                {
-                    cutoutMeshes += own.Groups[4].Success ? 1 : 0;
-                    ownDefinitions.Add(Path.GetFileNameWithoutExtension(material.MTD.Replace('\\', '/')));
-                    // An enemy's colour lies between what its source definitions give a surface that is not metal and one that is.
-                    float[] tint = [int.Parse(own.Groups[1].Value) / 1000f, int.Parse(own.Groups[2].Value) / 1000f, int.Parse(own.Groups[3].Value) / 1000f];
-                    if (sourceDefinitions.TryGetValue(identity, out var from) && !from.Any(d =>
-                        {
-                            float[] plain = Factor(d, "g_DiffuseMapColor"), metal = Factor(d, "g_SpecularMapColor");
-                            return Enumerable.Range(0, 3).All(c => tint[c] >= Math.Min(plain[c], metal[c]) - 1e-3f && tint[c] <= Math.Max(plain[c], metal[c]) + 1e-3f);
-                        }))
-                        throw new Exception($"Built body {identity} multiplies its colour map by {string.Join(", ", tint)}, which no source definition of its gives");
-                }
-                string metal = material.Textures.Single(t => t.ParamName.EndsWith("_MetallicMap_0", StringComparison.Ordinal)).Path, relief = material.Textures.Single(t => t.ParamName.EndsWith("_NormalMap_4", StringComparison.Ordinal)).Path;
-                string metalFrom = builtTextures[metal], reliefFrom = builtTextures[relief];
-                if (metalFrom.StartsWith("aog:metal:", StringComparison.Ordinal)) madeMetal++;
-                else if (metalFrom != "aog:neutral") throw new Exception($"Built body {identity}'s metal map is neither made from a source specular map nor the neutral one: {metalFrom}");
-                if (!reliefFrom.StartsWith("aog:relief:", StringComparison.Ordinal) || Built(relief).GetDXGIFormat() != DDS.DXGI_FORMAT.BC7_UNORM
-                    || (metalFrom != "aog:neutral" && (Built(metal).GetDXGIFormat() != DDS.DXGI_FORMAT.BC4_UNORM || Built(metal).dwMipMapCount < 2
-                        // The two are made from the same specular map, at one size.
-                        || !reliefFrom.EndsWith(":" + metalFrom["aog:metal:".Length..], StringComparison.Ordinal) || Built(relief).dwWidth < Built(metal).dwWidth)))
-                    throw new Exception($"Built body {identity}'s metal and relief maps are not made from the source's specular and relief maps");
+                bool cut = material.MTD.EndsWith(@"\aog_character_cutout.matxml", StringComparison.Ordinal);
+                if (!cut && !material.MTD.EndsWith(@"\C[AMSN].matxml", StringComparison.Ordinal)) throw new Exception($"Built body {identity} is drawn by an unexpected definition: {material.MTD}");
+                cutoutMeshes += cut ? 1 : 0;
+                string Wears(string input) => builtTextures[material.Textures.Single(t => t.ParamName.EndsWith(input, StringComparison.Ordinal)).Path];
+                string Named(string input) => material.Textures.Single(t => t.ParamName.EndsWith(input, StringComparison.Ordinal)).Path;
+                // The three maps are made from one colour map, one specular map and one definition's colours.
+                var colour = Regex.Match(Wears("_AlbedoMap_0"), @"^aog:colour:([^:]+):([^:]*):(\d{4}_\d{4}_\d{4})_(\d{4}_\d{4}_\d{4})$");
+                var relief = Regex.Match(Wears("_NormalMap_4"), @"^aog:relief:([^:]+):([^:]*)$");
+                if (!colour.Success || !relief.Success || Wears("_MetallicMap_0") != "aog:metal:" + Wears("_AlbedoMap_0")["aog:colour:".Length..] || relief.Groups[2].Value != colour.Groups[2].Value
+                    || Built(Named("_AlbedoMap_0")).GetDXGIFormat() != DDS.DXGI_FORMAT.BC7_UNORM_SRGB || Built(Named("_NormalMap_4")).GetDXGIFormat() != DDS.DXGI_FORMAT.BC7_UNORM
+                    || Built(Named("_MetallicMap_0")).GetDXGIFormat() != DDS.DXGI_FORMAT.BC4_UNORM || Built(Named("_MetallicMap_0")).dwMipMapCount < 2
+                    || Built(Named("_MetallicMap_0")).dwWidth != Built(Named("_AlbedoMap_0")).dwWidth)
+                    throw new Exception($"Built body {identity}'s maps are not made from one colour map, specular map and definition: {Wears("_AlbedoMap_0")}, {Wears("_MetallicMap_0")}, {Wears("_NormalMap_4")}");
+                madeSurfaces++;
+                // An enemy's colours are those of one of its source definitions.
+                if (sourceDefinitions.TryGetValue(identity, out var from) && !from.Any(d => Factor(d, "g_DiffuseMapColor") == colour.Groups[3].Value && Factor(d, "g_SpecularMapColor") == colour.Groups[4].Value))
+                    throw new Exception($"Built body {identity} wears colours no source definition of its gives: {colour.Groups[3].Value} and {colour.Groups[4].Value}");
             }
-        // Each definition of the build's own is in the built binder once, with the colour and the cut-out its name states.
-        foreach (string name in ownDefinitions)
-        {
-            var stored = materials.Where(g => g.Key.EndsWith("/" + name + ".matbin", StringComparison.Ordinal)).SelectMany(g => g).ToArray();
-            var parts = name.Split('_');
-            if (stored.Length != 1) throw new Exception("A character definition of the build's own is not in the built binder once: " + name);
-            var definition = MATBIN.Read(stored[0]);
-            if (!((float[])definition.Params.Single(q => q.Name == "g_DiffuseMapColor").Value).SequenceEqual(new[] { int.Parse(parts[2]) / 1000f, int.Parse(parts[3]) / 1000f, int.Parse(parts[4]) / 1000f })
-                || !((int[])definition.Params.Single(q => q.Name == "g_AlphaRef").Value).SequenceEqual(name.EndsWith("_cutout", StringComparison.Ordinal) ? [128, 0] : [0, 0]))
-                throw new Exception("A character definition of the build's own does not hold what its name states: " + name);
-        }
-        // The hollows' leather is darker than its colour map, and some of their cloth is torn.
-        if (cutoutMeshes == 0 || madeMetal == 0 || ownDefinitions.Count < 2 || sourceDefinitions.Count == 0)
-            throw new Exception($"Built characters lack cut-out cloth, made metal maps or definitions of their own: {cutoutMeshes} cut-out meshes, {madeMetal} made metal maps, {ownDefinitions.Count} definitions");
+        // Torn cloth is drawn by a cut-out twin of the host's definition, with the source's half coverage.
+        var cutoutBytes = materials.Where(g => g.Key.EndsWith("/aog_character_cutout.matbin", StringComparison.Ordinal)).SelectMany(g => g).ToArray();
+        if (cutoutMeshes == 0 || madeSurfaces == 0 || sourceDefinitions.Count == 0 || cutoutBytes.Length != 1 || !((int[])MATBIN.Read(cutoutBytes[0]).Params.Single(q => q.Name == "g_AlphaRef").Value).SequenceEqual([128, 0]))
+            throw new Exception($"Built characters lack torn cloth's cut-out definition or made maps: {cutoutMeshes} cut-out meshes, {madeSurfaces} surfaces");
         // Characters take the source's light. The host's directional lights are out; the environment boxes keep the host's
         // own multipliers; and every baked volume, for each state of the sky and each quality, holds throughout the terms
         // the manifest states, which are at least the arrival row's hemisphere light.

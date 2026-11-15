@@ -120,7 +120,7 @@ internal static class BlockTextureCheck
         if (half.Width != 1 || half.Height != 1 || half.Rgba[0] != 25 || half.Rgba[3] != 255) throw new Exception("Halving is not the mean of four texels");
         foreach (var bad in new Action[]
         {
-            () => BlockTexture.Decode(Dds(DDS.DXGI_FORMAT.BC7_UNORM, 4, 4, new byte[16])),
+            () => BlockTexture.Decode(Dds(DDS.DXGI_FORMAT.BC3_UNORM, 4, 4, new byte[16])),
             () => BlockTexture.Decode(Dds(DDS.DXGI_FORMAT.BC1_UNORM, 8, 8, new byte[8])),
             () => BlockTexture.EncodeSingle(new(4, 4, new byte[60]), 0),
         })
@@ -130,16 +130,10 @@ internal static class BlockTextureCheck
         }
         Console.WriteLine("PASS: one-channel and four-channel block textures encode with every smaller level and read back close to the image");
 
-        // A character's maps: metal is the source specular map's green; gloss is the reverse of its red, in the relief map's blue.
+        // A character's relief map: gloss is the reverse of the source specular map's red, in the relief map's blue.
         // Specular: red 255 (rough) and green 0 in the first colour; red 0 and green 255 (metal) in the second; texel 1 takes the second.
         byte[] specular = Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, [0x00, 0xF8, 0xE0, 0x07, 0b0100, 0, 0, 0]);
         byte[] relief = Dds(DDS.DXGI_FORMAT.BC5_UNORM, 4, 4, [.. channel, .. channel]);
-        var metal = HostCharacterTextures.Metal(specular);
-        var metalBlock = metal.AsSpan(new DDS(metal).DataOffset, 8).ToArray();
-        var metalBack = BlockTexture.Decode(Dds(DDS.DXGI_FORMAT.BC5_UNORM, 4, 4, [.. metalBlock, .. metalBlock]));
-        if (metalBack.Rgba[0] != 0 || metalBack.Rgba[4] != 255 || metalBack.Rgba[8] != 0) throw new Exception("Metal is not the source specular map's green");
-        // One texel of sixteen is metal: a sixteenth of the surface.
-        if (Math.Abs(HostCharacterTextures.Metalness(specular) - 1 / 16f) > 1e-6f) throw new Exception($"The specular map's share of metal is {HostCharacterTextures.Metalness(specular)}, not a sixteenth");
         var glossy = HostCharacterTextures.ReliefAndGloss(relief, specular);
         var glossBack = ReadOneLine(glossy.AsSpan(new DDS(glossy).DataOffset, 16));
         // Texel 0: relief 200, rough, so no gloss. Texel 1: relief 100, smooth, so full gloss.
@@ -158,7 +152,7 @@ internal static class BlockTextureCheck
         var spread = HostCharacterTextures.ReliefAndGloss(relief, wideSpecular);
         var spreadRight = ReadOneLine(spread.AsSpan(new DDS(spread).DataOffset + 16, 16));
         if (new DDS(spread).dwWidth != 8 || spreadRight[2] < 251 || Math.Abs(spreadRight[0] - 185) > 12) throw new Exception("A smaller relief map was not spread to the specular map's size");
-        Console.WriteLine("PASS: a character's metal map is the source specular map's green, and its gloss the reverse of the red, in the relief map's blue");
+        Console.WriteLine("PASS: a character's gloss is the reverse of the source specular map's red, in the relief map's blue");
     }
 
     // One block of the unsigned HDR format from named fields: each a first bit, a width and a value.
@@ -234,5 +228,110 @@ internal static class BlockTextureCheck
                     throw new Exception($"A solid block of {r}, {g}, {b}, {a} reads back {texels[i * 4]}, {texels[i * 4 + 1]}, {texels[i * 4 + 2]}, {texels[i * 4 + 3]} at texel {i}");
         }
         Console.WriteLine("PASS: a solid block reads back its colour within a step and its coverage exactly");
+    }
+
+    /// <summary>The source's colour maps are often in the high-quality format, in any of its modes; expected values are worked by hand from the format's published definition.</summary>
+    internal static void Colour()
+    {
+        byte[] Texel(BlockTexture.Image image, int texel) => image.Rgba.AsSpan(texel * 4, 4).ToArray();
+        void Expect(string what, BlockTexture.Image image, int texel, params byte[] expected)
+        {
+            if (!Texel(image, texel).SequenceEqual(expected)) throw new Exception($"{what} texel {texel} decoded to {string.Join(",", Texel(image, texel))}; expected {string.Join(",", expected)}");
+        }
+        // Two regions, six-bit colour and one extra low bit a region (mode 1), divided top half and bottom half (choice 13,
+        // whose second anchor is texel 15). First region: (0,63,32) to (63,0,32) with the low bit set; second: 10 to 50 without.
+        // A six-bit value with its low bit widens as seven bits: 0|1 -> 2, 63|1 -> 255, 32|1 -> 131, 10|0 -> 40, 50|0 -> 201.
+        var two = BlockTexture.Decode(Dds(DDS.DXGI_FORMAT.BC7_UNORM, 4, 4, Block((1, 1, 1), (2, 6, 13),
+            (8, 6, 0), (14, 6, 63), (20, 6, 10), (26, 6, 50), (32, 6, 63), (38, 6, 0), (44, 6, 10), (50, 6, 50), (56, 6, 32), (62, 6, 32), (68, 6, 10), (74, 6, 50),
+            (80, 1, 1), (81, 1, 0), (84, 3, 7), (87, 3, 3), (108, 3, 7), (111, 3, 4), (126, 2, 1))));
+        Expect("Two regions", two, 0, 2, 255, 131, 255);
+        Expect("Two regions", two, 1, 255, 2, 131, 255);
+        // Choice 3 of 8 has weight 27: (37 x 2 + 27 x 255 + 32) >> 6 = 109 and (37 x 255 + 27 x 2 + 32) >> 6 = 148.
+        Expect("Two regions", two, 2, 109, 148, 131, 255);
+        Expect("Two regions", two, 8, 40, 40, 40, 255);
+        Expect("Two regions", two, 9, 201, 201, 201, 255);
+        // Weight 37: (27 x 40 + 37 x 201 + 32) >> 6 = 133. The anchor's choice 1 has weight 9: (55 x 40 + 9 x 201 + 32) >> 6 = 63.
+        Expect("Two regions", two, 10, 133, 133, 133, 255);
+        Expect("Two regions", two, 15, 63, 63, 63, 255);
+        // One region with coverage apart (mode 4), the colour taking the three-bit choices and coverage the two-bit ones,
+        // and red and coverage changing places afterwards. Five-bit colour 0, 31, 16 widens to 0, 255, 132; six-bit coverage 63 to 255.
+        var apart = BlockTexture.Decode(Dds(DDS.DXGI_FORMAT.BC7_UNORM, 4, 4, Block((4, 1, 1), (5, 2, 1), (7, 1, 1),
+            (8, 5, 0), (13, 5, 31), (18, 5, 31), (23, 5, 0), (28, 5, 16), (33, 5, 16), (38, 6, 0), (44, 6, 63), (51, 2, 1), (83, 3, 7))));
+        Expect("Coverage apart", apart, 0, 0, 255, 132, 0);
+        // Colour (255, 0, 132) at its last choice; coverage at choice 1 of 4, weight 21: (21 x 255 + 32) >> 6 = 84; then red and coverage swap.
+        Expect("Coverage apart", apart, 1, 84, 0, 132, 255);
+        // Three regions, four-bit colour and a low bit an end (mode 0), choice 0: rows "0011", "0011", "0221", "2222", with
+        // anchors at texels 3 and 15. First region red 15 with its bit to 0 without (255 to 0), green and blue 0 with the
+        // bit (8) to 0; second 5 without (82) to 10 with (173); third 8 without at both ends (132).
+        var three = BlockTexture.Decode(Dds(DDS.DXGI_FORMAT.BC7_UNORM, 4, 4, Block((0, 1, 1), (1, 4, 0),
+            (5, 4, 15), (9, 4, 0), (13, 4, 5), (17, 4, 10), (21, 4, 8), (25, 4, 8), (37, 4, 5), (41, 4, 10), (45, 4, 8), (49, 4, 8), (61, 4, 5), (65, 4, 10), (69, 4, 8), (73, 4, 8),
+            (77, 1, 1), (80, 1, 1), (85, 3, 7), (88, 3, 7))));
+        Expect("Three regions", three, 0, 255, 8, 8, 255);
+        Expect("Three regions", three, 1, 0, 0, 0, 255);
+        Expect("Three regions", three, 2, 173, 173, 173, 255);
+        Expect("Three regions", three, 3, 82, 82, 82, 255);
+        Expect("Three regions", three, 9, 132, 132, 132, 255);
+        Expect("Three regions", three, 12, 132, 132, 132, 255);
+        // What the build itself writes reads back through the same reader.
+        var rgba = new byte[64]; for (int i = 0; i < 16; i++) { rgba[i * 4] = (byte)(i * 16); rgba[i * 4 + 1] = (byte)(255 - i * 16); rgba[i * 4 + 2] = 77; rgba[i * 4 + 3] = 255; }
+        var back = BlockTexture.Decode(BlockTexture.EncodeFour(new BlockTexture.Image(4, 4, rgba)));
+        for (int i = 0; i < 64; i++) if (Math.Abs(back.Rgba[i] - rgba[i]) > 6) throw new Exception($"A written block reads back {back.Rgba[i]} for {rgba[i]} at byte {i}");
+        Console.WriteLine("PASS: the high-quality colour format decodes with one, two or three regions, low bits, coverage apart and channels changing places");
+    }
+
+    /// <summary>
+    /// A surface's host colour and metal maps made texel by texel from the source's maps, so that the host's diffuse light
+    /// and reflectance are the source's. The host lights colour × (1 - metal) and reflects 4 % blended towards the colour by metal.
+    /// </summary>
+    internal static void Surface()
+    {
+        // A whole block of one colour, in the source's colour format: five, six and five bits.
+        static byte[] Flat(int r, int g, int b) { int c = r >> 3 << 11 | g >> 2 << 5 | b >> 3; return [(byte)c, (byte)(c >> 8), (byte)c, (byte)(c >> 8), 0, 0, 0, 0]; }
+        (byte[] Colour, byte Metal) Made(byte[] colour, byte[]? specular, float metal = 1)
+        {
+            var made = HostCharacterTextures.Surface(Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, colour), specular is null ? null : Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, specular), [0.6f, 0.6f, 0.6f], [metal, metal, metal]);
+            if (new DDS(made.Colour).GetDXGIFormat() != DDS.DXGI_FORMAT.BC7_UNORM || new DDS(made.Metal).GetDXGIFormat() != DDS.DXGI_FORMAT.BC4_UNORM) throw new Exception("A made surface is not a four-channel colour map and a one-channel metal map");
+            var metalBlock = made.Metal.AsSpan(new DDS(made.Metal).DataOffset, 8).ToArray();
+            return (BlockTexture.Decode(made.Colour).Rgba, BlockTexture.Decode(Dds(DDS.DXGI_FORMAT.BC5_UNORM, 4, 4, [.. metalBlock, .. metalBlock])).Rgba[0]);
+        }
+        void Expect(string what, (byte[] Colour, byte Metal) made, int grey, int metal, int coverage = 255)
+        {
+            if (Math.Abs(made.Colour[0] - grey) > 2 || Math.Abs(made.Colour[1] - grey) > 2 || Math.Abs(made.Colour[2] - grey) > 2 || Math.Abs(made.Colour[3] - coverage) > 2 || Math.Abs(made.Metal - metal) > 2)
+                throw new Exception($"{what}: colour {made.Colour[0]},{made.Colour[1]},{made.Colour[2]},{made.Colour[3]} metal {made.Metal}; expected {grey} and {metal}");
+        }
+        byte[] white = Flat(255, 255, 255);
+        // Not metal, reflecting nothing: the source lights (1 × 0.6)^2.2 = 0.325. The host cannot reflect less than its 4 %, so
+        // the surface is plain, its colour 0.325, which the host's display curve stores as 154.
+        Expect("A plain surface", Made(white, Flat(255, 0, 0)), 154, 0);
+        // Dark, not metal, reflecting nothing: (66/255 × 0.6)^2.2 = 0.0166, stored as 35. It stays plain: its colour is
+        // not given up to bring the host's reflection down.
+        Expect("A dark plain surface", Made(Flat(64, 64, 64), Flat(255, 0, 0)), 35, 0);
+        // No specular map: the same.
+        Expect("A surface with no specular map", Made(white, null), 154, 0);
+        // Metal, with a metal colour of a half: the source reflects (1 × 0.5)^2.2 = 0.2176 and lights nothing: all metal,
+        // coloured 0.2176, stored as 128.
+        Expect("A metal surface", Made(white, Flat(0, 255, 0), 0.5f), 128, 255);
+        // Black, not metal, at the full specular level: the source reflects 0.2 and lights nothing. The host reflects that
+        // much only from a metal coloured 0.2, stored as 124.
+        Expect("A black surface that reflects", Made(Flat(0, 0, 0), Flat(255, 0, 255)), 124, 255);
+        // Lit 0.325 and reflecting 0.2: with x = 1 - metal, 0.04 x^2 - 0.525 x + 0.325 = 0 gives x = 0.6513, metal 0.3487 (89),
+        // and the colour 0.325 + 0.2 - 0.04 x = 0.499, stored as 187. Then colour × x = 0.325 and 0.04 x + colour × metal = 0.2.
+        Expect("A lit surface that reflects", Made(white, Flat(255, 0, 255)), 187, 89);
+        // The maps can carry several times the source's reflectance, for a host that then reflects that many times more
+        // weakly: at four times, the black surface reflects 0.8 (stored 231) and the metal one 0.870 (stored 240).
+        byte Colour(byte[] colour, byte[] specular, float metal) => BlockTexture.Decode(HostCharacterTextures.Surface(Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, colour), Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, specular), [0.6f, 0.6f, 0.6f], [metal, metal, metal], 4).Colour).Rgba[0];
+        if (Math.Abs(Colour(Flat(0, 0, 0), Flat(255, 0, 255), 1) - 231) > 2 || Math.Abs(Colour(white, Flat(0, 255, 0), 0.5f) - 240) > 2)
+            throw new Exception($"Reflectance carried four times over is stored as {Colour(Flat(0, 0, 0), Flat(255, 0, 255), 1)} and {Colour(white, Flat(0, 255, 0), 0.5f)}, not 231 and 240");
+        // A plain surface is not changed by it.
+        if (Math.Abs(Colour(white, Flat(255, 0, 0), 1) - 154) > 2) throw new Exception("Carrying more reflectance changed a surface that reflects nothing");
+        // Where the source's colour map leaves a hole, the made one does.
+        var holed = HostCharacterTextures.Surface(Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, [0x00, 0x00, 0xFF, 0xFF, 0b11_01_01_01, 0x55, 0x55, 0x55]), null, [0.6f, 0.6f, 0.6f], [1f, 1f, 1f]);
+        var holes = BlockTexture.Decode(holed.Colour).Rgba;
+        if (holes[3] < 250 || holes[3 * 4 + 3] > 5) throw new Exception($"A hole in the colour map is not kept: coverage {holes[3]} and {holes[3 * 4 + 3]}");
+        foreach (var bad in new Action[] { () => HostCharacterTextures.Surface(Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, white), null, [0.6f, 0.6f], [1f, 1f, 1f]), () => HostCharacterTextures.Surface(Dds(DDS.DXGI_FORMAT.BC1_UNORM, 4, 4, white), null, [0.6f, 0.6f, 0.6f], [1f, -1f, 1f]) })
+        {
+            try { bad(); throw new Exception("An unusable surface colour was accepted"); } catch (InvalidDataException) { }
+        }
+        Console.WriteLine("PASS: a surface's colour and metal maps are made so the host lights and reflects what the source does, texel by texel");
     }
 }
