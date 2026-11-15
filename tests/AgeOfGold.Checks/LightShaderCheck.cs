@@ -50,7 +50,12 @@ internal static class LightShaderCheck
         var combineProgram = compiler.Compile(Combine, "Main", "ps_6_0");
         string combine = compiler.Disassemble(combineProgram), combinedText = compiler.Disassemble(compiler.Assemble(LightShader.CombineMarked(combine), combineProgram));
 
-        float[] normal = [0.6f, 0.9f, 0.4f, 0], colour = [0.3f, 0.5f, 0.7f, 2 / 255f], mask = [0.6f, 0.35f, 0.9f, 1];
+        // The host's stage for a sun that casts shadows also reads the mask's fourth value, the cast shadow, and mixes it
+        // in by a strength of the scene's.
+        string casting = Sun.Replace("float shadow = min(mask.r, mask.g);", "float shadow = min(mask.r, mask.g) * lerp(1, mask.a, Lights[55].x);");
+        var castProgram = compiler.Compile(casting, "Main", "ps_6_0");
+        string cast = compiler.Disassemble(castProgram), castText = compiler.Disassemble(compiler.Assemble(LightShader.ShadeMarked(cast), castProgram));
+        float[] normal = [0.6f, 0.9f, 0.4f, 0], colour = [0.3f, 0.5f, 0.7f, 2 / 255f], mask = [0.6f, 0.35f, 0.9f, 0.5f];
         Dictionary<(int, int), float> Lit(string module, float[] surface, float sunStrength)
         {
             var evaluator = new ShaderEvaluator
@@ -58,7 +63,7 @@ internal static class LightShaderCheck
                 Input = (_, column) => column == 0 ? 12.5f : 7.5f,
                 // The pixel names light set two: its rows start at twenty-eight.
                 Constants = (register, row) => register != 5 ? throw new Exception("Unexpected constants") : row == 28 ? [0.36f, 0.8f, -0.48f, 0] : row == 32 ? [0.9f * sunStrength, 0.8f * sunStrength, 0.7f * sunStrength, 0]
-                    : row == 33 ? [0.5f, 0.6f, 0.4f, 0] : throw new Exception("A row of another light set was read: " + row),
+                    : row == 33 ? [0.5f, 0.6f, 0.4f, 0] : row == 55 ? [0.75f, 0, 0, 0] : throw new Exception("A row of another light set was read: " + row),
                 Sample = (slot, _, _) => slot switch { 0 => normal, 3 => surface, 4 => colour, 32 => mask, _ => throw new Exception("Unexpected texture") },
             };
             evaluator.Run(module);
@@ -71,6 +76,15 @@ internal static class LightShaderCheck
         for (int c = 0; c < 3; c++)
             if (lit[(0, c)] != LightShader.Scale * 0.35f || unlit[(0, c)] != 0 || lit[(1, c)] != 0 || unlit[(1, c)] != 0)
                 throw new Exception($"A marked surface's channel {c} takes {lit[(0, c)]} and {lit[(1, c)]} lit, {unlit[(0, c)]} with the light out");
+        // Where the stage reads the cast shadow, a marked surface takes it whole, whatever strength the scene mixes it in by.
+        var shadowed = Lit(castText, marked, 1);
+        for (int c = 0; c < 3; c++)
+            if (shadowed[(0, c)] != LightShader.Scale * 0.35f * 0.5f || shadowed[(1, c)] != 0) throw new Exception($"A marked surface under a casting sun takes {shadowed[(0, c)]} and {shadowed[(1, c)]} in channel {c}");
+        foreach (var surface in new[] { new[] { 0f, 0.5f, 0, 0 }, new[] { 0.98f, 0f, 0, 0 } })
+        {
+            var host = Lit(cast, surface, 1); var kept = Lit(castText, surface, 1);
+            if (host.Count != 8 || host.Any(p => kept[p.Key] != p.Value)) throw new Exception("An unmarked surface's light under a casting sun changed");
+        }
         // Every other surface is lit as the host lights it, whichever way its values lean.
         foreach (var surface in new[] { new[] { 0f, 0.5f, 0, 0 }, new[] { 1f, 0.02f, 0, 0 }, new[] { 0.98f, 0f, 0, 0 }, new[] { 0.4f, 0.3f, 0.05f, 0 } })
         {
@@ -100,7 +114,7 @@ internal static class LightShaderCheck
         {
             try { bad(); throw new Exception("An unusable light stage was rewritten"); } catch (InvalidDataException) { }
         }
-        Console.WriteLine("PASS: the host's sun stage hands a marked surface the shadow alone and its colour stage scales the stored light back; other surfaces are lit as before");
+        Console.WriteLine("PASS: the host's sun stage hands a marked surface the shadow alone, with the cast shadow where the stage reads it, and its colour stage scales the stored light back; other surfaces are lit as before");
     }
 
     private static string Required(string name) => Environment.GetEnvironmentVariable(name) ?? throw new Exception("Set " + name);

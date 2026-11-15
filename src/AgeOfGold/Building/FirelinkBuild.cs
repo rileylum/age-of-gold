@@ -136,6 +136,8 @@ internal static class FirelinkBuild
     private const float CharacterProbeGain = 1, ShadeTurn = 0.2f, ShadeEdge = 5;
     // A model placed in a second light is a character of its own; such characters take identities from here.
     private const int FirstVariantIdentity = 6800;
+    // A definition for scenery that casts no shadow is named for its family with this after it.
+    private const string Shadeless = "_shadeless";
     // Build-owned character rows follow the host character's own, from this offset within its thousand.
     private const int FirstCharacterRow = 8000;
 
@@ -356,7 +358,11 @@ internal static class FirelinkBuild
                 var file = binder.Files.OrderBy(f => f.ID).FirstOrDefault(f => f.Name.EndsWith(".flver", StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidDataException("Source part has no model: " + piece.Stem);
                 // A part model may keep its vertices in several buffers (the face front does, for shaping); the format library joins them.
                 var model = FLVER2.Read(file.Bytes);
-                var meshes = Enumerable.Range(0, model.Meshes.Count).Select(i =>
+                // A mesh whose material's name begins with a mark between hashes is not drawn when something worn hides that
+                // mark: gauntlets hide the ends of a mail shirt's sleeves, a helmet the hair.
+                bool Shown(int mesh) => piece.Hand != "" || model.Materials[model.Meshes[mesh].MaterialIndex].Name is not { Length: >= 4 } name || name[0] != '#' || name[3] != '#'
+                    || !int.TryParse(name.AsSpan(1, 2), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int mark) || !dressed.Hidden.Contains(mark);
+                var meshes = Enumerable.Range(0, model.Meshes.Count).Where(Shown).Select(i =>
                 {
                     var material = model.Materials[model.Meshes[i].MaterialIndex];
                     string Texture(string input) => material.Textures.SingleOrDefault(t => t.ParamName == input) is { Path.Length: > 0 } t ? Path.GetFileNameWithoutExtension(t.Path.Replace('\\', '/'))
@@ -793,6 +799,11 @@ internal static class FirelinkBuild
         if (exemplar < 0) throw new InvalidDataException("Host install lacks the two-layer ground exemplar");
 
         var groundDefinitions = new SortedDictionary<string, byte[]>(StringComparer.Ordinal); byte[]? groundMetadata = null;
+        var usedFamilies = new SortedSet<string>(StringComparer.Ordinal);
+        // The source's own scenery casts no shadows (its objects and characters do), so a character by a wall is lit as
+        // in the open. The host draws a placement into its shadow maps whatever the placement says, unless the
+        // material's definition forbids it; so a model none of whose source placements casts takes definitions that do.
+        var castingModels = placements.Where(p => p.GetProperty("castsShadow").GetBoolean()).Select(p => p.GetProperty("model").GetString()!).ToHashSet(StringComparer.Ordinal);
         var cutouts = new SortedSet<string>(StringComparer.Ordinal); var blends = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var model in models)
         {
@@ -823,10 +834,13 @@ internal static class FirelinkBuild
                     definition.Params.Single(p => p.Name == "g_BlendMode").Value = additive ? 4 : 2;
                     foreach (string flag in new[] { "g_GX_bDisableDepthWrite", "g_GX_bDisableShadowCasting" }) definition.Params.Single(p => p.Name == flag).Value = true;
                 }
-                definition.SourcePath = Rename(definition.SourcePath, family); definition.ShaderPath = Rename(definition.ShaderPath, family);
+                string named = castingModels.Contains(model.Name) ? family : family + Shadeless;
+                if (named != family) definition.Params.Single(p => p.Name == "g_GX_bDisableShadowCasting").Value = true;
+                definition.SourcePath = Rename(definition.SourcePath, named); definition.ShaderPath = Rename(definition.ShaderPath, family);
                 bound = bound with { Definition = definition.Write() };
                 groundMetadata ??= bound.Metadata;
-                if (!groundDefinitions.TryAdd(family, bound.Definition) && !bound.Definition.AsSpan().SequenceEqual(groundDefinitions[family])
+                usedFamilies.Add(family);
+                if (!groundDefinitions.TryAdd(named, bound.Definition) && !bound.Definition.AsSpan().SequenceEqual(groundDefinitions[named])
                     || !bound.Metadata.AsSpan().SequenceEqual(groundMetadata))
                     throw new InvalidDataException("Opaque surfaces need more than one material definition per shader family");
                 return bound;
@@ -893,7 +907,7 @@ internal static class FirelinkBuild
         var clock = PixelShader.FindClock(compiler.Disassemble(HostStage("_Fwd.ppo")));
         var groundFamilies =
             // Only families a built surface uses are written; a material may exist only as a cutout.
-            groundDefinitions.Keys.Select(name => KeyValuePair.Create(name, families[BaseFamily(name)]))
+            usedFamilies.Select(name => KeyValuePair.Create(name, families[BaseFamily(name)]))
                 .Select(family => (family.Key, (Func<string, byte[], byte[]>)((suffix, bytes) =>
             {
                 var (light, air, fade, rate) = family.Value;
@@ -1063,7 +1077,7 @@ internal static class FirelinkBuild
             inputs = new { source = source.Fingerprints, host = host.Fingerprints },
             scenery = new { models = scenery.Models, placements = scenery.Placements },
             textures = names,
-            groundFamilies = groundDefinitions.Keys.ToDictionary(name => name, name =>
+            groundFamilies = usedFamilies.ToDictionary(name => name, name =>
             {
                 var family = families[BaseFamily(name)];
                 return new { lighting = family.Lighting, air = family.Air, fade = family.Fade, scroll = new[] { family.Scroll.U, family.Scroll.V }, cutout = cutouts.Contains(name), blended = blends.Contains(name) };

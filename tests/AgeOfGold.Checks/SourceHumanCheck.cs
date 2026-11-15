@@ -29,8 +29,12 @@ internal static class SourceHumanCheck
             var bundle = new BND3();
             bundle.Files.Add(new(Binder.FileFlags.Flag1, 0, @"N:\authored\param\GameParam\CharaInitParam.param", starts));
             // Armour 171000 and 173000 are model 9300; weapon 201000 is model 201 and shield 1450000 model 1515.
+            // A piece of armour hides the meshes that carry certain marks, on whatever is worn: one bit a mark, the first
+            // mark's six bits into the row's 217th byte, after the bits that say where the piece is worn. The body armour
+            // hides marks 3, 20 and 30, the leg armour mark 0.
             bundle.Files.Add(new(Binder.FileFlags.Flag1, 1, @"N:\authored\param\GameParam\EquipParamProtector.param",
-                Table("EQUIP_PARAM_PROTECTOR_ST", 232, (171000, [(160, 9300, true)]), (173000, [(160, 9300, true)]), (500000, [(160, -1, true)]))));
+                Table("EQUIP_PARAM_PROTECTOR_ST", 232, (171000, [(160, 9300, true), (216, 0b100 | 1 << 9 | 1 << 26, false), (220, 1 << 4, false)]), (173000, [(160, 9300, true), (216, 0b10000 | 1 << 6, false)]),
+                    (500000, [(160, -1, true)]))));
             bundle.Files.Add(new(Binder.FileFlags.Flag1, 2, @"N:\authored\param\GameParam\EquipParamWeapon.param",
                 Table("EQUIP_PARAM_WEAPON_ST", 272, (201000, [(184, 201, true)]), (1450000, [(184, 1515, true)]))));
             File.WriteAllBytes(Path.Combine(source, "param/GameParam/GameParam.parambnd.dcx"), bundle.Write());
@@ -43,6 +47,7 @@ internal static class SourceHumanCheck
         var human = SourceHumanReader.Read(install, 6270);
         if (!human.Parts.SequenceEqual(["HD_M_0000", "BD_M_9300", "AM_M_0000", "LG_M_9300", "FC_M_0000"]) || human.Right != "WP_A_0201" || human.Left != "WP_A_1515")
             throw new Exception("A human's parts differ: " + string.Join(",", human.Parts) + " " + human.Right + " " + human.Left);
+        if (!human.Hidden.SequenceEqual([0, 3, 20, 30])) throw new Exception("The marks a human's armour hides differ: " + string.Join(",", human.Hidden));
         foreach (int bad in new[] { 1, 6999, 6998 })
         {
             try { SourceHumanReader.Read(install, bad); throw new Exception("An unreadable human was accepted"); }
@@ -51,6 +56,6 @@ internal static class SourceHumanCheck
         Install(Table("CHARACTER_INIT_PARAM", 244, (6270, Start(201010, 1450010, -1, 171008, -1, 173008))));
         try { SourceHumanReader.Read(install, 6270); throw new Exception("An unknown start-up row length was accepted"); }
         catch (InvalidDataException) { }
-        Console.WriteLine("PASS: a source human's part models are read from its start-up row and its equipment's rows; missing rows and other layouts fail");
+        Console.WriteLine("PASS: a source human's part models and the marks its armour hides are read from its start-up row and its equipment's rows; missing rows and other layouts fail");
     }
 }

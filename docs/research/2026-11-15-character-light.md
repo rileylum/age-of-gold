@@ -293,10 +293,25 @@ Read further the same morning:
   character shows only its wholly shadowed light, the hollow in the open included. The seated warrior's hem and
   shin then match the source's; the hollow, lit in the source, is far too dark.
 
-So either the host never writes its sun's shadow in this map, or the whole build stands under something that casts.
-If it is the second, the measured "a sun of strength one adds 0.40 of a facing colour" is one less the host's shadow
-colour rather than a property of its lighting. Until this is settled the source's shadows of objects and of a
-character's own body on a character are missing, which is the remaining visible difference.
+Settled the same day, by reading the host's own stages for the shadow texture and by trial in the game:
+
+- The stage that works out the sun's cast shadow from the shadow maps writes packed depth to the texture's first
+  three values and the shadow to its fourth; the stage after it overwrites the first three with screen-space
+  occlusion and two values of the material's, leaving the fourth. So the fourth value is the sun's cast shadow, and
+  the lesser of the first two, which the build had taken for it, is occlusion.
+- It was nought everywhere because the host draws the build's scenery into its shadow maps whether or not a
+  placement is flagged to cast, so every wall and ruin shaded what stood behind it; the source's own scenery casts
+  nothing. A setting of the material's definition does stop a surface casting.
+
+What the build does now: a scenery model none of whose source placements casts is drawn by definitions that forbid
+casting, named apart from its family's casting one (the bonfire, the statue, the urns and the Fire Keeper still
+cast); and the sun's stages give a marked surface the occlusion times the cast shadow where the stage itself reads
+the cast shadow. Seen in the game: the hollow in the open is lit as before, and the seated warrior's own body now
+shades the hem of mail under his thighs and the front of his shin, as in the source.
+
+Still open: the host's shadow is coarser than the source's close to the camera, so small shadows are softer; the
+measured "a sun of strength one adds 0.40 of a facing colour" was taken while everything stood in the host's
+shadow, and what the host's own programs draw (the player) may now take more of the sun than intended.
 
 ## Decoding the source's textures
 

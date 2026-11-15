@@ -9,6 +9,8 @@ namespace AgeOfGold.Shaders;
 /// marks itself with whole metal and no gloss (which the host would otherwise give no diffuse light at all). For a marked
 /// surface the sun's stage accumulates its shadow alone and the colour stage multiplies the stored light back in, so the
 /// frame shows the stored light times the host's own shadow, whatever the surface's shape or the viewing angle.
+/// The host keeps a screen's worth of shadow in one texture: screen-space occlusion and a value of the material's in
+/// its first two values, of which a stage takes the lesser, and the sun's cast shadow in its fourth.
 /// </summary>
 internal static class LightShader
 {
@@ -22,7 +24,11 @@ internal static class LightShader
     // Whole metal and no gloss, each to within half a step of an eight-bit target.
     private static readonly string Metal = Float(254.5f / 255), Gloss = Float(0.5f / 255);
 
-    /// <summary>The stage for one directional light: a marked surface takes the shadow alone, scaled up, while the pixel's light set has its light on; no highlight.</summary>
+    /// <summary>
+    /// The stage for one directional light: a marked surface takes the shadow alone, scaled up, while the pixel's light set
+    /// has its light on; no highlight. Where the stage itself reads the cast shadow, which the host mixes in by a strength
+    /// of the scene's, a marked surface takes it whole: the source's own strength is already in what the surface stores.
+    /// </summary>
     internal static string ShadeMarked(string module)
     {
         var stage = new Stage(module);
@@ -40,7 +46,9 @@ internal static class LightShader
         body.Add("  %aog_lightsum = fadd fast float %aog_light0, %aog_light1");
         body.Add("  %aog_lighttotal = fadd fast float %aog_lightsum, %aog_light2");
         body.Add("  %aog_on = fcmp fast ogt float %aog_lighttotal, 0.000000e+00");
-        body.Add($"  %aog_scaled = fmul fast float {least[0].Groups[1].Value}, {Float(Scale)}");
+        string shade = least[0].Groups[1].Value;
+        if (stage.Reads(shadow, 3) is { } cast) { body.Add($"  %aog_cast = fmul fast float {shade}, {cast}"); shade = "%aog_cast"; }
+        body.Add($"  %aog_scaled = fmul fast float {shade}, {Float(Scale)}");
         body.Add("  %aog_shadow = select i1 %aog_on, float %aog_scaled, float 0.000000e+00");
         return stage.Rewrite(body, (target, _) => target == 0 ? "%aog_shadow" : target == 1 ? "0.000000e+00" : null, 2);
     }
@@ -96,6 +104,13 @@ internal static class LightShader
             if (!registers.TryGetValue(texture, out int register)) throw new InvalidDataException("Light stage does not bind " + texture);
             string handle = One($@"^({Name}) = call %dx\.types\.Handle @dx\.op\.createHandle\(i32 57, i8 0, i32 \d+, i32 {register}, i1 false\)$", "handle for " + texture);
             return One($@"^({Name}) = call %dx\.types\.ResRet\.f32 @dx\.op\.(?:textureLoad\.f32\(i32 66|sample\.f32\(i32 60), %dx\.types\.Handle {Regex.Escape(handle)},", "read of " + texture);
+        }
+
+        /// <summary>The value the stage takes of a texel's part, if it takes it at all.</summary>
+        internal string? Reads(string texel, int part)
+        {
+            var taken = Enumerable.Range(start + 1, end - start - 1).Select(i => Regex.Match(Code(i), $@"^({Name}) = extractvalue %dx\.types\.ResRet\.f32 {Regex.Escape(texel)}, {part}$")).Where(m => m.Success).ToArray();
+            return taken.Length == 0 ? null : taken.Length == 1 ? taken[0].Groups[1].Value : throw new InvalidDataException("Light stage takes one value of its shadow mask more than once");
         }
 
         /// <summary>The value the stage takes of a texel's part.</summary>

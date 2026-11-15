@@ -210,6 +210,17 @@ internal static class FirelinkBuildInstallCheck
             throw new Exception("Built people are not the two who are at Firelink from the start: " + string.Join(", ", people.Select(p => p.GetProperty("source").GetString())));
         var humanFrame = FLVER2.Read(BND3.Read(Path.Combine(source, "chr/c0000.chrbnd.dcx")).Files.Single(f => f.Name.EndsWith("c0000.flver", StringComparison.OrdinalIgnoreCase)).Bytes);
         var peopleBodies = new HashSet<string>(StringComparer.Ordinal);
+        // The source's start-up and armour rows, as stored.
+        var gameTables = BND3.Read(Path.Combine(source, "param/GameParam/GameParam.parambnd.dcx"));
+        Dictionary<int, byte[]> StoredRows(string name)
+        {
+            var table = PARAM.Read(gameTables.Files.Single(f => f.Name.Replace('\\', '/').EndsWith($"/{name}.param", StringComparison.OrdinalIgnoreCase)).Bytes);
+            var whole = new PARAMDEF { ParamType = table.ParamType, DataVersion = table.ParamdefDataVersion };
+            whole.Fields.Add(new PARAMDEF.Field(whole, PARAMDEF.DefType.dummy8, "raw") { ArrayLength = (int)table.DetectedSize });
+            table.ApplyParamdef(whole);
+            return table.Rows.GroupBy(r => r.ID).ToDictionary(g => g.Key, g => (byte[])g.First()["raw"].Value);
+        }
+        var startRows = StoredRows("CharaInitParam"); var armourRows = StoredRows("EquipParamProtector");
         foreach (var person in people)
         {
             var placed = layout.Parts.Enemies.Single(p => p.Name == person.GetProperty("name").GetString());
@@ -239,6 +250,21 @@ internal static class FirelinkBuildInstallCheck
                     .Any(t => !File.Exists(Path.Combine(mod, "asset/aet/aet950", Path.GetFileNameWithoutExtension(t)[..^2].ToLowerInvariant() + ".tpf.dcx")))
                 || carrying.Count < 20 || carrying.Any(bone => bone >= humanFrame.Nodes.Count || !(body.Nodes[bone].BoundingBoxMin.X <= body.Nodes[bone].BoundingBoxMax.X)))
                 throw new Exception($"Built person {placed.Name}'s body is not its pieces on the source human's skeleton with built textures");
+            // What a person wears hides the meshes that carry certain marks (an armour row keeps a bit for each of 48, from
+            // the seventh bit of its 217th byte): the built body has every mesh of its parts but those.
+            var hiddenMarks = new HashSet<int>();
+            foreach (int item in Enumerable.Range(0, 4).Select(slot => BitConverter.ToInt32(startRows[from.CharaInitID], 32 + 4 * slot)).Where(item => item > 0))
+            {
+                var armour = armourRows.TryGetValue(item, out var exact) ? exact : armourRows[item - item % 100];
+                for (int mark = 0; mark < 48; mark++) if ((armour[216 + (6 + mark) / 8] >> (6 + mark) % 8 & 1) != 0) hiddenMarks.Add(mark);
+            }
+            int expectedMeshes = person.GetProperty("parts").EnumerateArray().Select(stem => stem.GetString()!).Sum(stem =>
+            {
+                var part = FLVER2.Read(BND3.Read(Path.Combine(source, $"parts/{stem}.partsbnd.dcx")).Files.OrderBy(f => f.ID).First(f => f.Name.EndsWith(".flver", StringComparison.OrdinalIgnoreCase)).Bytes);
+                return part.Meshes.Count(m => stem.StartsWith("WP_", StringComparison.Ordinal) || Regex.Match(part.Materials[m.MaterialIndex].Name, @"^#(\d\d)#") is not { Success: true } marked
+                    || !hiddenMarks.Contains(int.Parse(marked.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)));
+            });
+            if (hiddenMarks.Count == 0 || body.Meshes.Count != expectedMeshes) throw new Exception($"Built person {placed.Name} has {body.Meshes.Count} meshes where its parts show {expectedMeshes}");
             var poses = TAE.Read(BND4.Read(Path.Combine(mod, $"chr/{identity}.anibnd.dcx")).Files.Single(f => f.Name.EndsWith(".tae", StringComparison.OrdinalIgnoreCase)).Bytes);
             if (poses.ID != 200000 + int.Parse(identity[1..]) || poses.Animations.First().ID != 0) throw new Exception($"Built person {placed.Name}'s events are not its own");
         }
@@ -350,8 +376,15 @@ internal static class FirelinkBuildInstallCheck
             .ToLookup(f => string.Join('/', f.Name.Replace('\\', '/').Split('/')[^3..]).ToLowerInvariant(), f => f.Bytes);
         var shaders = File.ReadAllBytes(Path.Combine(mod, "shader/shaderbdle.shaderbdlebnd.dcx"));
         int surfaces = 0, cutouts = 0, blends = 0, scrolling = 0; var families = new HashSet<string>(StringComparer.Ordinal);
+        // The source placements that cast shadows, read here from the source map itself: none of its map pieces, most
+        // of its objects, its characters.
+        var sourceParts = MSB1.Read(Path.Combine(source, "map/MapStudio/m10_02_00_00.msb")).Parts;
+        var casters = sourceParts.MapPieces.Cast<MSB1.Part>().Concat(sourceParts.Objects).Concat(sourceParts.Enemies).Where(p => p.IsShadowSrc != 0).Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
+        var builtFrom = manifest.RootElement.GetProperty("scenery").GetProperty("placements").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString()!, StringComparer.Ordinal);
+        int shadeless = 0, casting = 0;
         foreach (var model in pieces.Select(p => p.ModelName).Distinct())
         {
+            bool casts = pieces.Where(p => p.ModelName == model).Any(p => casters.Contains(builtFrom[p.Name]));
             var binder = BND4.Read(Path.Combine(mod, $"map/m10/m10_01_00_00/m10_01_00_00_{model[1..]}.mapbnd.dcx"));
             var flver = FLVER2.Read(binder.Files.Single(f => f.Name.EndsWith(".flver", StringComparison.Ordinal)).Bytes);
             foreach (var mesh in flver.Meshes)
@@ -363,6 +396,12 @@ internal static class FirelinkBuildInstallCheck
                 if (matches.Length != 1) throw new Exception("Built model material does not resolve to one definition: " + material.MTD);
                 var definition = MATBIN.Read(matches[0]);
                 string family = Path.GetFileNameWithoutExtension(definition.ShaderPath.Replace('\\', '/'));
+                // The host draws scenery into its shadow maps unless a definition forbids it: a model none of whose source
+                // placements casts is drawn by definitions that do, named apart from the family's casting one.
+                bool forbidden = (bool)definition.Params.Single(p => p.Name == "g_GX_bDisableShadowCasting").Value;
+                string named = Path.GetFileNameWithoutExtension(mtd[^1]);
+                if (named != (casts ? family : family + "_shadeless") || !casts && !forbidden) throw new Exception($"Built scenery model {model} casts shadows where its source does not, or the reverse: {named}");
+                if (casts) casting++; else shadeless++;
                 bool cut = family.EndsWith("_cutout", StringComparison.Ordinal);
                 cutouts += cut ? 1 : 0;
                 // A blended surface asks the host for its forward pass and leaves depth alone.
@@ -390,6 +429,7 @@ internal static class FirelinkBuildInstallCheck
         }
         // The map's 330 surfaces less the 5 unbuilt, the bonfire's 5 and the Fire Keeper's, plus the statue and the urns: six
         // object models (two of the urns once more for a second lighting row), each of one opaque and one cutout surface.
+        if (shadeless == 0 || casting == 0) throw new Exception("Built scenery does not hold both casting and shadeless surfaces");
         if (surfaces != 360 || cutouts != 84 || blends != 34) throw new Exception($"Built opaque and cutout surface inventory differs: {surfaces} surfaces, {cutouts} cutouts, {blends} blended");
         var lit = manifest.RootElement.GetProperty("groundFamilies").EnumerateObject().Select(f => f.Name).Order(StringComparer.Ordinal).ToArray();
         if (!lit.SequenceEqual(families.Order(StringComparer.Ordinal))) throw new Exception("Built models do not use exactly the recorded lit ground families");
@@ -598,8 +638,13 @@ internal static class FirelinkBuildInstallCheck
         if (!composition.Contains("%aog_marked = fcmp fast olt float", StringComparison.Ordinal) || !composition.Contains("%aog_shaded = fcmp fast olt float", StringComparison.Ordinal))
             throw new Exception("Built composition stage does not keep the build's own light apart");
         foreach (string stage in new[] { "GXLightAcc_DDirLight1.ppo", "GXLightAcc_DDirLightShadowed1.ppo", "GXLightAcc_DDirLightShadowed1_Cloud.ppo" })
-            if (!compiler.Disassemble(ShaderArchive.Read(renderingStages, stage)).Contains("%aog_shadow = select i1 %aog_on, float %aog_scaled, float 0.000000e+00", StringComparison.Ordinal))
+        {
+            string sunStage = compiler.Disassemble(ShaderArchive.Read(renderingStages, stage));
+            // The stages for a sun that casts shadows also hand it the cast shadow.
+            if (!sunStage.Contains("%aog_shadow = select i1 %aog_on, float %aog_scaled, float 0.000000e+00", StringComparison.Ordinal)
+                || sunStage.Contains("%aog_cast = fmul fast float", StringComparison.Ordinal) != stage.Contains("Shadowed", StringComparison.Ordinal))
                 throw new Exception("Built sun stage does not hand a marked surface its shadow: " + stage);
+        }
         if (!compiler.Disassemble(ShaderArchive.Read(renderingStages, "GXLightCmbAlbedo.ppo")).Contains("%aog_out00 = select i1 %aog_marked, float %aog_light0,", StringComparison.Ordinal))
             throw new Exception("Built colour stage does not apply a marked surface's stored light");
         foreach (string path in volumePaths)
