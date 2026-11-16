@@ -309,9 +309,22 @@ cast); and the sun's stages give a marked surface the occlusion times the cast s
 the cast shadow. Seen in the game: the hollow in the open is lit as before, and the seated warrior's own body now
 shades the hem of mail under his thighs and the front of his shin, as in the source.
 
-Still open: the host's shadow is coarser than the source's close to the camera, so small shadows are softer; the
-measured "a sun of strength one adds 0.40 of a facing colour" was taken while everything stood in the host's
-shadow, and what the host's own programs draw (the player) may now take more of the sun than intended.
+Still open: the host's shadow is coarser than the source's close to the camera, so small shadows are softer.
+
+### The sun on what the host's own programs draw
+
+The scene's shadow colour, which the sun stage mixes the cast shadow in by, is one in this map: a surface in the
+host's cast shadow takes none of the sun. While every wall cast, everything stood in that shadow, so what the host's
+own programs draw (the player in host gear) took no sun at all, and the stand-in sun did nothing; the earlier
+measurement "a sun of strength one adds 0.40 of a facing colour" was of the build's own programs' stored light, not
+of the sun. With the scenery no longer casting, the player takes the whole stand-in sun and reads far brighter
+than a character of the build's standing beside it.
+
+The difference is the surface's colour. The source's definitions darken a colour map before it is lit (dull leather
+and cloth to six tenths before the display curve); a host material has no such tint. The build now tints the
+stand-in sun by that much, raised to linear light. Seen in the game by the bonfire, the player in the host's starting
+gear then sits close to the seated warrior's brightness. It is one tint for every host material, and it has been
+judged by eye in one place only.
 
 ## Decoding the source's textures
 

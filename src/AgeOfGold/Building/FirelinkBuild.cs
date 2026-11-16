@@ -38,6 +38,10 @@ internal static class FirelinkBuild
     // lazy: white, adding half a facing surface's colour, which is about what the source's sky adds; the source's sky
     // light is not directional, so no setting is exact.
     private const float HostSunGain = 0.40f;
+    // The source's definitions darken a colour map before it is lit (dull leather and cloth to six tenths, raised with the
+    // colour to linear light); a host material's colour has no such tint, so the stand-in sun carries it.
+    // lazy: one tint, the source's dull leather's, for whatever the host's programs draw.
+    private const float HostGearTint = 0.6f;
     private const string CharacterFamily = "aog_character", HostCharacterFamily = "C[AMSN]", CharacterDonorFamily = "C[DetailBlend]", CharacterTable = "aog:table";
     // The host's forward targets as its installed blended programs write them: colour with opacity, then opacity alone.
     private static readonly PixelShader.Blended HostForward = new(0, 1);
@@ -688,10 +692,11 @@ internal static class FirelinkBuild
         float[] upperLight = CharacterColour("gFC_HemAmbCol_u"), lowerLight = CharacterColour("gFC_HemAmbCol_d");
         var characterLight = SourceCharacterLight.Hemisphere(upperLight, lowerLight);
         // One host sun stays on, from where the source's shadows are cast. It stands in, on what the host's own programs draw, for the sky's light, which the source's shadow
-        // all but takes away: its colour is the light of the arrival's diffuse cube from overhead at the row's strength.
+        // all but takes away: its colour is the light of the arrival's diffuse cube from overhead at the row's strength,
+        // tinted as the source tints a dull surface.
         // lazy: one direction of the cube; the source lights each surface from the cube along its own normal.
         var overhead = BlockTexture.DecodeRadiance(raw[characterCubeName]);
-        var sunColour = Enumerable.Range(0, 3).Select(c => Enumerable.Range(0, overhead.Size * overhead.Size).Average(i => overhead.Faces[2][i * 3 + c]) * CharacterColour("gFC_EnvDifMapMulCol")[c] * CharacterProbeGain).Select(v => (float)v).ToArray();
+        var sunColour = Enumerable.Range(0, 3).Select(c => Enumerable.Range(0, overhead.Size * overhead.Size).Average(i => overhead.Faces[2][i * 3 + c]) * CharacterColour("gFC_EnvDifMapMulCol")[c] * CharacterProbeGain * MathF.Pow(HostGearTint, 2.2f)).Select(v => (float)v).ToArray();
         if (!(sunColour.Max() > 0)) throw new InvalidDataException("The arrival's diffuse cube is dark overhead");
         files.Add("mod/" + graphics, HostAtmosphere.LightBySun(HostAtmosphere.RemoveHostEffects(archive.Read(graphics)), new(towardsSun[0], towardsSun[1], towardsSun[2]),
             new(sunColour[0] / sunColour.Max(), sunColour[1] / sunColour.Max(), sunColour[2] / sunColour.Max(), sunColour.Max() / HostSunGain)));

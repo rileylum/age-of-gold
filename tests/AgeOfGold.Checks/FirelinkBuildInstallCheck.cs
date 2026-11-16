@@ -598,7 +598,8 @@ internal static class FirelinkBuildInstallCheck
         if (new[] { "Light SpecColor0", "Light DiffColor1", "Light SpecColor1", "Light LocalLight DiffColor1", "Light LocalLight SpecColor1", "Light LocalLight DiffColor2", "Light LocalLight SpecColor2" }
             .Any(light => graphics["Directional " + light].Single().Values.Any(v => ((System.Numerics.Vector4)v).W != 0))
             // Measured in the host: a sun of strength one adds 0.40 of a stored colour that faces it.
-            || sunColour.Length != 3 || sunColour.Any(v => !(v > 0))
+            // The stand-in sun lights a facing surface of the host's by less than its own colour.
+            || sunColour.Length != 3 || sunColour.Any(v => !(v > 0)) || !(sunLight < 1)
             || graphics["Directional Light DiffColor0"].Single().Values.Any(v => System.Numerics.Vector4.Distance((System.Numerics.Vector4)v, new(sunColour[0] / sunLight, sunColour[1] / sunLight, sunColour[2] / sunLight, sunLight / 0.40f)) > 1e-5f)
             || graphics["Directional Light Angle0"].Single().Values.Any(v =>
             {
