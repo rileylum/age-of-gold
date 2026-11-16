@@ -122,6 +122,21 @@ internal static class FirelinkBuildInstallCheck
         var characterDefinition = new PARAMDEF { ParamType = builtCharacters.ParamType, DataVersion = builtCharacters.ParamdefDataVersion };
         characterDefinition.Fields.Add(new PARAMDEF.Field(characterDefinition, PARAMDEF.DefType.dummy8, "raw") { ArrayLength = (int)builtCharacters.DetectedSize });
         builtCharacters.ApplyParamdef(characterDefinition);
+        // Think rows, the source's and the build's and the host's as installed, as stored.
+        static Dictionary<int, byte[]> Stored(byte[] bytes)
+        {
+            var table = PARAM.Read(bytes);
+            var whole = new PARAMDEF { ParamType = table.ParamType, DataVersion = table.ParamdefDataVersion };
+            whole.Fields.Add(new PARAMDEF.Field(whole, PARAMDEF.DefType.dummy8, "raw") { ArrayLength = (int)table.DetectedSize });
+            table.ApplyParamdef(whole);
+            return table.Rows.ToDictionary(r => r.ID, r => (byte[])r["raw"].Value);
+        }
+        static byte[] ThinkTable(BND4 tables) => tables.Files.Single(f => Path.GetFileName(f.Name.Replace('\\', '/')) == "NpcThinkParam.param").Bytes;
+        var sourceThinking = Stored(BND3.Read(Path.Combine(source, "param/GameParam/GameParam.parambnd.dcx")).Files.Single(f => f.Name.Replace('\\', '/').EndsWith("/NpcThinkParam.param", StringComparison.OrdinalIgnoreCase)).Bytes);
+        var builtThinking = Stored(ThinkTable(builtRegulation.Tables));
+        var installedThinking = Stored(ThinkTable(AgeOfGold.Archives.Regulation.Read(File.ReadAllBytes(Path.Combine(host, "eldenring.exe")), File.ReadAllBytes(Path.Combine(host, "regulation.bin"))).Tables));
+        var sourceBattleScripts = BND3.Read(Path.Combine(source, "script/m10_02_00_00.luabnd.dcx")).Files.ToDictionary(f => f.Name.Replace('\\', '/').Split('/')[^1], f => f.Bytes, StringComparer.OrdinalIgnoreCase);
+        var checkedBattles = new HashSet<int>();
         var enemyModels = enemies.Select(e => sourceEnemies[e.GetProperty("source").GetString()!].ModelName).Distinct().ToArray();
         // Every placement of a carried source model is built, and none of those models is still counted as unbuilt.
         if (enemies.Length < 10 || enemies.Length != sourceEnemies.Values.Count(p => enemyModels.Contains(p.ModelName)) || !enemyModels.Contains("c2540") || !enemyModels.Contains("c2900")
@@ -164,6 +179,41 @@ internal static class FirelinkBuildInstallCheck
                 var attacks = AgeOfGold.Characters.SourceCharacterReader.Attacks(new Install(source, "DarkSoulsRemastered.exe"), from.NPCParamID);
                 if (BitConverter.ToInt32(raw, 4) != attacks.Variation) throw new Exception($"Built enemy {placed.Name}'s row does not name the source's behaviour variation");
                 wholeAttacks[from.NPCParamID] = attacks;
+                // The enemy thinks by a row of the build's own: an installed row but for its battle number (eight bytes in),
+                // which is the one its source placement's think row names (four bytes in).
+                int battle = BitConverter.ToInt32(sourceThinking[from.ThinkParamID], 4);
+                var sourceThinks = sourceThinking[from.ThinkParamID];
+                // It sees as far and as widely as the source's row says (two bytes at 48 and a byte each at 81 and 82 there;
+                // at 52, 85 and 86 in the host's row), and strays as far from home (two bytes at 56 there, at 60 here).
+                // Past its first twelve bytes and the places a source row fills, the row is an installed one's.
+                static byte[] Rest(byte[] row) { var rest = row.ToArray(); foreach (var (at, length) in new[] { (4, 8), (28, 8), (52, 2), (56, 22), (84, 3) }) rest.AsSpan(at, length).Clear(); return rest; }
+                // Out of battle it thinks by the source's number where the host has a shared script of that number, else
+                // by the common one, ten thousand in both games.
+                int sourceLogic = BitConverter.ToInt32(sourceThinks, 0);
+                int expectedLogic = BND4.Read(hostArchive.Read("script/aicommon.luabnd.dcx")).Files.Any(f => f.Name.EndsWith($"\\{sourceLogic:D6}_logic.lua", StringComparison.OrdinalIgnoreCase)) ? sourceLogic : 10000;
+                if (!builtThinking.TryGetValue(placed.ThinkParamID, out var thinks) || installedThinking.ContainsKey(placed.ThinkParamID) || BitConverter.ToInt32(thinks, 8) != battle || enemy.GetProperty("battle").GetInt32() != battle || BitConverter.ToInt32(thinks, 4) != expectedLogic
+                    || BitConverter.ToUInt16(thinks, 52) != BitConverter.ToUInt16(sourceThinks, 48) || thinks[85] != sourceThinks[81] || thinks[86] != sourceThinks[82] || BitConverter.ToUInt16(thinks, 60) != BitConverter.ToUInt16(sourceThinks, 56)
+                    || BitConverter.ToUInt16(thinks, 52) < 10 || !installedThinking.Values.Any(row => Rest(row).AsSpan().SequenceEqual(Rest(thinks)) && BitConverter.ToInt32(row, 8) != battle)
+                    || !manifest.RootElement.GetProperty("battleScripts").GetProperty(battle.ToString(System.Globalization.CultureInfo.InvariantCulture)).GetProperty("thinkRows").EnumerateArray().Any(r => r.GetInt32() == placed.ThinkParamID))
+                    throw new Exception($"Built enemy {placed.Name} does not think by a row of the build's own that names the source's battle script {battle}");
+                if (checkedBattles.Add(battle))
+                {
+                    // The battle script is a binder of the build's own under the source's number: one compiled script and
+                    // the list of the names it sets. The script sets every global the source's own script sets (under the
+                    // build's prefix where the host's shared scripts set that name), none that the host's shared scripts set, and holds the source's script and the goal's parts as functions within.
+                    string path = $"script/{battle}_battle.luabnd.dcx";
+                    if (hostArchive.Contains(path) || !File.Exists(Path.Combine(mod, path))) throw new Exception($"Battle script {battle} is not a file of the build's own");
+                    var binder = BND4.Read(Path.Combine(mod, path));
+                    var packaged = AgeOfGold.Thinking.CompiledScript.Read(binder.Files.Single(f => f.Name.EndsWith($"{battle}_battle.lua", StringComparison.OrdinalIgnoreCase)).Bytes);
+                    var sourceScript = AgeOfGold.Thinking.CompiledScript.Read(sourceBattleScripts[$"{battle}_battle.lua"]);
+                    var hostNames = BND4.Read(hostArchive.Read("script/aicommon.luabnd.dcx")).Files.Where(f => f.Name.EndsWith(".lua", StringComparison.OrdinalIgnoreCase)).SelectMany(f => AgeOfGold.Thinking.CompiledScript.Read(f.Bytes).Writes()).ToHashSet(StringComparer.Ordinal);
+                    var sets = packaged.Writes().ToHashSet(StringComparer.Ordinal);
+                    var listed = binder.Files.Single(f => f.Name.EndsWith(".luagnl", StringComparison.OrdinalIgnoreCase)).Bytes;
+                    int names = 0; while (BitConverter.ToInt64(listed, 8 * names) != 0) names++;
+                    if (binder.Files.Count != 2 || !sourceScript.Writes().All(name => sets.Contains(hostNames.Contains(name) ? "aog_" + name : name)) || sets.Any(hostNames.Contains) || names != sets.Count
+                        || packaged.Main.Protos.Count < 4 || !packaged.Reads().Contains("g_GoalTable") || !sets.Any(n => n.StartsWith("aog_", StringComparison.Ordinal)))
+                        throw new Exception($"Battle script {battle} is not the source's own script packaged for the host");
+                }
                 if (bodyFiles.ContainsKey(identity)) continue;
                 var ownBinder = BND4.Read(Path.Combine(mod, $"chr/{identity}.chrbnd.dcx"));
                 var own = bodyFiles[identity] = FLVER2.Read(ownBinder.Files.Single(f => f.Name.EndsWith(".flver", StringComparison.OrdinalIgnoreCase)).Bytes);

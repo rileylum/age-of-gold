@@ -109,6 +109,35 @@ internal static class GameplayTablesCheck
         Reject(() => GameplayTables.AddCharacter(characterBytes, 42, 73, "authored", null, null, null, 0), "a behaviour variation of nothing");
         Console.WriteLine("PASS: a character row names the behaviour variation it is given and is otherwise its template");
 
+        // A build-owned think row: an installed row with what a source think row says of the same things. The two games keep
+        // them at different places: the battle number four bytes into the source's row and eight into the host's, and so on.
+        var thinking = Fixture("NPC_THINK_PARAM_ST", 2, 228);
+        var thinkingBytes = thinking.Write();
+        var sourceThink = new byte[112];
+        BinaryPrimitives.WriteInt32LittleEndian(sourceThink.AsSpan(4), 254000); BinaryPrimitives.WriteSingleLittleEndian(sourceThink.AsSpan(24), 4.5f);
+        // How far it sees, then (after hearing, which the host keeps otherwise) nine more whole numbers of distances and times.
+        foreach (var (at, value) in new[] { (48, 30), (52, 3), (54, 4), (56, 75), (58, 50), (60, 6), (62, 5), (64, 20), (66, 21), (68, 600), (70, 300), (72, 19) }) BinaryPrimitives.WriteUInt16LittleEndian(sourceThink.AsSpan(at), (ushort)value);
+        sourceThink[50] = 99; sourceThink[80] = 25; sourceThink[81] = 120; sourceThink[82] = 110; sourceThink[83] = 77;
+        // What it does out of battle is a number of the host's, given apart: four bytes into the host's row.
+        var thought = Read(GameplayTables.AddThinking(thinkingBytes, 42, 73, "authored thinking", sourceThink, 10000), 228);
+        var expectedThought = Payload(thinking.Rows[1]).ToArray();
+        BinaryPrimitives.WriteInt32LittleEndian(expectedThought.AsSpan(4), 10000); BinaryPrimitives.WriteInt32LittleEndian(expectedThought.AsSpan(8), 254000); BinaryPrimitives.WriteSingleLittleEndian(expectedThought.AsSpan(28), 4.5f);
+        foreach (var (at, value) in new[] { (52, 30), (56, 3), (58, 4), (60, 75), (62, 50), (64, 6), (66, 5), (68, 20), (70, 21), (76, 19) }) BinaryPrimitives.WriteUInt16LittleEndian(expectedThought.AsSpan(at), (ushort)value);
+        // The two times after which it forgets what it saw and heard are whole seconds in the source and fractions in the host.
+        BinaryPrimitives.WriteSingleLittleEndian(expectedThought.AsSpan(32), 600f); BinaryPrimitives.WriteSingleLittleEndian(expectedThought.AsSpan(72), 300f);
+        expectedThought[84] = 25; expectedThought[85] = 120; expectedThought[86] = 110;
+        Require(thought.Rows.Select(r => r.ID).SequenceEqual([41, 42, 73]) && thought.Rows[2].Name == "authored thinking" && Payload(thought.Rows[2]).SequenceEqual(expectedThought)
+            && Payload(thought.Rows[1]).SequenceEqual(Payload(thinking.Rows[1])), "think row is not its template with the source row's battle number, senses and distances");
+        Require(GameplayTables.BattleOf(thought.Write(), 73) == 254000 && GameplayTables.BattleOf(thinkingBytes, 42) == BinaryPrimitives.ReadInt32LittleEndian(Payload(thinking.Rows[1]).AsSpan(8)), "a think row's battle number is read otherwise");
+        Reject(() => GameplayTables.BattleOf(thinkingBytes, 999), "a missing think row");
+        Reject(() => GameplayTables.AddThinking(thinkingBytes, 999, 73, "authored", sourceThink, 10000), "missing think template");
+        Reject(() => GameplayTables.AddThinking(thinkingBytes, 42, 41, "authored", sourceThink, 10000), "occupied think row");
+        Reject(() => GameplayTables.AddThinking(thinkingBytes, 42, 73, "authored", new byte[112], 10000), "a battle number of nothing");
+        Reject(() => GameplayTables.AddThinking(thinkingBytes, 42, 73, "authored", new byte[116], 10000), "a source think row of another length");
+        Reject(() => GameplayTables.AddThinking(thinkingBytes, 42, 73, "authored", sourceThink, 0), "out-of-battle thinking of no number");
+        Reject(() => GameplayTables.AddThinking(Fixture("NPC_THINK_PARAM_ST", 2, 232).Write(), 42, 73, "authored", sourceThink, 10000), "unsupported think row size");
+        Console.WriteLine("PASS: a think row takes a source row's battle number, senses, distances and times, each where the host keeps it, and the out-of-battle number it is given, and is otherwise its template");
+
         // A source character's behaviour rows go into the host's table as they are: the two games lay them out alike.
         var behaviours = Fixture("BEHAVIOR_PARAM_ST", 2, 32);
         var behaviourBytes = behaviours.Write();

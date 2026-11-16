@@ -439,6 +439,8 @@ try
     HostIrradianceCheck.Run();
     SourceHumanCheck.Run(root);
     SourceFaceCheck.Run();
+    CompiledScriptCheck.Run();
+    SourceThinkingCheck.Run(root);
     SourceTalkCheck.Run(root);
     SourceNavigationCheck.Run(root);
     NavigationBorderCheck.Run();

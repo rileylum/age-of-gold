@@ -14,6 +14,7 @@ using AgeOfGold.Scene;
 using AgeOfGold.Shaders;
 using AgeOfGold.Talk;
 using AgeOfGold.Text;
+using AgeOfGold.Thinking;
 using SoulsFormats;
 
 namespace AgeOfGold.Building;
@@ -144,6 +145,8 @@ internal static class FirelinkBuild
     private const string Shadeless = "_shadeless";
     // Build-owned character rows follow the host character's own, from this offset within its thousand.
     private const int FirstCharacterRow = 8000;
+    // The out-of-battle script most enemies of both games think by: stand, and fight what is noticed.
+    private const int CommonLogic = 10000;
 
     // How far the walkable border moves out toward the walls: the source's own margin from them is about this.
     private const float WalkableReach = 0.5f;
@@ -521,6 +524,10 @@ internal static class FirelinkBuild
             return $"c{FirstCharacterIdentity + place:D4}";
         }
         // What answers the enemies' attack events: the source's behaviour rows, and the attack rows they name by the host row each is laid over.
+        // How the enemies think: each source think row an enemy placement names gets a think row of the build's own, which is
+        // its host's with the source row's battle script, senses and distances.
+        var sourceThinking = livingCharacters.Count == 0 ? [] : SourceThinking.Rows(source);
+        var thinkRows = new List<(int Row, int Template, string Name, int Source, int Battle)>();
         var behaviourRows = new SortedDictionary<int, byte[]>(); var attackRows = new SortedDictionary<int, (int Template, byte[] Row)>();
         var attacksOf = new Dictionary<int, SourceCharacterReader.SourceAttacks>();
         foreach (var (name, living) in livingCharacters)
@@ -556,8 +563,15 @@ internal static class FirelinkBuild
                 if (stoodOn < 0) throw new InvalidDataException($"Source placement {placed.Name} stands on a collision that is not built: {placed.CollisionName}");
                 string floor = $"h{terrain.Low[stoodOn].Model}_0000";
                 string identity = Identity(name, Array.IndexOf(livingPlaces[name], PlaceOf(placed.CollisionName)));
-                FirelinkMapWriter.AddEnemy(spoken, template, "aog_" + placed.Name, characterRows[known].Row, template.ThinkParamID, floor, placed.Position + terrain.Offset, placed.Rotation, 0, identity);
-                enemies.Add(new { name = "aog_" + placed.Name, source = placed.Name, body = identity, row = characterRows[known].Row, behaviour = template.ThinkParamID, collision = floor,
+                if (!sourceThinking.TryGetValue(placed.ThinkParamID, out var thought) || SourceThinking.Battle(thought) is not (> 0 and var battle)) throw new InvalidDataException($"Source placement {placed.Name} names a think row that is missing or names no battle script");
+                int thinks = thinkRows.FindIndex(r => r.Template == template.ThinkParamID && r.Source == placed.ThinkParamID);
+                if (thinks < 0)
+                {
+                    thinks = thinkRows.Count;
+                    thinkRows.Add((template.ThinkParamID / 10000 * 10000 + FirstCharacterRow + thinks, template.ThinkParamID, $"aog_{placed.ThinkParamID}", placed.ThinkParamID, battle));
+                }
+                FirelinkMapWriter.AddEnemy(spoken, template, "aog_" + placed.Name, characterRows[known].Row, thinkRows[thinks].Row, floor, placed.Position + terrain.Offset, placed.Rotation, 0, identity);
+                enemies.Add(new { name = "aog_" + placed.Name, source = placed.Name, body = identity, row = characterRows[known].Row, behaviour = thinkRows[thinks].Row, battle, collision = floor,
                     height = size.Height, radius = size.Radius });
             }
         }
@@ -1139,6 +1153,45 @@ internal static class FirelinkBuild
             foreach (var like in attackRows.GroupBy(r => r.Value.Template).OrderBy(g => g.Key))
                 attackTable.Bytes = GameplayTables.AddAttacks(attackTable.Bytes, like.Key, like.Select(r => (r.Key, r.Value.Row)).ToArray());
         }
+        // Each battle script an enemy uses, packaged as the one script of a host binder for its number: the host's own
+        // binder for the template's battle number, with the script and the list of its names replaced.
+        var battleScripts = new SortedDictionary<int, object>();
+        if (thinkRows.Count > 0)
+        {
+            var thinkTable = regulation.Tables.Files.Single(f => Path.GetFileName(f.Name.Replace('\\', '/')) == "NpcThinkParam.param");
+            static string Member(BinderFile file) => file.Name.Replace('\\', '/').Split('/')[^1];
+            var hostDefined = BND4.Read(archive.Read("script/aicommon.luabnd.dcx")).Files.Where(f => Member(f).EndsWith(".lua", StringComparison.OrdinalIgnoreCase))
+                .SelectMany(f => CompiledScript.Read(f.Bytes).Writes()).ToHashSet(StringComparer.Ordinal);
+            var sourceShared = SourceThinking.Shared(source);
+            foreach (var like in thinkRows.GroupBy(r => r.Battle).OrderBy(g => g.Key))
+            {
+                // lazy: the source's own battle numbers; one the host also uses needs a number of the build's own, and the
+                // goal's number within the script with it.
+                string path = $"script/{like.Key}_battle.luabnd.dcx";
+                if (archive.Contains(path)) throw new InvalidDataException($"The host already has a battle script {like.Key}");
+                int hostBattle = GameplayTables.BattleOf(thinkTable.Bytes, like.First().Template);
+                var binder = BND4.Read(archive.Read($"script/{hostBattle}_battle.luabnd.dcx"));
+                var script = binder.Files.SingleOrDefault(f => Member(f).Equals($"{hostBattle}_battle.lua", StringComparison.OrdinalIgnoreCase)); var listed = binder.Files.SingleOrDefault(f => Member(f).EndsWith(".luagnl", StringComparison.OrdinalIgnoreCase));
+                if (script is null || listed is null || binder.Files.Count != 2) throw new InvalidDataException($"Host battle binder {hostBattle} is not one script and the list of its names");
+                var packaged = HostBattleScript.Package(like.Key, SourceThinking.BattleScript(source, SourceArea + "_00_00", like.Key), sourceShared, hostDefined);
+                script.Bytes = packaged.Script; listed.Bytes = HostBattleScript.Names(packaged.Defines);
+                foreach (var file in binder.Files) file.Name = file.Name.Replace($"{hostBattle}_battle", $"{like.Key}_battle", StringComparison.OrdinalIgnoreCase);
+                files.Add("mod/" + path, binder.Write());
+                battleScripts.Add(like.Key, new { thinkRows = like.Select(r => r.Row), carried = packaged.Carried, defines = packaged.Defines.Length, unmet = packaged.Unmet });
+            }
+            // After the scripts, so that the template rows' battle numbers are read from the host's table as installed.
+            // What an enemy does out of battle is a script by number too. The host has shared ones, the common one among
+            // them under the source's own number for it; a source number the host has a shared script for is kept.
+            // lazy: an enemy with an out-of-battle script of its own in the source takes the common one; the source's
+            // script is not carried.
+            var hostLogics = BND4.Read(archive.Read("script/aicommon.luabnd.dcx")).Files.Select(f => Regex.Match(Member(f), @"^(\d{6})_logic\.lua$")).Where(m => m.Success).Select(m => int.Parse(m.Groups[1].Value)).ToHashSet();
+            if (!hostLogics.Contains(CommonLogic)) throw new InvalidDataException("The host has no common out-of-battle script");
+            foreach (var row in thinkRows)
+            {
+                int logic = SourceThinking.Logic(sourceThinking[row.Source]) is var asked && hostLogics.Contains(asked) ? asked : CommonLogic;
+                thinkTable.Bytes = GameplayTables.AddThinking(thinkTable.Bytes, row.Template, row.Row, row.Name, sourceThinking[row.Source], logic);
+            }
+        }
         files.Add("mod/regulation.bin", regulation.Write());
 
         files.Add("age-of-gold.me3", System.Text.Encoding.UTF8.GetBytes(
@@ -1166,6 +1219,7 @@ internal static class FirelinkBuild
             unbuiltObjects,
             unbuiltCharacters,
             enemies,
+            battleScripts,
             wholeCharacters,
             wholePeople,
             attacks = new { behaviours = behaviourRows.Keys, hits = attackRows.Keys, projectiles = attacksOf.Values.Sum(a => a.Projectiles) },

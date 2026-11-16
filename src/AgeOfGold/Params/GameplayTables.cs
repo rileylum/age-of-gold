@@ -80,6 +80,53 @@ internal static class GameplayTables
         return rows.Write();
     }
 
+    // What a think row says that means the same in both games, by where each keeps it: the source's place, the host's, and
+    // how it is stored (a whole number of four bytes, of two, or of one; a fraction; or seconds, whole in the source and a
+    // fraction in the host). In order: the battle script; how long it pushes at a wall before giving up; how far it sees;
+    // where sound stops reaching it and how far it smells; how far from home it goes, turns back and fights; how long it
+    // idles and how long and how far it looks back at a target as it goes home; when it forgets what it saw and heard;
+    // how near a target starts a battle; how it weighs joining an attack; and how wide and how tall its sight is.
+    // lazy: the rest stays the template's: calling for help, the goals it takes on noticing something, and hearing, which
+    // the host keeps by other means. That a forgetting time is seconds in both games is
+    // taken from the two tables' usual values, not seen in play.
+    private static readonly (int Source, int Host, char Kind)[] SharedThinking =
+    [
+        (4, 8, 'i'), (24, 28, 'f'), (48, 52, 'w'), (52, 56, 'w'), (54, 58, 'w'), (56, 60, 'w'), (58, 62, 'w'), (60, 64, 'w'), (62, 66, 'w'), (64, 68, 'w'), (66, 70, 'w'),
+        (68, 32, 's'), (70, 72, 's'), (72, 76, 'w'), (80, 84, 'b'), (81, 85, 'b'), (82, 86, 'b'),
+    ];
+
+    /// <summary>
+    /// Adds a think row that is an installed row with what a source think row says of the same things: the battle script
+    /// above all (the host finds an enemy's battle script, and the goal it runs in battle, by that number), then how far
+    /// and how widely it sees, how far it strays from home, and how long it remembers.
+    /// </summary>
+    /// <param name="logic">The number of what the enemy does out of battle, as the host numbers it.</param>
+    internal static byte[] AddThinking(byte[] table, int templateRow, int rowId, string name, byte[] source, int logic)
+    {
+        if (source.Length != 112) throw new InvalidDataException("Source think row is not of the known layout");
+        if (logic <= 0) throw new InvalidDataException("A think row names what its enemy does out of battle by a positive number");
+        if (BinaryPrimitives.ReadInt32LittleEndian(source.AsSpan(4)) <= 0) throw new InvalidDataException("A think row names a battle script by a positive number");
+        var rows = Read(table, "NPC_THINK_PARAM_ST", 2, 228);
+        var template = rows.Rows.SingleOrDefault(r => r.ID == templateRow) ?? throw new InvalidDataException($"Think template row {templateRow} is absent");
+        var added = Clone(rows, template, rowId, name);
+        // The row opens with four bytes of the host's own; the out-of-battle number follows.
+        BinaryPrimitives.WriteInt32LittleEndian(Payload(added).AsSpan(4), logic);
+        foreach (var (from, to, kind) in SharedThinking)
+            switch (kind)
+            {
+                case 'i' or 'f': source.AsSpan(from, 4).CopyTo(Payload(added).AsSpan(to)); break;
+                case 'w': source.AsSpan(from, 2).CopyTo(Payload(added).AsSpan(to)); break;
+                case 'b': Payload(added)[to] = source[from]; break;
+                case 's': BinaryPrimitives.WriteSingleLittleEndian(Payload(added).AsSpan(to), BinaryPrimitives.ReadUInt16LittleEndian(source.AsSpan(from))); break;
+            }
+        Insert(rows, added);
+        return rows.Write();
+    }
+
+    /// <summary>The battle number an installed think row names.</summary>
+    internal static int BattleOf(byte[] table, int row) =>
+        BinaryPrimitives.ReadInt32LittleEndian(Payload(Read(table, "NPC_THINK_PARAM_ST", 2, 228).Rows.SingleOrDefault(r => r.ID == row) ?? throw new InvalidDataException($"Think row {row} is absent")).AsSpan(8));
+
     /// <summary>
     /// Adds a source character's behaviour rows as they are: both games lay a behaviour row out alike. A row answers an
     /// attack event's request for its character's variation by naming an attack row.
