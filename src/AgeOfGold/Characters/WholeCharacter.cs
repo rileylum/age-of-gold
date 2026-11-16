@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Text.RegularExpressions;
 using AgeOfGold.Animation;
 using AgeOfGold.Archives;
@@ -20,7 +21,11 @@ internal static class WholeCharacter
 
     /// <param name="Files">The character's host files, by path within a build.</param>
     /// <param name="Stood">Host animation numbers the source has no animation for, which play its idle.</param>
-    internal sealed record Built(SortedDictionary<string, byte[]> Files, int Bones, int Animations, int Stood, HostCharacterEvents.Written Events, HostCharacterPhysics.Written Physics);
+    internal sealed record Built(SortedDictionary<string, byte[]> Files, int Bones, int Animations, int Stood, HostCharacterEvents.Written Events, HostCharacterPhysics.Written Physics)
+    {
+        /// <summary>How many bones that carry cloth have what follows them hung where it would come to rest.</summary>
+        internal int Hung { get; init; }
+    }
 
     private static readonly Regex HostAnimation = new(@"^a(\d{3})_(\d{6})\.hkx$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex SourceAnimation = new(@"^a(\d{2})_(\d{4})\.hkx$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -38,9 +43,13 @@ internal static class WholeCharacter
         var bySourceNumber = own.ToDictionary(o => o.Key, o => o.Value);
         foreach (var (hostNumber, sourceNumber) in HostCharacterEvents.Moves)
             if (bySourceNumber.TryGetValue(HostCharacterEvents.HostNumber(sourceNumber), out var same)) own[hostNumber] = same;
-        return Assemble(archive, name, identity, hosts, One(animations, "skeleton.hkx", name, "skeleton"), One(BND3.Read(source.Read($"chr/{name}.chrbnd.dcx")), name + ".hkx", name, "physics file"),
+        var files = BND3.Read(source.Read($"chr/{name}.chrbnd.dcx"));
+        // A character with cloth has a cloth file beside its physics file. What its chains carry is hung where it would
+        // come to rest (see HostCharacterCloth).
+        var hung = files.Files.SingleOrDefault(f => Member(f).Equals(name + "_c.hkx", StringComparison.OrdinalIgnoreCase)) is { } cloth ? Hung(cloth.Bytes, model) : null;
+        return Assemble(archive, name, identity, hosts, One(animations, "skeleton.hkx", name, "skeleton"), One(files, name + ".hkx", name, "physics file"),
             animations.Files.SingleOrDefault(f => Member(f).EndsWith(".tae", StringComparison.OrdinalIgnoreCase))?.Bytes ?? throw new InvalidDataException("Source character has no event file: " + name),
-            own, null, HostCharacterEvents.Moves, (hostModel, bones) => HostCharacterModel.WriteWhole(hostModel, model, parts, bones));
+            own, null, HostCharacterEvents.Moves, (hostModel, bones) => HostCharacterModel.WriteWhole(hostModel, model, parts, bones, hung)) with { Hung = hung?.Count ?? 0 };
     }
 
     /// <summary>
@@ -63,6 +72,19 @@ internal static class WholeCharacter
         return Assemble(archive, human, identity, hosts, One(main, "skeleton.hkx", human, "skeleton"), One(BND3.Read(source.Read($"chr/{human}.chrbnd.dcx")), human + ".hkx", human, "physics file"),
             One(main, "a00.tae", human, "first event file"), new SortedDictionary<long, byte[]> { [0] = posed }, new Dictionary<long, long> { [pose] = 0 }, null,
             (hostModel, bones) => HostCharacterModel.WritePieces(hostModel, skeleton, pieces, bones));
+    }
+
+    private static Dictionary<string, Matrix4x4> Hung(byte[] cloth, FLVER2 model)
+    {
+        var (moving, still) = HostCharacterCloth.Bodies(cloth);
+        var chains = HostCharacterCloth.Chains(moving, still, model.Nodes.Select(n => (n.Name, (int)n.ParentIndex)).ToList());
+        var world = new Matrix4x4[model.Nodes.Count];
+        for (int i = 0; i < world.Length; i++)
+        {
+            int parent = model.Nodes[i].ParentIndex;
+            world[i] = parent < 0 ? model.Nodes[i].ComputeLocalTransform() : parent < i ? model.Nodes[i].ComputeLocalTransform() * world[parent] : throw new InvalidDataException("Source model lists a node before its parent");
+        }
+        return HostCharacterCloth.Hung(chains, chains.SelectMany(c => c.Bones).ToDictionary(b => b, b => world[model.Nodes.FindIndex(n => n.Name == b)].Translation, StringComparer.Ordinal));
     }
 
     private static string Member(BinderFile file) => file.Name.Replace('\\', '/').Split('/')[^1];

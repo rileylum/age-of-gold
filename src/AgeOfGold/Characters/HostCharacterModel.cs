@@ -64,11 +64,13 @@ internal static class HostCharacterModel
     /// </summary>
     /// <param name="hostModel">A host character model whose meshes the parts name as exemplars.</param>
     /// <param name="bones">The names of the source skeleton's bones; the model's other nodes carry meshes or attachment points.</param>
-    internal static byte[] WriteWhole(byte[] hostModel, FLVER2 source, IReadOnlyList<Part> parts, IReadOnlyCollection<string> bones)
+    /// <param name="hung">For bones that carry cloth, a turn of what follows them from where the model rests it to where it hangs.</param>
+    internal static byte[] WriteWhole(byte[] hostModel, FLVER2 source, IReadOnlyList<Part> parts, IReadOnlyCollection<string> bones, IReadOnlyDictionary<string, Matrix4x4>? hung = null)
     {
         var host = FLVER2.Read(hostModel);
         Stand(host, source, bones, source.Meshes.Select(m => m.NodeIndex).ToHashSet());
-        return Write(host, [new(source, null, parts, null)], true);
+        var turned = hung?.ToDictionary(h => source.Nodes.FindIndex(n => n.Name == h.Key) is >= 0 and var node ? node : throw new InvalidDataException("The source model has no node for the cloth bone " + h.Key), h => h.Value);
+        return Write(host, [new(source, null, parts, null)], true, null, turned);
     }
 
     // Gives a host model a source model's nodes and attachment points in place of its own.
@@ -113,7 +115,7 @@ internal static class HostCharacterModel
         return Write(host, pieces, false, host.Nodes.Count - 1);
     }
 
-    private static byte[] Write(FLVER2 host, IReadOnlyList<Body> bodies, bool whole, int? meshNode = null)
+    private static byte[] Write(FLVER2 host, IReadOnlyList<Body> bodies, bool whole, int? meshNode = null, IReadOnlyDictionary<int, Matrix4x4>? hung = null)
     {
         if (whole || meshNode is not null) ListNodes(host);
         if (host.Header.Version != 0x2001a || host.Header.BigEndian) throw new InvalidDataException("Unsupported host character model revision");
@@ -192,7 +194,9 @@ internal static class HostCharacterModel
                     int bone = fit.Host[node];
                     if (bone < 0) throw new InvalidDataException("No host bone carries the source bone " + source.Nodes[node].Name);
                     if (bone > highestBone) throw new InvalidDataException("The host layout cannot name the bone " + host.Nodes[bone].Name);
-                    move += fit.Move[node] * (weight / total); carried[bone] = carried.GetValueOrDefault(bone) + weight / total;
+                    // What follows a cloth bone is first turned to where it hangs.
+                    move += (hung is not null && hung.TryGetValue(node, out var turn) ? turn * fit.Move[node] : fit.Move[node]) * (weight / total);
+                    carried[bone] = carried.GetValueOrDefault(bone) + weight / total;
                 }
                 Vector3 Direction(Vector3 v) { var turned = Vector3.TransformNormal(v, move); return turned.LengthSquared() == 0 ? turned : Vector3.Normalize(turned); }
                 // The four heaviest host bones, their weights filling a byte exactly.

@@ -426,6 +426,7 @@ try
     NavigationIndexCheck.Run();
     SourceEventCheck.Run();
     SkeletonFitCheck.Run();
+    HostCharacterClothCheck.Run();
     HostCharacterModelCheck.Run();
     SourceCharacterCheck.Run(root);
     WholeCharacterCheck.Run();

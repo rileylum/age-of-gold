@@ -285,6 +285,9 @@ internal static class FirelinkBuildInstallCheck
         if (peopleSpeech.Length != people.Length || peopleSpeech.Select(t => t.GetProperty("message").GetInt32()).Distinct().Count() != people.Length) throw new Exception("Built people do not each have their own talk");
         if (people.Length != 2 || manifest.RootElement.GetProperty("unbuiltCharacters").GetProperty("c0000").GetInt32() != sourceEnemies.Values.Count(p => p.ModelName == "c0000") - people.Length)
             throw new Exception("Built people are not the two humans present from the start");
+        // The armoured hollow's cloak rests spread out in its model and is hung; the plain hollow has no cloth.
+        int HungBones(string model) => manifest.RootElement.GetProperty("wholeCharacters").GetProperty(model).GetProperty("clothBonesHung").GetInt32();
+        if (HungBones("c2550") < 3 || HungBones("c2540") != 0) throw new Exception("Built enemies' cloth is not hung where the source has cloth chains that rest far from hanging");
         // Each enemy model and each person has a character to itself; the build replaces no host character.
         if (manifest.RootElement.GetProperty("wholeCharacters").EnumerateObject().Count() != enemies.Select(e => e.GetProperty("body").GetString()).Distinct().Count() || manifest.RootElement.GetProperty("wholePeople").EnumerateObject().Count() != people.Length
             || Directory.GetFiles(Path.Combine(mod, "chr"), "*.chrbnd.dcx").Select(f => Path.GetFileName(f)[..5]).Any(c => hostArchive.Contains($"chr/{c}.chrbnd.dcx")))

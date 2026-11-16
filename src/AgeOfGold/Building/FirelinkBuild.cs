@@ -785,6 +785,7 @@ internal static class FirelinkBuild
                         identity = Identity(name, variant), behaviour = hostName, physics = living.Physics, bones = whole.Bones, animations = whole.Animations, standing = whole.Stood,
                         events = new { kept = whole.Events.Kept, dropped = whole.Events.Dropped },
                         bodies = whole.Physics.Bodies, boxesAsCapsules = whole.Physics.Boxes, joints = whole.Physics.Joints, breakableJointsHeld = whole.Physics.Held, jointValuesKept = whole.Physics.Kept,
+                        clothBonesHung = whole.Hung,
                         light = new { row = place.Light, fog = place.Fog, scattering = place.Scattering, capture = place.Probe },
                     });
                 }
