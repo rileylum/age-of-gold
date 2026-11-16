@@ -33,7 +33,8 @@ internal static class ModelReader
         using var reader = new BinaryReaderEx(false, raw);
         var model = new FLVER2();
         model.Read(reader, false);
-        if (model.Header.Version != 0x2000C || model.Header.BigEndian)
+        // Map pieces, characters and most parts are of one version; some parts (hair) are of the next, laid out alike.
+        if (model.Header.Version is not (0x2000C or 0x2000D) || model.Header.BigEndian)
             throw new InvalidDataException("Unclassified source visual format version or byte order");
         int dataOffset = reader.GetInt32(12), repaired = 0;
         // The library's automatic repair mutates shared layouts and can still leave the wrong stride.
@@ -43,9 +44,12 @@ internal static class ModelReader
         int Field(FLVER2.VertexBuffer buffer, string name) => (int)typeof(FLVER2.VertexBuffer).GetField(name, flags)!.GetValue(buffer)!;
         foreach (var mesh in model.Meshes)
         {
-            if (mesh.VertexBuffers.Count != 1 || mesh.VertexBuffers[0].EdgeCompressed)
-                throw new InvalidDataException("Source visual reader requires one ordinary vertex buffer");
+            if (mesh.VertexBuffers.Count != 1) throw new InvalidDataException("Source visual reader requires one vertex buffer a mesh");
             var buffer = mesh.VertexBuffers[0];
+            // The source marks a buffer it rewrites as the game runs (the face front's, which it bends for each person)
+            // with a high bit of the buffer's number. The library takes the mark for a packed layout of another platform's
+            // and reads no vertices; the vertices are stored plainly, which the check of each position below bears out.
+            buffer.EdgeCompressed = false;
             int stride = Field(buffer, "VertexSize");
             var declaration = model.BufferLayouts[buffer.LayoutIndex];
             if (declaration.Size != stride) repaired++;

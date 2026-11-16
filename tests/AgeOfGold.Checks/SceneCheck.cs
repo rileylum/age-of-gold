@@ -68,6 +68,19 @@ internal static class SceneCheck
         // An attachment point for effects, held by the node it follows.
         model.Dummies.Add(new() { ReferenceID = 100, Position = new(0.5f, 0.25f, 0.125f), ParentBoneIndex = 0, AttachBoneIndex = -1, Forward = Vector3.UnitZ, Upward = Vector3.UnitY });
         Write("map/m10_02_00_00/m0000A10.flver.dcx", model.Write());
+        // The source marks a buffer it rewrites as the game runs (the face front's, which it bends for each person) with a
+        // high bit of the buffer's number; the vertices are stored as in any other buffer and are read the same.
+        {
+            var marked = model.Write(); int dataOffset = BitConverter.ToInt32(marked, 12), headers = 0;
+            int stride = model.BufferLayouts[0].Size;
+            for (int at = 0x80; at + 32 <= dataOffset; at += 4)
+                if (BitConverter.ToInt32(marked, at) == 0 && BitConverter.ToInt32(marked, at + 4) == 0 && BitConverter.ToInt32(marked, at + 8) == stride && BitConverter.ToInt32(marked, at + 12) == 3
+                    && BitConverter.ToInt32(marked, at + 16) == 0 && BitConverter.ToInt32(marked, at + 20) == 0 && BitConverter.ToInt32(marked, at + 24) == 3 * stride)
+                { BitConverter.TryWriteBytes(marked.AsSpan(at), 0x40000000); headers++; }
+            Require(headers == 1, "authored model's one vertex buffer header");
+            var read = AgeOfGold.Scene.ModelReader.Read(marked).Model;
+            Require(read.Meshes.Single().Vertices.Select(v => v.Position).SequenceEqual(new[] { Vector3.Zero, Vector3.UnitX, Vector3.UnitZ }) && read.Meshes.Single().Vertices[1].UVs[1].X == 8, "a buffer marked for rewriting");
+        }
         // An object's model and textures sit together in its own binder; the same reader shapes its surfaces.
         Write("obj/o9999.objbnd.dcx", new BND3 { Files = [new BinderFile(Binder.FileFlags.Flag1, 0, @"N:\authored\o9999.flver", model.Write()),
             new BinderFile(Binder.FileFlags.Flag1, 1, @"N:\authored\o9999.tpf", AuthoredPackage("authored-colour"))] }.Write());
