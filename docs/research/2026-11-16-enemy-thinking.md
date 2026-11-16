@@ -90,13 +90,13 @@ character it borrows from sees eight in forty.
 
 ## Seen in the game
 
-A hollow soldier placed by the resting point for the trial, with the build's packaged script
-and think row:
+An enemy of each of the seven scripts, placed by the resting point for the trial with the build's packaged script
+and think row (its sight cut short of the player's spawn, for the reason below):
 
-- with the borrowed character's own out-of-battle script, or the common one, it closes on the
-  player when it first sees them and kills them;
-- that holds with every carried value, so long as its first sight of the player comes after
-  the map has loaded.
+- each closes on the player when it first sees them and kills them: the hollow soldier with a sword, with an axe
+  and with firebombs, the armoured hollow, the beggar hollow and both skeletons;
+- the hollow soldier does so with the borrowed character's own out-of-battle script and with the common one;
+- that holds with every carried value, so long as its first sight of the player comes after the map has loaded.
 
 **An enemy that can see the player at the moment the map loads never engages**: it stands
 where it is, targetable, for as long as watched. Narrowed down by changing one value at a time
@@ -107,9 +107,9 @@ fourteen freezes). The host pauses after loading while it prepares the build's n
 mesh; a battle begun in that pause may be what is lost. No enemy placed at Firelink is within
 sight of the resting point, so it does not arise there, but it is not understood.
 
-Not yet seen: an enemy noticing from far off and running in (the trial fights begin within
-five metres); the other six battle scripts in play; the placed enemies themselves, which the
-private harness cannot yet set the player down beside.
+Not yet seen: an enemy noticing from far off and running in (the trial fights begin within five metres); a firebomb
+thrown (the source's projectiles are not carried); the placed enemies themselves, which the private harness cannot
+yet set the player down beside.
 
 ## Sources and licences
 
