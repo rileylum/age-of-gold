@@ -220,7 +220,11 @@ internal static class FirelinkBuildInstallCheck
             table.ApplyParamdef(whole);
             return table.Rows.GroupBy(r => r.ID).ToDictionary(g => g.Key, g => (byte[])g.First()["raw"].Value);
         }
-        var startRows = StoredRows("CharaInitParam"); var armourRows = StoredRows("EquipParamProtector");
+        var startRows = StoredRows("CharaInitParam"); var armourRows = StoredRows("EquipParamProtector"); var faceRows = StoredRows("FaceGenParam");
+        // The files the source generates a face from: the base skin picture (three bytes a texel, blue first, rows from
+        // the bottom) and the skin's modes (a 64-byte header, then for each mode a scale and the picture's red, green and
+        // blue as signed bytes, rows from the top).
+        var faceFiles = BND3.Read(Path.Combine(source, "facegen/FaceGen.fgbnd")).Files.ToDictionary(f => f.Name.Replace('\\', '/').Split('/')[^1], f => f.Bytes, StringComparer.OrdinalIgnoreCase);
         foreach (var person in people)
         {
             var placed = layout.Parts.Enemies.Single(p => p.Name == person.GetProperty("name").GetString());
@@ -258,12 +262,45 @@ internal static class FirelinkBuildInstallCheck
                 var armour = armourRows.TryGetValue(item, out var exact) ? exact : armourRows[item - item % 100];
                 for (int mark = 0; mark < 48; mark++) if ((armour[216 + (6 + mark) / 8] >> (6 + mark) % 8 & 1) != 0) hiddenMarks.Add(mark);
             }
+            // A person's start-up row names its face row, whose hundred-and-first byte is the hair's style; a man's styles
+            // are armour rows from a thousand, a hundred apart, and hide marks as armour does. The person wears that hair
+            // and the face front every person shares.
+            var faceRow = faceRows[BitConverter.ToInt32(startRows[from.CharaInitID], 164)];
+            var hairRow = armourRows[1000 + 100 * faceRow[100]];
+            for (int mark = 0; mark < 48; mark++) if ((hairRow[216 + (6 + mark) / 8] >> (6 + mark) % 8 & 1) != 0) hiddenMarks.Add(mark);
+            string hair = $"HR_M_{BitConverter.ToInt16(hairRow, 160):D4}";
+            var worn = person.GetProperty("parts").EnumerateArray().Select(stem => stem.GetString()!).ToArray();
+            if (person.GetProperty("hair").GetString() != hair || worn.Count(stem => stem == hair) != 1 || worn.Count(stem => stem == "FG_A_0000") != 1)
+                throw new Exception($"Built person {placed.Name} does not wear the hair its face row names and the face front: {string.Join(",", worn)}");
+            // The rest of a person's skin is shifted by what the top right texel of its skin has moved from the base
+            // picture's: for each of the fifty modes, the row's byte (as ten below nothing to ten above) times the mode's
+            // scale times the mode's value there.
+            byte[] basePicture = faceFiles["face.bmp"], skinModes = faceFiles["face.egt"];
+            int pictureHeight = BitConverter.ToInt32(skinModes, 8), pictureWidth = BitConverter.ToInt32(skinModes, 12), pictureRow = (pictureWidth * 3 + 3) / 4 * 4;
+            var expectedShift = Enumerable.Range(0, 3).Select(channel =>
+            {
+                int start = basePicture[BitConverter.ToInt32(basePicture, 10) + (pictureHeight - 1) * pictureRow + (pictureWidth - 1) * 3 + 2 - channel];
+                float sum = start;
+                for (int mode = 0; mode < 50; mode++)
+                {
+                    int at = 64 + mode * (4 + 3 * pictureWidth * pictureHeight);
+                    sum += (faceRow[50 + mode] * 20f / 255 - 10) * BitConverter.ToSingle(skinModes, at) * (sbyte)skinModes[at + 4 + channel * pictureWidth * pictureHeight + pictureWidth - 1];
+                }
+                return (int)Math.Clamp(MathF.Round(sum), 0, 255) - start;
+            }).ToArray();
+            var builtShift = person.GetProperty("skinShift").EnumerateArray().Select(v => v.GetInt32()).ToArray();
+            if (!builtShift.SequenceEqual(expectedShift) || builtShift.All(v => v == 0)) throw new Exception($"Built person {placed.Name}'s skin is shifted by {string.Join(",", builtShift)}, not {string.Join(",", expectedShift)}");
             int expectedMeshes = person.GetProperty("parts").EnumerateArray().Select(stem => stem.GetString()!).Sum(stem =>
             {
                 var part = FLVER2.Read(BND3.Read(Path.Combine(source, $"parts/{stem}.partsbnd.dcx")).Files.OrderBy(f => f.ID).First(f => f.Name.EndsWith(".flver", StringComparison.OrdinalIgnoreCase)).Bytes);
                 return part.Meshes.Count(m => stem.StartsWith("WP_", StringComparison.Ordinal) || Regex.Match(part.Materials[m.MaterialIndex].Name, @"^#(\d\d)#") is not { Success: true } marked
                     || !hiddenMarks.Contains(int.Parse(marked.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)));
             });
+            // The face front carries a sheet whose every vertex reads one point of its picture; it shows nothing and is left out.
+            int unseen = AgeOfGold.Scene.ModelReader.Read(BND3.Read(Path.Combine(source, "parts/FG_A_0000.partsbnd.dcx")).Files.OrderBy(f => f.ID).First(f => f.Name.EndsWith(".flver", StringComparison.OrdinalIgnoreCase)).Bytes).Model
+                .Meshes.Count(m => m.Vertices.All(v => v.UVs[0] == m.Vertices[0].UVs[0]));
+            if (unseen != 1 || person.GetProperty("unseenMeshes").GetInt32() != unseen) throw new Exception($"Built person {placed.Name} leaves out {person.GetProperty("unseenMeshes").GetInt32()} meshes that show nothing where the face front has {unseen}");
+            expectedMeshes -= unseen;
             if (hiddenMarks.Count == 0 || body.Meshes.Count != expectedMeshes) throw new Exception($"Built person {placed.Name} has {body.Meshes.Count} meshes where its parts show {expectedMeshes}");
             var poses = TAE.Read(BND4.Read(Path.Combine(mod, $"chr/{identity}.anibnd.dcx")).Files.Single(f => f.Name.EndsWith(".tae", StringComparison.OrdinalIgnoreCase)).Bytes);
             if (poses.ID != 200000 + int.Parse(identity[1..]) || poses.Animations.First().ID != 0) throw new Exception($"Built person {placed.Name}'s events are not its own");

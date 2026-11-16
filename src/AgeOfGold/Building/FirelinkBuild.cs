@@ -347,11 +347,26 @@ internal static class FirelinkBuild
         // The source bonfire becomes a host resting point: marker, controller and respawn region copied from the host's own
         // first resting point, with identities and an activation flag reserved in this map's range.
         var sourceLayout = MSB1.Read(source.Read("map/MapStudio/m10_02_00_00.msb"));
-        // Each living person's pieces: the part models of what the source dresses it in, with the textures those hold.
+        // What people share: the files the source generates each face from as the game runs (see SourceFace), and the
+        // textures of the bare body and of the face.
+        var faceFiles = LivingPeople.Count == 0 ? null : BND3.Read(source.Read("facegen/FaceGen.fgbnd"));
+        byte[] FaceFile(string name) => faceFiles!.Files.SingleOrDefault(f => f.Name.Replace('\\', '/').Split('/')[^1].Equals(name, StringComparison.OrdinalIgnoreCase))?.Bytes
+            ?? throw new InvalidDataException("Source face generation lacks " + name);
+        var sharedTextures = LivingPeople.Count == 0 ? [] : TextureReader.ReadPackage(source.Read("parts/Common_Body.tpf")).Concat(TextureReader.ReadPackage(FaceFile("facegen.tpf"))).ToArray();
+        var peopleFaces = new Dictionary<string, (string Hair, int[] Shift)>(StringComparer.Ordinal);
+        var unseen = new Dictionary<string, int>(StringComparer.Ordinal);
+        // Each living person's pieces: the part models of what the source dresses it in, with the textures those hold
+        // and the textures made for the person alone.
         var peoplePieces = LivingPeople.ToDictionary(person => person.Key, person =>
         {
             var placed = sourceLayout.Parts.Enemies.SingleOrDefault(p => p.Name == person.Key && p.ModelName == "c0000") ?? throw new InvalidDataException("Source map has no human placement " + person.Key);
             var dressed = SourceHumanReader.Read(source, placed.CharaInitID);
+            // The person's skin, and what the rest of its skin is shifted by to meet the face.
+            var basePicture = SourceFace.Picture(FaceFile("face.bmp"));
+            var skin = SourceFace.Skin(basePicture, FaceFile("face.egt"), dressed.Face.Skin);
+            int[] shift = SourceFace.Shift(skin, basePicture);
+            peopleFaces.Add(person.Key, (dressed.Parts.Single(part => part.StartsWith("HR_", StringComparison.Ordinal)), shift));
+            var made = new Dictionary<string, byte[]>(StringComparer.Ordinal);
             var stems = dressed.Parts.Select(stem => (Stem: stem, Hand: "")).ToList();
             if (dressed.Right is { } right) stems.Add((right, RightHandBone));
             if (dressed.Left is { } left) stems.Add((left, LeftHandBone));
@@ -360,27 +375,82 @@ internal static class FirelinkBuild
                 var binder = BND3.Read(source.Read($"parts/{piece.Stem}.partsbnd.dcx"));
                 // What is held comes with a second model for when it is put away; the first is the one in hand.
                 var file = binder.Files.OrderBy(f => f.ID).FirstOrDefault(f => f.Name.EndsWith(".flver", StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidDataException("Source part has no model: " + piece.Stem);
-                // A part model may keep its vertices in several buffers (the face front does, for shaping); the format library joins them.
-                var model = FLVER2.Read(file.Bytes);
+                var model = ModelReader.Read(file.Bytes).Model;
+                if (piece.Stem == SourceHumanReader.FaceFront) SourceFace.Shape(model, FaceFile, dressed.Face.Shape);
+                var held = binder.Files.Where(f => f.Name.EndsWith(".tpf", StringComparison.OrdinalIgnoreCase)).SelectMany(f => TextureReader.ReadPackage(f.Bytes)).ToArray();
+                // A material may name a texture in another case than the texture's own; the texture's own name is kept.
+                string Named(string name) => held.Concat(sharedTextures).Select(t => t.Name).FirstOrDefault(n => n.Equals(name, StringComparison.OrdinalIgnoreCase)) ?? name;
+                BlockTexture.Image Decoded(string name) => BlockTexture.Decode(held.Concat(sharedTextures).Where(t => t.Name == name).Select(t => t.Bytes).FirstOrDefault()
+                    ?? throw new InvalidDataException($"Source part texture is not with the part or shared: {piece.Stem}/{name}"));
+                // A texture made for the person alone, named apart from the source's own and from any character's.
+                string Made(string name, Func<BlockTexture.Image> picture)
+                {
+                    string own = $"made_{person.Key}_{name}";
+                    if (!made.ContainsKey(own)) made.Add(own, BlockTexture.EncodeFour(picture()));
+                    return own;
+                }
+                static bool Has(FLVER2.Material material, string input) => material.Textures.Any(t => t.ParamName == input && t.Path.Length > 0);
                 // A mesh whose material's name begins with a mark between hashes is not drawn when something worn hides that
                 // mark: gauntlets hide the ends of a mail shirt's sleeves, a helmet the hair.
                 bool Shown(int mesh) => piece.Hand != "" || model.Materials[model.Meshes[mesh].MaterialIndex].Name is not { Length: >= 4 } name || name[0] != '#' || name[3] != '#'
                     || !int.TryParse(name.AsSpan(1, 2), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int mark) || !dressed.Hidden.Contains(mark);
-                var meshes = Enumerable.Range(0, model.Meshes.Count).Where(Shown).Select(i =>
+                // A blended sheet that reads its colour map at one point alone, where the map has no coverage, shows nothing
+                // (the face front carries one, between the eyes); it is left out, and with it the maps its material names
+                // that the source does not have.
+                bool Unseen(int mesh)
+                {
+                    var material = model.Materials[model.Meshes[mesh].MaterialIndex]; var vertices = model.Meshes[mesh].Vertices;
+                    if (piece.Hand != "" || !reader.Blended(material.MTD) || vertices.Any(v => v.UVs.Count == 0 || v.UVs[0] != vertices[0].UVs[0]) || !Has(material, "g_Diffuse")) return false;
+                    var map = Decoded(Named(Path.GetFileNameWithoutExtension(material.Textures.Single(t => t.ParamName == "g_Diffuse").Path.Replace('\\', '/'))));
+                    // The point's texel, the coordinates repeating.
+                    float u = vertices[0].UVs[0].X, v = vertices[0].UVs[0].Y;
+                    int x = Math.Min(map.Width - 1, (int)((u - MathF.Floor(u)) * map.Width)), y = Math.Min(map.Height - 1, (int)((v - MathF.Floor(v)) * map.Height));
+                    return map.Rgba[(y * map.Width + x) * 4 + 3] == 0;
+                }
+                var drawn = Enumerable.Range(0, model.Meshes.Count).Where(Shown).ToArray();
+                var shown = drawn.Where(i => !Unseen(i)).ToArray();
+                unseen[person.Key] = unseen.GetValueOrDefault(person.Key) + drawn.Length - shown.Length;
+                // The face is drawn from two pictures, each found by coordinates of its own (see SourceFace.Blended).
+                var layered = shown.Where(i => Has(model.Materials[model.Meshes[i].MaterialIndex], "g_Diffuse_2")).ToArray();
+                var meshes = shown.Select(i =>
                 {
                     var material = model.Materials[model.Meshes[i].MaterialIndex];
-                    string Texture(string input) => material.Textures.SingleOrDefault(t => t.ParamName == input) is { Path.Length: > 0 } t ? Path.GetFileNameWithoutExtension(t.Path.Replace('\\', '/'))
+                    string Texture(string input) => material.Textures.SingleOrDefault(t => t.ParamName == input) is { Path.Length: > 0 } t ? Named(Path.GetFileNameWithoutExtension(t.Path.Replace('\\', '/')))
                         : throw new InvalidDataException($"Source part material lacks {input}: {piece.Stem}/{material.Name}");
+                    var personal = piece.Hand != "" ? default : reader.Personal(material.MTD);
+                    bool twice = layered.Contains(i);
+                    // A layered surface takes its relief and specular maps from the layer the made picture is laid out by.
+                    // lazy: the other layer's relief and specular maps, which the source mixes in as it does the colour, are left out.
+                    string layer = twice ? "_2" : "";
+                    string colour = Texture("g_Diffuse" + layer);
+                    if (twice)
+                    {
+                        if (!personal.Skin || layered.Any(other => Texture("g_Diffuse_2") != Named(Path.GetFileNameWithoutExtension(model.Materials[model.Meshes[other].MaterialIndex].Textures.Single(t => t.ParamName == "g_Diffuse_2").Path.Replace('\\', '/')))))
+                            throw new InvalidDataException("A part's layered meshes are not one face's: " + piece.Stem);
+                        colour = Made("face", () => SourceFace.Blended(model, layered, skin, Decoded(colour), shift));
+                    }
+                    else if (personal.Skin) colour = Made(colour, () => SourceFace.Shifted(Decoded(colour), shift));
+                    else if (personal.Eye) colour = Made(colour, () => SourceFace.Tinted(Decoded(colour), dressed.Face.Eyes));
                     // A material without a relief map (an eye, say) takes a flat one.
-                    bool relief = material.Textures.Any(t => t.ParamName == "g_Bumpmap" && t.Path.Length > 0);
+                    bool relief = Has(material, "g_Bumpmap" + layer);
                     // A material without a specular map has neither metal nor gloss.
-                    bool specular = material.Textures.Any(t => t.ParamName == "g_Specular" && t.Path.Length > 0);
-                    return (Mesh: i, Colour: Texture("g_Diffuse"), Relief: relief ? Texture("g_Bumpmap") : NeutralTextures.FlatNormal, Specular: specular ? Texture("g_Specular") : "",
-                        Cutout: material.MTD.Contains(SourceCutout, StringComparison.Ordinal), Tint: TintCode(reader.SurfaceColours(material.MTD)), Sky: reader.SkySlot(material.MTD), Older: reader.OlderSpecular(material.MTD),
+                    bool specular = Has(material, "g_Specular" + layer);
+                    var colours = reader.SurfaceColours(material.MTD);
+                    // Hair's colour map is multiplied by the person's hair colour before either of the definition's colours,
+                    // so both carry it.
+                    // lazy: the second colour also sets how much a surface that is not metal reflects, which the hair's
+                    // colour should leave alone (hair's maps call it mostly metal, with next to no reflection besides); and
+                    // the darkening the source's hair carries at each vertex is not drawn.
+                    if (personal.Hair) colours = (colours.Plain.Select((v, c) => v * dressed.Face.Hair[c] / 255f).ToArray(), colours.Metal.Select((v, c) => v * dressed.Face.Hair[c] / 255f).ToArray());
+                    // lazy: a surface the source blends over what is behind it (most of a head of hair) is cut out like an
+                    // edged one, so its soft ends are hard.
+                    return (Mesh: i, Colour: colour, Relief: relief ? Texture("g_Bumpmap" + layer) : NeutralTextures.FlatNormal, Specular: specular ? Texture("g_Specular" + layer) : "",
+                        Cutout: material.MTD.Contains(SourceCutout, StringComparison.Ordinal) || reader.Blended(material.MTD), Tint: TintCode(colours), Sky: reader.SkySlot(material.MTD), Older: reader.OlderSpecular(material.MTD),
                         Shade: reader.ShadowStrength(material.MTD));
                 }).ToArray();
-                var held = binder.Files.Where(f => f.Name.EndsWith(".tpf", StringComparison.OrdinalIgnoreCase)).SelectMany(f => TextureReader.ReadPackage(f.Bytes)).ToArray();
-                return (piece.Stem, piece.Hand, Model: model, Meshes: meshes, Textures: held);
+                // The made picture is laid out by a layered mesh's second coordinates, which the mesh is then drawn by.
+                foreach (int i in layered) foreach (var vertex in model.Meshes[i].Vertices) vertex.UVs[0] = vertex.UVs[1];
+                return (piece.Stem, piece.Hand, Model: model, Meshes: meshes, Textures: held.Concat(made.Select(m => (Name: m.Key, Bytes: m.Value))).ToArray());
             }).ToArray();
         }, StringComparer.Ordinal);
         // The light each living model's placements stand in. Light is compiled into a character's programs and its cubes
@@ -527,7 +597,7 @@ internal static class FirelinkBuild
             FirelinkMapWriter.AddEnemy(spoken, template, "aog_" + placed.Name, characterRows[^1].Row, template.ThinkParamID, floor, placed.Position + terrain.Offset, placed.Rotation, peopleTalk[^1].Script, identity);
             // A person stands as it starts in the source: the animation its placement names, or the human's plain idle.
             people.Add(new { name = "aog_" + placed.Name, source = placed.Name, body = identity, pose = Math.Max(0, placed.InitAnimID), row = characterRows[^1].Row, behaviour = template.ThinkParamID, collision = floor,
-                parts = peoplePieces[name].Select(piece => piece.Stem) });
+                parts = peoplePieces[name].Select(piece => piece.Stem), hair = peopleFaces[name].Hair, skinShift = peopleFaces[name].Shift, unseenMeshes = unseen[name] });
         }
         files.Add($"mod/map/mapstudio/{Map}.msb.dcx", spoken.Write());
         files.Add($"mod/event/{Map}.emevd.dcx", restingEvents);
@@ -671,7 +741,7 @@ internal static class FirelinkBuild
         var held = sceneryObjects.SelectMany(reader.ReadObjectTextures).Concat(sceneryCharacters.Keys.Concat(textureHolders).SelectMany(reader.ReadCharacterTextures)).ToArray();
         var raw = held.Where(t => required.Contains(t.Name)).DistinctBy(t => t.Name, StringComparer.Ordinal).ToDictionary(t => t.Name, t => t.Bytes, StringComparer.Ordinal);
         // A person's textures come with the part models that wear them, or from the body textures all humans share.
-        var partTextures = peoplePieces.Values.SelectMany(pieces => pieces.SelectMany(piece => piece.Textures)).Concat(peoplePieces.Count == 0 ? [] : TextureReader.ReadPackage(source.Read("parts/Common_Body.tpf")))
+        var partTextures = peoplePieces.Values.SelectMany(pieces => pieces.SelectMany(piece => piece.Textures)).Concat(sharedTextures)
             .DistinctBy(t => t.Name, StringComparer.Ordinal).ToDictionary(t => t.Name, t => t.Bytes, StringComparer.Ordinal);
         // The maps a character's are made from: held with the character, with a person's parts, or in the map's packages.
         var inputs = held.Where(t => characterInputs.Contains(t.Name)).DistinctBy(t => t.Name, StringComparer.Ordinal).ToDictionary(t => t.Name, t => t.Bytes, StringComparer.Ordinal);
@@ -758,7 +828,8 @@ internal static class FirelinkBuild
             foreach (var (name, person) in LivingPeople.Where(p => p.Value.Host == hostName))
             {
                 var placed = sourceLayout.Parts.Enemies.Single(p => p.Name == name);
-                var pieces = peoplePieces[name].Select(piece =>
+                // A part none of whose meshes is drawn (a shaved head's hair, hair under a helmet) adds nothing to the body.
+                var pieces = peoplePieces[name].Where(piece => piece.Meshes.Length > 0).Select(piece =>
                 {
                     var parts = piece.Meshes.Select(mesh => Dress(personPlaces[name], mesh.Mesh, Exemplar(piece.Hand == "" ? person.Body : person.Held), mesh.Colour, mesh.Relief, mesh.Specular, mesh.Cutout, mesh.Tint, mesh.Sky, mesh.Older, mesh.Shade)).ToArray();
                     // What is held hangs from the hand's weapon bone: every node of its model is carried there.

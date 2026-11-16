@@ -104,6 +104,21 @@ internal sealed class SceneReader
         Definition(Stem(definitionPath)).Params.SingleOrDefault(p => p.Name == "g_ShadowPowMul")?.Value is float strength and >= 0 && float.IsFinite(strength) ? strength
             : throw new InvalidDataException("Material definition does not say how much of a shadow it takes: " + definitionPath);
 
+    /// <summary>
+    /// What of a person's own a definition's surfaces take: the shift that brings skin to the person's face, the hair's
+    /// colour, and the eyes' colour.
+    /// </summary>
+    internal (bool Skin, bool Hair, bool Eye) Personal(string definitionPath)
+    {
+        var definition = Definition(Stem(definitionPath));
+        object? Value(string name) => definition.Params.SingleOrDefault(p => p.Name == name)?.Value;
+        bool Flag(string name) => Value(name) switch { null or 0 => false, 1 => true, _ => throw new InvalidDataException($"Unclassified {name}: {definitionPath}") };
+        return (Flag("g_FaceGenType"), Flag("g_useHairColor"), Value("g_IsFaceEye") is true);
+    }
+
+    /// <summary>Whether a definition's surfaces are blended over what is behind them by their coverage, rather than drawn whole or cut out.</summary>
+    internal bool Blended(string definitionPath) => Definition(Stem(definitionPath)).Params.SingleOrDefault(p => p.Name == "g_BlendMode")?.Value is 2;
+
     /// <summary>An object's model in the same shape as a map piece's; its textures come from <see cref="ReadObjectTextures"/>.</summary>
     internal byte[] ReadObject(string name) => JsonSerializer.SerializeToUtf8Bytes(Model(name, ObjectFile(name, ".flver")));
 

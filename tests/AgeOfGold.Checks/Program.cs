@@ -435,8 +435,10 @@ try
     BlockTextureCheck.Radiance();
     CharacterLightCheck.Run();
     BlockTextureCheck.Solid();
+    BlockTextureCheck.Colour();
     HostIrradianceCheck.Run();
     SourceHumanCheck.Run(root);
+    SourceFaceCheck.Run();
     SourceTalkCheck.Run(root);
     SourceNavigationCheck.Run(root);
     NavigationBorderCheck.Run();

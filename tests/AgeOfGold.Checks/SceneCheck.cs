@@ -26,6 +26,14 @@ internal static class SceneCheck
             Textures = [new() { Type = "g_Diffuse", UVNumber = 1 }, new() { Type = "g_Bumpmap", UVNumber = 2 }],
         };
         var binder = new BND3 { Files = [new BinderFile(Binder.FileFlags.Flag1, 0, "authored.mtd", definition.Write())] };
+        // A definition says whether its surfaces take a person's own colours (the skin's shift, the hair's, the eyes') and
+        // whether they are blended over what is behind them.
+        var personal = new MTD
+        {
+            ShaderPath = "authored-shader.fx",
+            Params = [new() { Name = "g_BlendMode", Value = 2 }, new() { Name = "g_FaceGenType", Value = 1 }, new() { Name = "g_useHairColor", Value = 1 }, new() { Name = "g_IsFaceEye", Type = MTD.ParamType.Bool, Value = true }],
+        };
+        binder.Files.Add(new BinderFile(Binder.FileFlags.Flag1, 9, "personal.mtd", personal.Write()));
         binder.Files.Add(new BinderFile(Binder.FileFlags.Flag1, 1, "unreferenced.mtd", [1]));
         binder.Files.Add(new BinderFile(Binder.FileFlags.Flag1, 2, "unreferenced.mtd", [2]));
         Write("mtd/Mtd.mtdbnd.dcx", binder.Write());
@@ -90,6 +98,8 @@ internal static class SceneCheck
             Require(placed.RootElement.GetProperty("name").GetString() == "o9999"
                 && placed.RootElement.GetProperty("surfaces").GetRawText() == piece.RootElement.GetProperty("surfaces").GetRawText(), "object model surfaces");
         Require(objects.ReadObjectTextures("o9999").Select(t => t.Name).SequenceEqual(new[] { "authored-colour" }), "object textures");
+        Require(objects.Personal(@"N:\authored\personal.mtd") == (true, true, true) && objects.Personal("authored.mtd") == (false, false, false) && objects.Blended("personal.mtd") && !objects.Blended("authored.mtd"),
+            "a definition's personal colours and blending");
         if (objects.ReadObjectAttachment("o9999") != new Vector3(1.5f, 2.25f, 3.125f)) throw new Exception("Object attachment point is not carried through its node");
         // A breakable object keeps a second model of its pieces beside its whole one, and may hold no textures of its own:
         // the whole model is the one read, and its textures are then looked up with the map's.
